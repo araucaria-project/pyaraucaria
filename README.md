@@ -25,7 +25,7 @@ For those who want to contribute
 ```
 
 #### Usage in your project
-Add the following line to your `requirements.txt` file:
+Add the following line to your `requirements.txt` file (and/or to `install_requires` section of your `setup.py` if you use one):
 ```requirements.txt
 git+https://github.com/araucaria-project/pyaraucaria.git
 ```
