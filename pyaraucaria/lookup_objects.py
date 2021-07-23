@@ -273,6 +273,14 @@ class ObjetsDatabase(object):
         self.tab_all_objects_mapped.update(orphans)
 
     def lookup_objects(self, *objects):
+        """Returns dictionary with all available properties of aliases given as parameters
+
+        Example
+        -------
+        >>> od = ObjetsDatabase()
+        >>> od.lookup_objects('lmc169_5_84583', 'SMC09')
+        {'lmc169_5_84583': {'name': 'LMC37', 'ra': '05:29:48.11', 'dec': '-69:35:32.1', 'aliases': ['LMC-T2CEP-136', 'pole3', 'lmc169_5_84583']}, 'SMC09': {'name': 'SMC09', 'ra': '00:43:37.1', 'dec': '-73:26:25.4', 'aliases': ['smc_sc3-63371']}}
+        """
         ret = {}
         for o in objects:
             info = {}
@@ -289,12 +297,43 @@ class ObjetsDatabase(object):
         return ret
 
     def resolve_alias(self, alias):
+        """Returns corresponding object ID or `alias` itself if there is no mapping"""
         try:
             return self.objects_database_aliases[canonized_alias(alias)]
         except LookupError:
             return alias
 
+    def get_object_properties_aliases(self, object):
+        """For a given object-id (not alias, resolve first), returns tuple `(properties, aliases)`
+
+        `properties` is a depth 1 (flat) dict with all properties extracted from `objects.database` and `TAB.ALL`,
+        (`TAB.ALL` overwrites `objects.database`)
+
+        `aliases` is a list of aliasses as defined in `objects.database`
+
+        Example
+        -------
+        >>> od = ObjetsDatabase(radec_decimal=True)
+        >>> od.get_object_properties_aliases('CEP03')
+        ({'name': 'LMC-CEP-2532', 'ra': 84.018667, 'dec': -70.032111, 'per': 2.03534862, 'hjd0': 4507.8, 'group': 'lmcpuls2', 'mI': 15.74, 'mV': 17.3, 'pa': '3.73829,-1.19662,0.47108,-0.00065,0.11096', 'pb': '9.49448,-2.87812,1.03983,-0.55972,0.35256'}, ['LMC-CEP-2532', 'Cep-2532', 'Cep_2532', 'LMC176.8-48147', 'LMC176.8_48147', 'lmc_cep2532', 'ceph2532', 'ceph2532_18', 'ceph2532_19', 'ceph2532_28', 'ceph2532_29', 'ceph2532_30', 'ceph2532_31', 'lmc-cep-2532_25', 'lmc-cep-2532_26', 'lmc-cep-2532_29', 'cep_2532_01', 'cep_2532_02'])
+        """
+        info = self.objects_database_objects[object]
+        try:
+            aliases = info.pop('aliases')
+        except LookupError:  # no aliases
+            aliases = []
+        try:
+            taball = self.tab_all_objects_mapped[object]
+            info.update(taball)
+        except LookupError:
+            pass
+
+        return info, aliases
+
+
+
     def lookup_group(self, group, include_members=True):
+        """Lookup for TAB.ALL defined group of objects"""
         grp = self.tab_all_groups[group]
         if include_members:
             objects = [o for o in self.tab_all_objects_mapped if o.get('group', None) == group]
