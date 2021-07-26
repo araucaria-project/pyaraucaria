@@ -46,8 +46,10 @@ def parse_objects_database(file_path=None, skip_errors=True, radec_decimal=False
     Returns
     -------
     (dict, dict)
-        First dict is an object info, the keys are object names, each entry contains dict with 'ra', 'dec', 'aliases'
-        Second dict id a mapping, where keys are aliases and values are corresponding object names
+        First dict is an object info, the keys are object names, each entry contains dict with 'ra', 'dec', 'aliases' as
+            in `Objects.database`
+        Second dict id a mapping, where keys are aliases and values are corresponding object names, those aliases are
+            the ones from `Objects.database` AND, ADDITIONALLY THEIR CANONIZED VERSIONS (see `canonized_alias()`)
     """
     if file_path is None:
         for fp in objects_database_locations:
@@ -278,8 +280,8 @@ class ObjetsDatabase(object):
         Example
         -------
         >>> od = ObjetsDatabase()
-        >>> od.lookup_objects('lmc169_5_84583', 'SMC09')
-        {'lmc169_5_84583': {'name': 'LMC37', 'ra': '05:29:48.11', 'dec': '-69:35:32.1', 'aliases': ['LMC-T2CEP-136', 'pole3', 'lmc169_5_84583']}, 'SMC09': {'name': 'SMC09', 'ra': '00:43:37.1', 'dec': '-73:26:25.4', 'aliases': ['smc_sc3-63371']}}
+        >>> od.lookup_objects('lmc169_5:84583', 'SMC09')
+        {'lmc169_5:84583': {'name': 'LMC37', 'ra': '05:29:48.11', 'dec': '-69:35:32.1', 'aliases': ['LMC-T2CEP-136', 'pole3', 'lmc169_5_84583']}, 'SMC09': {'name': 'SMC09', 'ra': '00:43:37.1', 'dec': '-73:26:25.4', 'aliases': ['smc_sc3-63371']}}
         """
         ret = {}
         for o in objects:
@@ -303,23 +305,34 @@ class ObjetsDatabase(object):
         except LookupError:
             return alias
 
-    def get_object_properties_aliases(self, object):
+    def get_object_properties_aliases(self, object, include_canonized=False):
         """For a given object-id (not alias, resolve first), returns tuple `(properties, aliases)`
 
         `properties` is a depth 1 (flat) dict with all properties extracted from `objects.database` and `TAB.ALL`,
         (`TAB.ALL` overwrites `objects.database`)
 
-        `aliases` is a list of aliasses as defined in `objects.database`
+        `aliases` is a list of aliasses as defined in `objects.database` plus canonized versions if `include_canonized`
+
+        Parameters
+        ----------
+        object : str
+            ID of the object (not alias!)
+        include_canonized : bool
+            If true caononized versions of aliases are added to returned `aliases`
 
         Example
         -------
         >>> od = ObjetsDatabase(radec_decimal=True)
-        >>> od.get_object_properties_aliases('CEP03')
+        >>> od.get_object_properties_aliases('CEP03', include_canonized=False)
         ({'name': 'LMC-CEP-2532', 'ra': 84.018667, 'dec': -70.032111, 'per': 2.03534862, 'hjd0': 4507.8, 'group': 'lmcpuls2', 'mI': 15.74, 'mV': 17.3, 'pa': '3.73829,-1.19662,0.47108,-0.00065,0.11096', 'pb': '9.49448,-2.87812,1.03983,-0.55972,0.35256'}, ['LMC-CEP-2532', 'Cep-2532', 'Cep_2532', 'LMC176.8-48147', 'LMC176.8_48147', 'lmc_cep2532', 'ceph2532', 'ceph2532_18', 'ceph2532_19', 'ceph2532_28', 'ceph2532_29', 'ceph2532_30', 'ceph2532_31', 'lmc-cep-2532_25', 'lmc-cep-2532_26', 'lmc-cep-2532_29', 'cep_2532_01', 'cep_2532_02'])
+
         """
         info = self.objects_database_objects[object]
         try:
             aliases = info.pop('aliases')
+            if include_canonized:
+                can = {canonized_alias(a) for a in aliases} - set(aliases)
+                aliases += list(can)
         except LookupError:  # no aliases
             aliases = []
         try:
@@ -364,6 +377,7 @@ _transl_table = str.maketrans({'_': '-', ' ': '-', '.': '-', ':': '-'})
 
 
 def canonized_alias(alias: str):
+    """"""
     return alias.translate(_transl_table).lower()
 
 
