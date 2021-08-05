@@ -4,6 +4,8 @@ This library is intended to group various common routines and commandline tools 
 
 Routines of this library should contain external dependencies as limited as possible and be compatible with Python 3.6+.
 
+The compatibility with Python 2.7 is also valuable.
+
 ## Installation
 
 #### Basic install:
@@ -56,4 +58,34 @@ $ lookup_objects --help
 
 #### Optional dependencies
 For YAML output (`-y` option), some `yaml` python package should be installed.
+
+### Star Object Data Library
+Set of routines for parsing `TAB.ALL`-like files
+
+Example
+```python
+>>> from pyaraucaria import libobject
+>>> ol = libobject.ObjectList()
+>>> ol.get_object('AL_Dor').data
+{'I': None,
+ 'K': None,
+ 'V': 7.8,
+ 'aop': 1.8771,
+ 'band': 'V',
+ 'comment': None,
+ 'dec': '-60:36:14',
+ 'ecc': 0.1952,
+ 'file': None,
+ 'group': 'hipp',
+ 'hjd0': 2452764.100149,
+ 'k1': 57.477,
+ 'k2': 57.253,
+ 'lc': 'I',
+ 'obstype': None,
+ 'per': 14.90519957,
+ 'phext': None,
+ 'ra': '04:46:52.2',
+ 'status': None,
+ 'v0': 11.836}
+```
 

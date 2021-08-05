@@ -2,10 +2,10 @@ from setuptools import setup
 
 setup(
     name='pyaraucaria',
-    version='1.1',
+    version='2.0',
     packages=['pyaraucaria'],
     url='',
-    license='MIT',
+    license='MIT/GPL',
     author='',
     author_email='',
     description='OCA Observatory and Araucaria Project Common Routines Library',
@@ -18,4 +18,10 @@ setup(
     entry_points={'console_scripts': [
         'lookup_objects=pyaraucaria.lookup_objects:main',
     ]},
+    install_requires=[
+    ],
+    extras_require={
+        'libobject': ['numpy', 'ephem'],
+        'yaml': ['yaml']
+    }
 )

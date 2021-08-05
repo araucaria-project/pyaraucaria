@@ -2,16 +2,15 @@
 """
 Handles Objects.database and TAB.ALL files
 
+Compatible with python 3.6+
+
 Useful functions
 ----------------
 - `parse_object_database`
 - `parse_tab_all`
 - `map_objects_aliases`
 
-Command Line Usage
-------------------
-
-Part of oca-pipe. Enjoy, Mikolaj
+Licence: MIT
 """
 
 import logging
@@ -305,43 +304,41 @@ class ObjetsDatabase(object):
         except LookupError:
             return alias
 
-    def get_object_properties_aliases(self, object, include_canonized=False):
-        """For a given object-id (not alias, resolve first), returns tuple `(properties, aliases)`
+    def get_object_properties_aliases(self, object):
+        """For a given object-id (not alias, resolve first), returns triple `(properties, aliases, canonized)`
 
         `properties` is a depth 1 (flat) dict with all properties extracted from `objects.database` and `TAB.ALL`,
         (`TAB.ALL` overwrites `objects.database`)
 
         `aliases` is a list of aliasses as defined in `objects.database` plus canonized versions if `include_canonized`
 
+        `canonized` are `aliases` after canonization (lower case and with separators mapped to dash: `-`)
+
         Parameters
         ----------
         object : str
             ID of the object (not alias!)
-        include_canonized : bool
-            If true caononized versions of aliases are added to returned `aliases`
 
         Example
         -------
         >>> od = ObjetsDatabase(radec_decimal=True)
-        >>> od.get_object_properties_aliases('CEP03', include_canonized=False)
-        ({'name': 'LMC-CEP-2532', 'ra': 84.018667, 'dec': -70.032111, 'per': 2.03534862, 'hjd0': 4507.8, 'group': 'lmcpuls2', 'mI': 15.74, 'mV': 17.3, 'pa': '3.73829,-1.19662,0.47108,-0.00065,0.11096', 'pb': '9.49448,-2.87812,1.03983,-0.55972,0.35256'}, ['LMC-CEP-2532', 'Cep-2532', 'Cep_2532', 'LMC176.8-48147', 'LMC176.8_48147', 'lmc_cep2532', 'ceph2532', 'ceph2532_18', 'ceph2532_19', 'ceph2532_28', 'ceph2532_29', 'ceph2532_30', 'ceph2532_31', 'lmc-cep-2532_25', 'lmc-cep-2532_26', 'lmc-cep-2532_29', 'cep_2532_01', 'cep_2532_02'])
+        >>> od.get_object_properties_aliases('LMC60')
+        ({'name': 'LMC60', 'ra': 81.97875, 'dec': -69.655389}, ['lmc_sc3-79892'], ['lmc-sc3-79892'])
 
         """
         info = self.objects_database_objects[object]
         try:
             aliases = info.pop('aliases')
-            if include_canonized:
-                can = {canonized_alias(a) for a in aliases} - set(aliases)
-                aliases += list(can)
         except LookupError:  # no aliases
             aliases = []
+        can = [canonized_alias(a) for a in aliases]
         try:
             taball = self.tab_all_objects_mapped[object]
             info.update(taball)
         except LookupError:
             pass
 
-        return info, aliases
+        return info, aliases, can
 
 
 
