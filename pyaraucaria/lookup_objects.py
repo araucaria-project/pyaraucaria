@@ -2,7 +2,7 @@
 """
 Handles Objects.database and TAB.ALL files
 
-Compatible with python 3.6+
+Compatible with python 2.7 and 3.6+
 
 Useful functions
 ----------------
@@ -16,10 +16,12 @@ Licence: MIT
 import logging
 import os
 import re
+import string
 
-__version__ = 1.4
+__version__ = 1.5
 
 #  The Locations of databases files, add, update if needed
+
 objects_database_locations = [
     '/work/corvus/software/fits-warehouse/Objects.database',                 # main location
     os.path.join(os.path.split(__file__)[0], 'databases/Objects.database'),  # local backup (secondary choice)
@@ -74,6 +76,7 @@ def parse_objects_database(file_path=None, skip_errors=True, radec_decimal=False
                             pass
                         m = re.match(r'(?P<key>\w+)\s*=\s*(?P<val>\S?.*)', t)  # search for key=value
                         if m is not None:
+                            m = m.groupdict()
                             try:  # try convert to float
                                 obj[m['key']] = float(m['val'])
                             except ValueError:
@@ -89,7 +92,7 @@ def parse_objects_database(file_path=None, skip_errors=True, radec_decimal=False
                     obj['aliases'] += list(tokens)
                     aliases.update({al: name for al in tokens})
                     aliases.update({canonized_alias(al): name for al in tokens})
-            except Exception as e:
+            except FutureWarning as e:
                 logging.error('on line %d of %s: %s', ln, file_path, str(e))
                 if not skip_errors:
                     raise e
@@ -134,6 +137,7 @@ def parse_tab_all(file_path=None, skip_errors=True, radec_decimal=False):
                     continue
                 m = re.match(r'^\s*@\s*(?P<key>\w+)\s*=\s*(?P<val>\S?.*)$', stripped)  # group setting?
                 if m is not None:
+                    m = m.groupdict()
                     if group_closed:  #  begin new group
                         group = {}
                         actual_columns = default_columns
@@ -159,6 +163,7 @@ def parse_tab_all(file_path=None, skip_errors=True, radec_decimal=False):
                             pass
                         m = re.match(r'(?P<key>\w+)\s*=\s*(?P<val>\S?.*)', t)  # search for key=value
                         if m is not None:
+                            m = m.groupdict()
                             key = m['key']
                             val = m['val']
                         else:
@@ -187,7 +192,7 @@ def parse_tab_all(file_path=None, skip_errors=True, radec_decimal=False):
                         except LookupError:
                             pass
                     objects[name] = obj
-            except Exception as e:
+            except FutureWarning as e:
                 logging.error('on line %d of %s: %s', ln, file_path, str(e))
                 if not skip_errors:
                     raise e
@@ -195,7 +200,8 @@ def parse_tab_all(file_path=None, skip_errors=True, radec_decimal=False):
     return objects, groups
 
 
-def map_objects_aliases(tab_all_objects: dict, aliases: dict):
+def map_objects_aliases(tab_all_objects, aliases):
+    # type: (dict, dict) -> (dict, dict)
     """
     Returns tab_all dict, but with keys exchanges to corresponding aliases keys, and subset (subdict?) of
     tab_all_objects for which there is no entry in aliases
@@ -234,7 +240,7 @@ def map_objects_aliases(tab_all_objects: dict, aliases: dict):
     return mapped, orphans
 
 
-def lookup_objects(*objects, tab_all=None, objects_database=None, radec_decimal=False):
+def lookup_objects(*objects, **kwargs):
     """
     Returns all the information found in Objects.database and TAB.ALL for specified objects
 
@@ -256,11 +262,14 @@ def lookup_objects(*objects, tab_all=None, objects_database=None, radec_decimal=
     dict of dict
         For each parameter returns all the information found in Objects.database and TAB.ALL
     """
-    dbase = ObjetsDatabase(tab_all=tab_all, objects_database=objects_database, radec_decimal=radec_decimal)
+    tab_all = kwargs.get('tab_all', None)
+    objects_database = kwargs.get('objects_database', None)
+    radec_decimal = kwargs.get('objects_database', False)
+    dbase = ObjectsDatabase(tab_all=tab_all, objects_database=objects_database, radec_decimal=radec_decimal)
     return dbase.lookup_objects(*objects)
 
 
-class ObjetsDatabase(object):
+class ObjectsDatabase(object):
 
     def __init__(self, tab_all=None, objects_database=None, skip_errors=True, radec_decimal=False):
         self.objects_database = objects_database
@@ -278,7 +287,7 @@ class ObjetsDatabase(object):
 
         Example
         -------
-        >>> od = ObjetsDatabase()
+        >>> od = ObjectsDatabase(skip_errors=False)
         >>> od.lookup_objects('lmc169_5:84583', 'SMC09')
         {'lmc169_5:84583': {'name': 'LMC37', 'ra': '05:29:48.11', 'dec': '-69:35:32.1', 'aliases': ['LMC-T2CEP-136', 'pole3', 'lmc169_5_84583']}, 'SMC09': {'name': 'SMC09', 'ra': '00:43:37.1', 'dec': '-73:26:25.4', 'aliases': ['smc_sc3-63371']}}
         """
@@ -321,7 +330,7 @@ class ObjetsDatabase(object):
 
         Example
         -------
-        >>> od = ObjetsDatabase(radec_decimal=True)
+        >>> od = ObjectsDatabase(radec_decimal=True)
         >>> od.get_object_properties_aliases('LMC60')
         ({'name': 'LMC60', 'ra': 81.97875, 'dec': -69.655389}, ['lmc_sc3-79892'], ['lmc-sc3-79892'])
 
@@ -368,12 +377,17 @@ class ObjetsDatabase(object):
         return [k for k, o in self.objects_database_objects.items() if self.tab_all_objects_mapped.get(k)]
 
 
+ObjetsDatabase = ObjectsDatabase  # Backward compatibility, there was a typo....
+
+try:
+    _transl_table = string.maketrans('_ .:', '----')  # python 2
+except AttributeError:
+    _transl_table = str.maketrans({'_': '-', ' ': '-', '.': '-', ':': '-'})  # python 3 only
 
 
-_transl_table = str.maketrans({'_': '-', ' ': '-', '.': '-', ':': '-'})
 
-
-def canonized_alias(alias: str):
+def canonized_alias(alias):
+    # type: (str) -> str
     """"""
     return alias.translate(_transl_table).lower()
 
@@ -381,10 +395,12 @@ def canonized_alias(alias: str):
 _sexadec_parser = re.compile(r'(?P<sign>[+\-])?(?P<A>\d\d?)[ :\-hH](?P<B>\d\d?)[ :\-mM](?P<C>\d\d?(?:\.\d*)?)')
 
 
-def _parse_sexadec(sexadec : str):
+def _parse_sexadec(sexadec):
+    # type: (str) -> (float, float, float, float)
     v = _sexadec_parser.match(sexadec)
     if v is None:
-        raise ValueError(f'{sexadec} can not be converted to decimal representation')
+        raise ValueError('{} can not be converted to decimal representation'.format(sexadec))
+    v = v.groupdict()
     if v['sign'] == '-':
         sign = -1.0
     else:
@@ -445,7 +461,7 @@ def main():
     if args.yaml:
         import yaml
         try:
-            print(yaml.safe_dump(ret,sort_keys=False, default_flow_style=None, width=500))
+            print(yaml.safe_dump(ret, sort_keys=False, default_flow_style=None, width=500))
         except TypeError:
             print(yaml.safe_dump(ret))
     elif args.json:

@@ -2,13 +2,13 @@ from setuptools import setup
 
 setup(
     name='pyaraucaria',
-    version='2.0',
+    version='2.1',
     packages=['pyaraucaria'],
     url='',
     license='MIT/GPL',
     author='',
     author_email='',
-    description='OCA Observatory and Araucaria Project Common Routines Library',
+    description='Common Routines of OCA Observatory and Araucaria Project',
     include_package_data=True,
 
     package_data={'pyaraucaria': [
@@ -19,9 +19,9 @@ setup(
         'lookup_objects=pyaraucaria.lookup_objects:main',
     ]},
     install_requires=[
+        'numpy', 'ephem'
     ],
     extras_require={
-        'libobject': ['numpy', 'ephem'],
-        'yaml': ['yaml']
+        'yaml': ['yaml'],
     }
 )
