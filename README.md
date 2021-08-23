@@ -34,6 +34,9 @@ git+https://github.com/araucaria-project/pyaraucaria.git
 
 ## Routines
 
+### Coordinates
+`coordinates.py` contains dependency-free fast routines to parse/format sexagesimal coordinates.
+
 ### Lookup Objects
 Lookup for objects/targets parameters using one of its aliases.
 Uses `Objects.database` nad `TAB.ALL` files.

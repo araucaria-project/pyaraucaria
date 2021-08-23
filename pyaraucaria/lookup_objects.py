@@ -18,10 +18,9 @@ import os
 import re
 import string
 from pyaraucaria.coordinates import ra_to_decimal, dec_to_decimal
+from pyaraucaria.libobject import ObjectList
 
-__version__ = 1.6
-
-#  The Locations of databases files, add, update if needed
+__version__ = 2.0
 
 objects_database_locations = [
     '/work/corvus/software/fits-warehouse/Objects.database',                 # main location
@@ -44,6 +43,8 @@ def parse_objects_database(file_path=None, skip_errors=True, radec_decimal=False
         Path to `Objects.database` file. If not provided, objects_database_locations will be used
     skip_errors : bool
         If true, on an error parser tries to skip line instead of throwing exception
+    radec_decimal : bool
+        Convert coordinate values to decimal degrees
 
     Returns
     -------
@@ -109,12 +110,15 @@ def parse_tab_all(file_path=None, skip_errors=True, radec_decimal=False):
     file_path : str, optional
         Path to `Objects.database` file. If not provided, tab_all_locations will be used
     skip_errors : bool
-        If true, on an error parser tries to skip line instead of throwing exception
+        PARAMETER IGNORED IN THE CURRENT VERSION
+    radec_decimal : bool
+        Convert coordinate values to decimal degrees
+
 
     Returns
     -------
     (dict, dict)
-        First dict contains object infos, the keys are object names, each entry contains dict with 'ra', 'dec', 'group'...
+        First dict contains object infos, the keys are object names, each entry contains dict with 'ra', 'dec', 'group',
         Second dict is a group infos, where keys are group names and each entry contains dict with group parameters
     """
     if file_path is None:
@@ -123,6 +127,52 @@ def parse_tab_all(file_path=None, skip_errors=True, radec_decimal=False):
                 file_path = fp
                 break
 
+    objects = {}
+    groups = {}
+    ol = ObjectList(file_path)
+    for ob_id, val in ol.object_list.items():
+        obj = {}
+        for k, v in val.data.items():
+            if v is None:
+                continue
+            if type(v) not in [float, int, bool, str]:
+                v = str(v)
+            obj[k] = v
+        obj['type'] = val.type
+        groups[obj['group']] = val.type
+
+        if radec_decimal:
+            try:
+                obj['ra'] = ra_to_decimal(obj['ra'])
+                obj['dec'] = dec_to_decimal(obj['dec'])
+            except ValueError:
+                logging.error('file: %s, coordinates of %s: (ra dec)=(%s %s) can not be converted into decimal '
+                              'representation and will be removed',
+                              file_path, ob_id, obj.get('ra'), obj.get('dec'))
+                try:
+                    del obj['ra']
+                except LookupError:
+                    pass
+                try:
+                    del obj['dec']
+                except LookupError:
+                    pass
+            except LookupError:  # no ra dec
+                pass
+
+        objects[ob_id] = obj
+
+    return objects, groups
+
+
+def _parse_tab_all_original(file_path=None, skip_errors=True, radec_decimal=False):
+    """ Old version, new version uses libobject.py
+    """
+    if file_path is None:
+        for fp in tab_all_locations:
+            if os.path.exists(fp):
+                file_path = fp
+                break
     objects = {}
     groups = {}
     default_columns = ['ra', 'dec', 'per', 'hjd0']
@@ -139,7 +189,7 @@ def parse_tab_all(file_path=None, skip_errors=True, radec_decimal=False):
                 m = re.match(r'^\s*@\s*(?P<key>\w+)\s*=\s*(?P<val>\S?.*)$', stripped)  # group setting?
                 if m is not None:
                     m = m.groupdict()
-                    if group_closed:  #  begin new group
+                    if group_closed:  # begin new group
                         group = {}
                         actual_columns = default_columns
                         group_closed = False
@@ -172,7 +222,8 @@ def parse_tab_all(file_path=None, skip_errors=True, radec_decimal=False):
                                 key = actual_columns[i]
                                 val = t
                             except IndexError:
-                                logging.warning('on line %d of %s: ignoring value %s of unknown column', ln, file_path, t)
+                                logging.warning('on line %d of %s: ignoring value %s of unknown column',
+                                                ln, file_path, t)
                                 continue
                         try:  # try convert to float
                             obj[key] = float(val)
@@ -233,7 +284,7 @@ def map_objects_aliases(tab_all_objects, aliases):
     mapped = {}
     orphans = {}
     for k, o in tab_all_objects.items():
-        od_name = aliases.get(k)
+        od_name = aliases.get(canonized_alias(k))
         if od_name is None:
             orphans[k] = o
         else:
@@ -350,8 +401,6 @@ class ObjectsDatabase(object):
 
         return info, aliases, can
 
-
-
     def lookup_group(self, group, include_members=True):
         """Lookup for TAB.ALL defined group of objects"""
         grp = self.tab_all_groups[group]
@@ -386,7 +435,6 @@ except AttributeError:
     _transl_table = str.maketrans({'_': '-', ' ': '-', '.': '-', ':': '-'})  # python 3 only
 
 
-
 def canonized_alias(alias):
     # type: (str) -> str
     """"""
@@ -405,7 +453,7 @@ def main():
                                                  'Prints results in to parse JSON or YAML format'
                                                  '(pip install pyyaml for yaml)',
                                      epilog='Part of oca-pipe. Enjoy, Mikolaj'
-    )
+                                     )
     parser.add_argument('object', nargs='+', type=str,
                         help='object name to look up')
     parser.add_argument('-y', '--yaml', action='store_true',
@@ -456,4 +504,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

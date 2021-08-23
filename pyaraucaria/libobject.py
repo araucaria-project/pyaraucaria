@@ -1,8 +1,7 @@
-from __future__ import print_function
 #################################################################
 #                 Star Object Data Library                      #
 author ="Bogumil Pilecki"                                       #
-version="1.6"                                                  #
+version="1.7"                                                  #
 reldate="5 Aug 2021"                                           #
 # Copyright (C) 2009-2014                                       #
 # send comments and wishes to:                                  #
@@ -11,6 +10,9 @@ reldate="5 Aug 2021"                                           #
 # Changes:
 # version: 1.6
 #   - Compatible with python 3 (Mikolaj, mkalusz@camk.edu.pl)
+# version 1.7
+#   - Prints changed to logging
+#   - Lines commented-out does not finish group section
 #################################################################
 #
 # This program is free software: you can redistribute it and/or modify
@@ -28,10 +30,13 @@ reldate="5 Aug 2021"                                           #
 #
 #################################################################
 
+import logging
 from numpy import *
 import sys, os, time, string
 import ephem
 from difflib import get_close_matches
+
+log = logging.getLogger('libobject')
 
 dpi = 2.*pi
 
@@ -68,8 +73,8 @@ def get_jday_date(date):
     try:
         jd = ephem.julian_date(ephem.Date(date))
     except ValueError:
-        print("Wrong date format:", date)
-        print(
+        log.critical("Wrong date format: %s", date)
+        log.error(
             "Allowed is: yyyy/mm/dd hh:mm:ss with any number of trailing elements omitted (last element may be a floating point value, eg. 1980/05/30.75)")
         sys.exit(0)
     return jd
@@ -82,8 +87,8 @@ def get_ut_date(date):
     try:
         ut = ephem.Date(date)
     except ValueError:
-        print("Wrong date format:", date)
-        print(
+        log.critical("Wrong date format: %s", date)
+        log.error(
             "Allowed is: yyyy/mm/dd hh:mm:ss with any number of trailing elements omitted (last element may be a floating point value, eg. 1980/05/30.75)")
         sys.exit(0)
     return float(ut)
@@ -102,7 +107,7 @@ def get_lt_date(date, force_tz=None):
         else:
             lt = ephem.Date(float(date)+force_tz/24.)
     except ValueError:
-        print("Wrong date format:", date)
+        log.critical("Wrong date format: %s", date)
         sys.exit(0)
     return lt
 
@@ -166,13 +171,13 @@ class ObjectList():
 
         with open(fname, 'r') as fobj:
             for i, line in enumerate(fobj):
+                if line.strip() == "":
+                    self.defaults.pop("group", None) # remove 'group' keyword on empty line
+                    continue
                 if '#' in line:
                     line = line.split('#')[0]
                 sline = line.strip()
-                if sline == "":
-                    self.defaults.pop("group", None) # remove 'group' keyword on empty line    
-                    continue
-                elif sline[0]=="#":
+                if len(sline) == 0:
                     continue
                 elif sline[0] == '@':
                     self.parse_defaults(sline[1:], i+1)
@@ -186,7 +191,7 @@ class ObjectList():
                     oid, odata = self.parse_data(sline, i+1)
                 
                     if oid in self.object_list.keys():
-                        print("Warning! A duplicate ID detected:", oid, " - line %d ignored." % (i + 1))
+                        log.warning("A duplicate ID detected: %s  - line %d ignored.", oid, (i + 1))
                         continue
                     what_to_load = []
                     if 'lc' in self.defaults:
@@ -298,7 +303,7 @@ class ObjectList():
             obj_id = obj_id.lower()
             match = get_close_matches(obj_id, ids, n=1, cutoff=0.3)
             if len(match)==0:
-                print("no ID similar to:", obj_id, "found on a list")
+                log.warning("no ID similar to: %s found on a list", obj_id)
                 return None
             obj_num = ids.index(match[0])
             return ovals[obj_num]
@@ -309,14 +314,14 @@ class ObjectList():
         elif type(obj_id) is int:
             obj_num = obj_id
         else:
-            print("Bad ID specified.")
+            log.error("Bad ID specified.")
             return None
 
         if human: obj_num -= 1 
         
         nobj = len(self.object_list)
         if obj_num<0 or obj_num >= nobj:
-            print("\nobject number: %d not in range (1 - %d) for given list\n" % (obj_num + 1, nobj))
+            log.error("object number: %d not in range (1 - %d) for given list" % (obj_num + 1, nobj))
             return None
         return ovals[obj_num]
 
@@ -513,7 +518,7 @@ class Object():
     def get_fname(self, fname=None, data_dir="data", ext=[""]):
         if fname is not None:
             if os.path.isfile(fname): return fname
-            print("Bad filename given: %s" % fname)
+            log.error("Bad filename given: %s" % fname)
             return None
         for sid in [self.id, self.id.lower(), self.id.upper()]:
             for i_ext in ext:
@@ -528,7 +533,7 @@ class Object():
         for b in self.data['lc']:
             fname = self.get_fname(data_dir=data_dir, ext=b)
             if fname is None: continue
-            print("Loading:", fname)
+            log.info("Loading:", fname)
             lc = {}
             lhjd, lmag, ler = [], [], []
             with open(fname) as f:
@@ -561,7 +566,7 @@ class Object():
             if fname is None: return
         if not os.path.isfile(fname):   return
 
-        print("Loading:", fname)
+        log.info("Loading:", fname)
 
         photdata = {'hjd':[], 'mag':[], 'err':[], 'mask':[], 'instr':[]}        
 
@@ -590,7 +595,7 @@ class Object():
                     data['instr'] = self.phot_instr[instr]
 
                 if data['hjd'] in photdata['hjd']:
-                    print(fname + ": observation date", data['hjd'], "is not unique! Duplicate entry is ingored.")
+                    log.warning("%s: observation date %s is not unique! Duplicate entry is ingored.", fname, data['hjd'])
                     continue
                 for dkey in data:
                     photdata[dkey].append(data[dkey])
@@ -713,7 +718,7 @@ class Object():
             if fname is None: return
         if not os.path.isfile(fname):   return
 
-        print("Loading:", fname)
+        log.info("Loading: %s", fname)
 
         if self.type == "ECL":
             rvdata = {'hjd':[], 'rv1':[], 'rv2':[], 'err1':[], 'err2':[], 'mask1':[], 'mask2':[], 'instr':[]}
@@ -729,10 +734,10 @@ class Object():
                     continue
                 data = read_rv_list(sline)
                 if data is None:
-                    print("Error reading data file %s in line %d" % (fname, n))
+                    log.error("Error reading data file %s in line %d" % (fname, n))
                     continue
                 if data['hjd'] in rvdata['hjd']:
-                    print(fname + ": observation date", data['hjd'], "is not unique! Duplicate entry is ingored.")
+                    log.warning("%s: observation date is not unique! Duplicate entry is ingored.", fname, data['hjd'])
                     continue
                 for dkey in data.keys():
                     rvdata[dkey].append(data[dkey])
