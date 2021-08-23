@@ -17,8 +17,9 @@ import logging
 import os
 import re
 import string
+from pyaraucaria.coordinates import ra_to_decimal, dec_to_decimal
 
-__version__ = 1.5
+__version__ = 1.6
 
 #  The Locations of databases files, add, update if needed
 
@@ -390,40 +391,6 @@ def canonized_alias(alias):
     # type: (str) -> str
     """"""
     return alias.translate(_transl_table).lower()
-
-
-_sexadec_parser = re.compile(r'(?P<sign>[+\-])?(?P<A>\d\d?)[ :\-hH](?P<B>\d\d?)[ :\-mM](?P<C>\d\d?(?:\.\d*)?)')
-
-
-def _parse_sexadec(sexadec):
-    # type: (str) -> (float, float, float, float)
-    v = _sexadec_parser.match(sexadec)
-    if v is None:
-        raise ValueError('{} can not be converted to decimal representation'.format(sexadec))
-    v = v.groupdict()
-    if v['sign'] == '-':
-        sign = -1.0
-    else:
-        sign = 1.0
-    return sign, float(v['A']), float(v['B']), float(v['C'])
-
-
-def ra_to_decimal(hms):
-    try:
-        val = float(hms)
-    except ValueError:
-        sign, h, m, s = _parse_sexadec(hms)
-        val = sign * ((((s / 60) + m) / 60) + h) / 24 * 360
-    return round(val, 6)
-
-
-def dec_to_decimal(dms):
-    try:
-        val = float(dms)
-    except ValueError:
-        sign, d, m, s = _parse_sexadec(dms)
-        val = sign * ((((s / 60) + m) / 60) + d)
-    return round(val, 6)
 
 
 def main():
