@@ -214,7 +214,7 @@ class ObjectList():
         self.defaults = {}
 
     def parse_defaults(self, defline, line_number):
-        items = map(str.strip, defline.split('='))
+        items = list(map(str.strip, defline.split('=')))
         if len(items) == 2:
             key, val = items
             if key == "sort" and self.def_sort is None:
@@ -480,7 +480,7 @@ class Object():
 
     def _aliases2keys(self, idict, aliases):
         """ replace aliases with key names """
-        for key in idict.keys():
+        for key in list(idict.keys()):
             if key in aliases:
                 idict[aliases[key]] = idict[key]
     
