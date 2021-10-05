@@ -36,10 +36,10 @@ def parse_sexagesimal(sexagesimal):
 def format_sexagesimal(deg, multiplier, sign, sep=':'):
     # type: (float, float, bool, str) -> str
     sig = 1 if deg > 0 else -1
-    h = sig * multiplier * deg / 360.0
+    h = sig * multiplier * deg
     m = (h % 1.0) * 60
     s = (m % 1.0) * 60
-    return '{}{:02d}{}{:02d}{}{:09.6f}'.format(
+    return '{}{:02d}{}{:02d}{}{:06.3f}'.format(
         ('+' if sig > 0 else '-') if sign else '',
         int(h),
         sep,
@@ -50,6 +50,7 @@ def format_sexagesimal(deg, multiplier, sign, sep=':'):
 
 
 def ra_to_decimal(hms):
+    # type: (str) -> float
     try:
         val = float(hms)
     except ValueError:
@@ -59,6 +60,7 @@ def ra_to_decimal(hms):
 
 
 def dec_to_decimal(dms):
+    # type: (str) -> float
     try:
         val = float(dms)
     except ValueError:
@@ -68,8 +70,10 @@ def dec_to_decimal(dms):
 
 
 def ra_to_sexagesimal(deg, sep=':'):
-    format_sexagesimal(deg, 24.0/360, sign=False, sep=sep)
+    # type: (float) -> str
+    return format_sexagesimal(deg, 24.0/360, sign=False, sep=sep)
 
 
 def dec_to_sexagesimal(deg, sep=':'):
-    format_sexagesimal(deg, 1, sign=True, sep=sep)
+    # type: (float) -> str
+    return format_sexagesimal(deg, 1, sign=True, sep=sep)

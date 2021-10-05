@@ -466,7 +466,7 @@ class Object():
 #        return dec
 
     def _val2list(self, val):
-        return map(float, val.split(','))
+        return list(map(float, val.split(',')))
 
     def _str2val(self, key, sval):
         """ replaces strings as read from file into values used in the code (sometimes strings as well) """

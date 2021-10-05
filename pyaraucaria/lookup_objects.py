@@ -20,6 +20,8 @@ import string
 from pyaraucaria.coordinates import ra_to_decimal, dec_to_decimal
 from pyaraucaria.libobject import ObjectList
 
+logger = logging.getLogger('lookup_ob')
+
 __version__ = 2.0
 
 objects_database_locations = [
@@ -52,7 +54,7 @@ def parse_objects_database(file_path=None, skip_errors=True, radec_decimal=False
         First dict is an object info, the keys are object names, each entry contains dict with 'ra', 'dec', 'aliases' as
             in `Objects.database`
         Second dict id a mapping, where keys are aliases and values are corresponding object names, those aliases are
-            the ones from `Objects.database` AND, ADDITIONALLY THEIR CANONIZED VERSIONS (see `canonized_alias()`)
+            the ones from `Objects.database`
     """
     if file_path is None:
         for fp in objects_database_locations:
@@ -88,17 +90,26 @@ def parse_objects_database(file_path=None, skip_errors=True, radec_decimal=False
                         elif i == 2: obj['per'] = float(t.split('?')[0])  # remove trailing ?
                         elif i == 3: obj['hjd0'] = float(t.split('?')[0])
                     obj['aliases'] = []
-                    aliases[name] = name
+                    # aliases[name] = name
                     objects[name] = obj
                 else:  # aliases
                     obj['aliases'] += list(tokens)
+                    if tokens:
+                        obj['hname'] = tokens[0]
                     aliases.update({al: name for al in tokens})
-                    aliases.update({canonized_alias(al): name for al in tokens})
+                    # aliases.update({canonized_alias(al): name for al in tokens})  ## only original aliases
             except FutureWarning as e:
-                logging.error('on line %d of %s: %s', ln, file_path, str(e))
+                logger.error('on line %d of %s: %s', ln, file_path, str(e))
                 if not skip_errors:
                     raise e
     return objects, aliases
+
+
+def canonized_keys(mapping):
+    """
+    Returns same dictionary, but with the keys canonized
+    """
+    return {canonized_alias(k): v for k, v in mapping.items()}
 
 
 def parse_tab_all(file_path=None, skip_errors=True, radec_decimal=False):
@@ -131,22 +142,22 @@ def parse_tab_all(file_path=None, skip_errors=True, radec_decimal=False):
     groups = {}
     ol = ObjectList(file_path)
     for ob_id, val in ol.object_list.items():
-        obj = {}
+        obj = {'hname': ob_id}
         for k, v in val.data.items():
             if v is None:
                 continue
-            if type(v) not in [float, int, bool, str]:
+            if type(v) not in [float, int, bool, str, list]:
                 v = str(v)
             obj[k] = v
         obj['type'] = val.type
-        groups[obj['group']] = val.type
+        groups[obj['group']] = {'type': val.type}
 
         if radec_decimal:
             try:
                 obj['ra'] = ra_to_decimal(obj['ra'])
                 obj['dec'] = dec_to_decimal(obj['dec'])
             except ValueError:
-                logging.error('file: %s, coordinates of %s: (ra dec)=(%s %s) can not be converted into decimal '
+                logger.error('file: %s, coordinates of %s: (ra dec)=(%s %s) can not be converted into decimal '
                               'representation and will be removed',
                               file_path, ob_id, obj.get('ra'), obj.get('dec'))
                 try:
@@ -222,7 +233,7 @@ def _parse_tab_all_original(file_path=None, skip_errors=True, radec_decimal=Fals
                                 key = actual_columns[i]
                                 val = t
                             except IndexError:
-                                logging.warning('on line %d of %s: ignoring value %s of unknown column',
+                                logger.warning('on line %d of %s: ignoring value %s of unknown column',
                                                 ln, file_path, t)
                                 continue
                         try:  # try convert to float
@@ -234,7 +245,7 @@ def _parse_tab_all_original(file_path=None, skip_errors=True, radec_decimal=Fals
                             obj['ra'] = ra_to_decimal(obj['ra'])
                             obj['dec'] = dec_to_decimal(obj['dec'])
                         except ValueError:
-                            logging.error('on line %d of %s: %s (ra dec)=(%s %s) can not be converted into decimal '
+                            logger.error('on line %d of %s: %s (ra dec)=(%s %s) can not be converted into decimal '
                                           'repr and will be removed',
                                           ln, file_path, name, obj.get('ra'), obj.get('dec'))
                             try: del obj['ra']
@@ -245,7 +256,7 @@ def _parse_tab_all_original(file_path=None, skip_errors=True, radec_decimal=Fals
                             pass
                     objects[name] = obj
             except FutureWarning as e:
-                logging.error('on line %d of %s: %s', ln, file_path, str(e))
+                logger.error('on line %d of %s: %s', ln, file_path, str(e))
                 if not skip_errors:
                     raise e
 
@@ -255,7 +266,7 @@ def _parse_tab_all_original(file_path=None, skip_errors=True, radec_decimal=Fals
 def map_objects_aliases(tab_all_objects, aliases):
     # type: (dict, dict) -> (dict, dict)
     """
-    Returns tab_all dict, but with keys exchanges to corresponding aliases keys, and subset (subdict?) of
+    Returns tab_all dict, but with keys exchanged to corresponding aliases keys, and subset (subdict?) of
     tab_all_objects for which there is no entry in aliases
 
     Look ups for `tab_all.keys()` in `aliases`, returns mapped dict and not-found dict. Every enrtry from
@@ -286,13 +297,15 @@ def map_objects_aliases(tab_all_objects, aliases):
     for k, o in tab_all_objects.items():
         od_name = aliases.get(canonized_alias(k))
         if od_name is None:
+            o['name'] = k
             orphans[k] = o
         else:
+            o['name'] = od_name
             mapped[od_name] = o
     return mapped, orphans
 
 
-def lookup_objects(*objects, **kwargs):
+def lookup_objects(objects_list, **kwargs):
     """
     Returns all the information found in Objects.database and TAB.ALL for specified objects
 
@@ -301,8 +314,8 @@ def lookup_objects(*objects, **kwargs):
 
     Parameters
     ----------
-    *objects
-        One or more objects names to lookup
+    objects_list
+        List of objects names to lookup
     objects_database : str, optional
         Path to custom TAB.ALL
     tab_all : str, optional
@@ -313,12 +326,17 @@ def lookup_objects(*objects, **kwargs):
     -------
     dict of dict
         For each parameter returns all the information found in Objects.database and TAB.ALL
+
+    Notes
+    -----
+    Each call for this method parses database files. Consider using the `ObjectsDatabase` object if you call
+    it frequently
     """
     tab_all = kwargs.get('tab_all', None)
     objects_database = kwargs.get('objects_database', None)
     radec_decimal = kwargs.get('objects_database', False)
     dbase = ObjectsDatabase(tab_all=tab_all, objects_database=objects_database, radec_decimal=radec_decimal)
-    return dbase.lookup_objects(*objects)
+    return dbase.lookup_objects(objects_list)
 
 
 class ObjectsDatabase(object):
@@ -330,21 +348,34 @@ class ObjectsDatabase(object):
             file_path=tab_all, skip_errors=skip_errors, radec_decimal=radec_decimal)
         self.objects_database_objects, self.objects_database_aliases = parse_objects_database(
             file_path=objects_database, skip_errors=skip_errors, radec_decimal=radec_decimal)
+        self.all_canonized_aliases = canonized_keys(self.objects_database_aliases)
+        self.all_canonized_aliases.update({canonized_alias(k): k for k in self.objects_database_objects.keys()})
         self.tab_all_objects_mapped, orphans = map_objects_aliases(
-            tab_all_objects=self.tab_all_objects, aliases=self.objects_database_aliases)
+            tab_all_objects=self.tab_all_objects, aliases=self.all_canonized_aliases)
         self.tab_all_objects_mapped.update(orphans)
+        self.all_canonized_aliases.update({canonized_alias(k): k for k in orphans.keys()})
+        self.all_objects = self.lookup_objects(
+            self.objects_database_objects.keys() | self.tab_all_objects_mapped.keys())
 
-    def lookup_objects(self, *objects):
-        """Returns dictionary with all available properties of aliases given as parameters
+    def lookup_object(self, obj):
+        """Returns dictionary with all available properties an object given by name or alias
+        """
+        return self.lookup_objects([obj])[obj]
+
+    def lookup_objects(self, objects_list):
+        """Returns dictionary with all available properties of multiple aliases given as parameters
+
+        The keys of the dictionary, are the names from the `*objects` argument, the value is the dictionary
+        of the object properties
 
         Example
         -------
         >>> od = ObjectsDatabase(skip_errors=False)
-        >>> od.lookup_objects('lmc169_5:84583', 'SMC09')
+        >>> od.lookup_objects(['lmc169_5:84583', 'SMC09'])
         {'lmc169_5:84583': {'name': 'LMC37', 'ra': '05:29:48.11', 'dec': '-69:35:32.1', 'aliases': ['LMC-T2CEP-136', 'pole3', 'lmc169_5_84583']}, 'SMC09': {'name': 'SMC09', 'ra': '00:43:37.1', 'dec': '-73:26:25.4', 'aliases': ['smc_sc3-63371']}}
         """
         ret = {}
-        for o in objects:
+        for o in objects_list:
             info = {}
             a = self.resolve_alias(o)
             try:
@@ -352,61 +383,71 @@ class ObjectsDatabase(object):
             except LookupError:
                 pass
             try:
-                info['taball'] = self.tab_all_objects_mapped[a]
+                info.update(self.tab_all_objects_mapped[a])
             except LookupError:
                 pass
+            if not info:
+                info = None
             ret[o] = info
         return ret
 
     def resolve_alias(self, alias):
         """Returns corresponding object ID or `alias` itself if there is no mapping"""
         try:
-            return self.objects_database_aliases[canonized_alias(alias)]
+            return self.all_canonized_aliases[canonized_alias(alias)]
         except LookupError:
             return alias
 
-    def get_object_properties_aliases(self, object):
-        """For a given object-id (not alias, resolve first), returns triple `(properties, aliases, canonized)`
+    # @property
+    # def all_objects(self):
+    #     """Returns directory of all objects"""
+    #     all_keys =
+    #     ret = self.objects_database_objects.copy()
+    #     ret.update(self.tab_all_objects_mapped)
+    #     return ret
 
-        `properties` is a depth 1 (flat) dict with all properties extracted from `objects.database` and `TAB.ALL`,
-        (`TAB.ALL` overwrites `objects.database`)
-
-        `aliases` is a list of aliasses as defined in `objects.database` plus canonized versions if `include_canonized`
-
-        `canonized` are `aliases` after canonization (lower case and with separators mapped to dash: `-`)
-
-        Parameters
-        ----------
-        object : str
-            ID of the object (not alias!)
-
-        Example
-        -------
-        >>> od = ObjectsDatabase(radec_decimal=True)
-        >>> od.get_object_properties_aliases('LMC60')
-        ({'name': 'LMC60', 'ra': 81.97875, 'dec': -69.655389}, ['lmc_sc3-79892'], ['lmc-sc3-79892'])
-
-        """
-        info = self.objects_database_objects[object]
-        try:
-            aliases = info.pop('aliases')
-        except LookupError:  # no aliases
-            aliases = []
-        can = [canonized_alias(a) for a in aliases]
-        try:
-            taball = self.tab_all_objects_mapped[object]
-            info.update(taball)
-        except LookupError:
-            pass
-
-        return info, aliases, can
+    # def get_object_properties_aliases(self, object):
+    #     """For a given object-id (not alias, resolve first), returns triple `(properties, aliases, canonized)`
+    #
+    #     `properties` is a depth 1 (flat) dict with all properties extracted from `objects.database` and `TAB.ALL`,
+    #     (`TAB.ALL` overwrites `objects.database`)
+    #
+    #     `aliases` is a list of aliasses as defined in `objects.database` plus canonized versions if `include_canonized`
+    #
+    #     `canonized` are `aliases` after canonization (lower case and with separators mapped to dash: `-`)
+    #
+    #     Parameters
+    #     ----------
+    #     object : str
+    #         ID of the object (not alias!)
+    #
+    #     Example
+    #     -------
+    #     >>> od = ObjectsDatabase(radec_decimal=True)
+    #     >>> od.get_object_properties_aliases('LMC60')
+    #     ({'name': 'LMC60', 'ra': 81.97875, 'dec': -69.655389}, ['lmc_sc3-79892'], ['lmc-sc3-79892'])
+    #
+    #     """
+    #     info = self.objects_database_objects[object]
+    #     try:
+    #         aliases = info.pop('aliases')
+    #     except LookupError:  # no aliases
+    #         aliases = []
+    #     can = [canonized_alias(a) for a in aliases]
+    #     try:
+    #         taball = self.tab_all_objects_mapped[object]
+    #         info.update(taball)
+    #     except LookupError:
+    #         pass
+    #
+    #     return info, aliases, can
 
     def lookup_group(self, group, include_members=True):
         """Lookup for TAB.ALL defined group of objects"""
         grp = self.tab_all_groups[group]
         if include_members:
-            objects = [o for o in self.tab_all_objects_mapped if o.get('group', None) == group]
-            grp['objects'] = self.lookup_objects(*objects)
+            objects = [k for k, o in self.tab_all_objects_mapped.items() if o.get('group', None) == group]
+            grp['objects'] = self.lookup_objects(objects)
         return grp
 
     _global_instances = {}
