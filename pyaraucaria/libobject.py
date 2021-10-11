@@ -420,8 +420,7 @@ class Object():
         self._shortcuts = {"orb": self._orbkeys}
 
         # set of functions to initialize parameters
-        # self._fun_dict = {"hjd0": self.str2hjd}  ## do not correct hjd0 here, leve it lie in TAB.ALL (mikolaj)
-        self._fun_dict = {"hjd0": float}
+        self._fun_dict = {"hjd0": self.str2hjd}
 
         # convert value to list functions
         for key in ("pa", "pb", "pfi", "sa", "sb", "sfi"):

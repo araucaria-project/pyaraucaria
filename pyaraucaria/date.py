@@ -30,9 +30,22 @@ def julian_to_iso(jd, seconds_decimals=3, separator='T', include_date=True, incl
                         include_date=include_date, include_time=include_time)
     return dstr
 
+def expand_julian(jd):
+    # type: (float) -> float
+    """Expands Reduced Julian Day (not the Modified Julian Day!) to full Julian day"""
+    if jd < 10000:
+        return jd + 2450000
+    elif jd < 100000:
+        return jd + 2400000
+    else:
+        return jd
+
+
 def julian_to_tuple(jd):
     # type: (float) -> (int, int, int, int, int, float)
-    ijd = int(jd+0.5)
+
+    jd = expand_julian(jd)
+    ijd = int(jd + 0.5)
     f = ijd + 1363 + (((4 * ijd + 274277) // 146097) * 3) // 4
     e = 4 * f + 3
     g = (e % 1461) // 4

@@ -27,6 +27,11 @@ class TestJulian(unittest.TestCase):
         self.assertEqual(tuple_to_iso(2021, 5, 12, 1, 12, 3.9191, include_date=False), "01:12:03.919")
         self.assertEqual(tuple_to_iso(2021, 5, 12, 1, 12, 3.9191, separator=' '), "2021-05-12 01:12:03.919")
 
+    def test_reduced_julian(self):
+        self.assertEqual(julian_to_iso(2455471.685593298), "2010-10-02T04:27:15.261")
+        self.assertEqual(julian_to_iso(  55471.685593298), "2010-10-02T04:27:15.261")
+        self.assertEqual(julian_to_iso(   5471.685593298), "2010-10-02T04:27:15.261")
+
 
 if __name__ == '__main__':
     unittest.main()
