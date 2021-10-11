@@ -46,20 +46,15 @@ Example
 ```python
 >>> from pyaraucaria.lookup_objects import ObjectsDatabase
 >>> od = ObjectsDatabase()
->>> od.lookup_objects('hd167003', 'lmc105_8_11987')
-{'hd167003': {'aliases': ['hd_167003', 'hd167003'],
-  'dec': -33.144944,
-  'name': 'HIP37',
-  'ra': 273.680417},
- 'lmc105_8_11987': {'aliases': ['LMC-T2CEP-085',
-   'lmc105.8_11987',
-   'lmc105_8_11987',
-   'cepii_lmc105_8_11987'],
-  'dec': -71.287611,
-  'hjd0': 2160.55457,
-  'name': 'CEP25',
-  'per': 3.4050955,
-  'ra': 79.553333}}
+>>> od.lookup_object('lmc105_8_11987')
+{'name': 'CEP25', 
+ 'ra': '05:18:12.8', 
+ 'dec': '-71:17:15.4', 
+ 'per': 3.4050955, 
+ 'hjd0': 2160.55457, 
+ 'aliases': ['LMC-T2CEP-085', 'lmc105.8_11987', 'lmc105_8_11987', 'cepii_lmc105_8_11987'], 
+ 'hname': 'LMC-T2CEP-085'
+}
 ```
 
 #### Command Line
