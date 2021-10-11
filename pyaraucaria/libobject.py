@@ -191,7 +191,7 @@ class ObjectList():
                     oid, odata = self.parse_data(sline, i+1)
                 
                     if oid in self.object_list.keys():
-                        log.warning("A duplicate ID detected: %s  - line %d ignored.", oid, (i + 1))
+                        log.info("A duplicate ID detected: %s  - line %d ignored.", oid, (i + 1))
                         continue
                     what_to_load = []
                     if 'lc' in self.defaults:
@@ -420,7 +420,9 @@ class Object():
         self._shortcuts = {"orb": self._orbkeys}
 
         # set of functions to initialize parameters
-        self._fun_dict = {"hjd0": self.str2hjd}
+        # self._fun_dict = {"hjd0": self.str2hjd}  ## do not correct hjd0 here, leve it lie in TAB.ALL (mikolaj)
+        self._fun_dict = {"hjd0": float}
+
         # convert value to list functions
         for key in ("pa", "pb", "pfi", "sa", "sb", "sfi"):
             self._fun_dict[key] = self._val2list

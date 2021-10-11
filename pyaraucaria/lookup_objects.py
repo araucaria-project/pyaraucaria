@@ -511,7 +511,7 @@ def main():
                         help=r'convert RA DEC to decimal representation')
 
     args = parser.parse_args()
-    ret = lookup_objects(*args.object, tab_all=args.tab_all, objects_database=args.objects_database,
+    ret = lookup_objects(args.object, tab_all=args.tab_all, objects_database=args.objects_database,
                          radec_decimal=args.decimal)
 
     if args.yaml:
