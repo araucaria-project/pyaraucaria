@@ -32,6 +32,11 @@ class TestJulian(unittest.TestCase):
         self.assertEqual(julian_to_iso(  55471.685593298), "2010-10-02T04:27:15.261")
         self.assertEqual(julian_to_iso(   5471.685593298), "2010-10-02T04:27:15.261")
 
+    def test_hjd(self):
+        jd = datetime_to_julian("2010-10-02T04:27:15.261")
+        ra, dec = "", ""
+        hcor = helio_corr(jd, ra, dec)
+        hjd = jd + hcor
 
 if __name__ == '__main__':
     unittest.main()

@@ -70,10 +70,10 @@ def dec_to_decimal(dms):
 
 
 def ra_to_sexagesimal(deg, sep=':'):
-    # type: (float) -> str
+    # type: (float, str) -> str
     return format_sexagesimal(deg, 24.0/360, sign=False, sep=sep)
 
 
 def dec_to_sexagesimal(deg, sep=':'):
-    # type: (float) -> str
+    # type: (float, str) -> str
     return format_sexagesimal(deg, 1, sign=True, sep=sep)

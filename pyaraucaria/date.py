@@ -13,7 +13,10 @@ Licence: MIT
 
 import logging
 import re
+import datetime as _dtt
 logger = logging.getLogger('dates')
+
+import numpy as __np
 
 _datetime_regexps = [re.compile(r) for r in [
     r'(?P<Y>\d\d\d\d)[-/\.](?P<M>\d\d)[-/\.](?P<D>\d\d)((?:\s+|T)(?P<h>\d?\d):(?P<m>\d?\d)(?::(?P<s>\d?\d(?:\.\d*)?))?)?(?:Z|(?P<tzs>[+-])(?P<tzh>\d\d):?(?P<tzm>\d\d))?',
@@ -40,6 +43,8 @@ def expand_julian(jd):
     else:
         return jd
 
+vexpand_julian = __np.vectorize(expand_julian)
+
 
 def julian_to_tuple(jd):
     # type: (float) -> (int, int, int, int, int, float)
@@ -63,7 +68,7 @@ def julian_to_tuple(jd):
 
 def tuple_to_iso(Y, M, D, h, m, s,
                  seconds_decimals=3, separator='T', include_date=True, include_time=True):
-    # type: (int, int, int, int, int, float, int, str, bool, bool)
+    # type: (int, int, int, int, int, float, int, str, bool, bool) -> str
 
     if include_time:
         seconds_format = "2.0" if seconds_decimals == 0 else str(seconds_decimals+3) + "." + str(seconds_decimals)
@@ -77,7 +82,7 @@ def tuple_to_iso(Y, M, D, h, m, s,
 
 
 def datetime_to_julian(date):
-    # type: (str) -> float
+    # type: (Union(str, datetime.datetime)) -> float
     """ Parse date (with optional time and/or timezone) string to julian date
 
     If timezone is specified (e.g. +02:00) correction is applied in order to return julian date in UT
@@ -88,7 +93,7 @@ def datetime_to_julian(date):
 
     Parameters
     ----------
-    date : str
+    date : str or datetime.datetime
         Date/time to be parsed, supports most of iso8601 format and some other popular representations
 
     Returns
@@ -178,6 +183,8 @@ def datetime_to_tuple(date):
     >>> datetime_to_tuple('19990812')
     (1999, 8, 12, 0, 0, 0.0, 0, 0, 0)
     """
+    if isinstance(date, _dtt.datetime):
+        return date.year, date.month, date.day, date.hour, date.minute, date.second + date.microsecond / 1000000.0
     for regexp in _datetime_regexps:
         res = regexp.search(date)
         if res:
@@ -197,6 +204,30 @@ def datetime_to_tuple(date):
     raise ValueError('Could no parse this datetime: %s', date)
 
 
+def helio_corr(jd, ra, dec):
+    # type (float, Union(float, str), Union(float, str)) -> float
+    """Calculates heliocentric correction for a given julian day for object at specific coordinates
+
+    Typical usage:
+    >>> jd = 2455471.685593298
+    >>> hjd = jd + helio_corr(jd, "05:05:37.37", "-65:17:13.4")
+
+    Parameters
+    ----------
+    jd : float
+        julian day
+    ra, dec : float or str, float or str
+        coordinates of event
+
+    Returns
+    -------
+    float
+        heliocentric julian date (day) of event
+    """
+    raise NotImplementedError('Not implemented yet')
+
+
 def correct_year(year):
     # type: (int) -> int
     return year if year > 100 else (year + 1900 if year > 40 else year + 2000)
+
