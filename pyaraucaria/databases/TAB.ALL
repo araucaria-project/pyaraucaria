@@ -86,7 +86,7 @@ lmc102.2_17433  05:21:10.44 -68:43:00.4	  88.811  3633.09   mV=17.21 status=?
 lmc103.5-30354  05:17:49.95 -69:38:27.7   56.229  3569.92   mV=17.17 status=? comment="O'Connell effect"
 lmc111.5-11323  05:10:21.56 -69:02:08.0   40.5214 3572.815  mV=17.41 status=? comment="semidetached configuration(?)"
 lmc_sc3_509     05:29:11.77 -69:52:49.7   89.439  3618.736  mV=17.35 orb=237,38,38,0.00,0.0 status=!? comment="triple giant system"
-lmc123.7.9      04:58:32.39 -66:58:26.6  177.974  2419.5    mV=14.81 status=!? orb=178,19,59,0.0,-0.1 comment="semidetached configuration, brightest and most massive"
+lmc123.7.9      04:58:32.39 -66:58:26.6  177.974  2419.5    mV=14.81 status=!? orb=282,19,59,0.0,-0.1 comment="semidetached configuration, brightest and most massive"
 lmc133.8.19478  04:54:02.21 -68:18:25.6  178.012  2354.0    mV=15.71 status=? comment="semidetached configuration"
 lmc133.5-180    04:52:45.83 -67:53:48.1   60.374  2146.6    mV=16.32 status=? comment="semidetached configuration(?)"
 lmc118.1-35143  05:08:57.06 -68:53:33.3  113.62   2189.6    mV=16.92 status=? comment="large proximity effects, but total eclipses, interesting system but not for a distance"

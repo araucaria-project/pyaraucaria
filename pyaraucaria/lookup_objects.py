@@ -18,7 +18,7 @@ import os
 import re
 import string
 from pyaraucaria.coordinates import ra_to_decimal, dec_to_decimal
-from pyaraucaria.libobject import ObjectList
+from pyaraucaria.libobject import ObjectList, Object
 
 logger = logging.getLogger('lookup_ob')
 
@@ -305,6 +305,15 @@ def map_objects_aliases(tab_all_objects, aliases):
     return mapped, orphans
 
 
+def lookup_object(name, **kwargs):
+    """Returns dictionary with all available properties an object given by name or alias
+    """
+    tab_all = kwargs.get('tab_all', None)
+    objects_database = kwargs.get('objects_database', None)
+    radec_decimal = kwargs.get('objects_database', False)
+    dbase = ObjectsDatabase(tab_all=tab_all, objects_database=objects_database, radec_decimal=radec_decimal)
+    return dbase.lookup_object(name)
+
 def lookup_objects(objects_list, **kwargs):
     """
     Returns all the information found in Objects.database and TAB.ALL for specified objects
@@ -390,6 +399,11 @@ class ObjectsDatabase(object):
                 info = None
             ret[o] = info
         return ret
+
+    def get_object(self, alias):
+        """Returns libobject.Object instance for specified alias"""
+        d = self.lookup_object(alias)
+        return Object(d['name'], data=d)
 
     def resolve_alias(self, alias):
         """Returns corresponding object ID or `alias` itself if there is no mapping"""
