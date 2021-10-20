@@ -467,7 +467,10 @@ class Object():
 #        return dec
 
     def _val2list(self, val):
-        return list(map(float, val.split(',')))
+        if isinstance(val, str):
+            return list(map(float, val.split(',')))
+        else:
+            return val
 
     def _str2val(self, key, sval):
         """ replaces strings as read from file into values used in the code (sometimes strings as well) """
@@ -852,9 +855,9 @@ class Object():
                 times = utvec2jday(times)
 
         ph = self.calc_phase(times) #'times' is hjd here
-        if self.data["ecc"] in [None, 0.0]:
-            rv1 = self.data["v0"] - self.data["k1"]*sin(dpi*ph)
-            rv2 = self.data["v0"] + self.data["k2"]*sin(dpi*ph)
+        if self.data.get("ecc") in [None, 0.0]:
+            rv1 = self.data.get("v0", 0.0) - self.data.get("k1", 50.0)*sin(dpi*ph)
+            rv2 = self.data.get("v0", 0.0) + self.data.get("k2", 50.0)*sin(dpi*ph)
         else:
             hjd0, per, warning = self.get_ephem()
             v0, k1, k2, ecc, aop = self.get_orbit()
