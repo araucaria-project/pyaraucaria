@@ -6,12 +6,15 @@ class TestJulian(unittest.TestCase):
 
     def test_to_julian(self):
         dt = [
-            '2010.10.02 4:27:15.261',
-            '2010-10-02T04:27:15.261',
+            ('2010.10.02 4:27:15.261', 2455471.685593298),
+            ('2010-10-02T04:27:15.261', 2455471.685593298),
+            ('31/01/2022', 2459610.5),
+            ('01/02/2022', 2459611.5),
             ]
-        jd = [datetime_to_julian(d) for d in dt]
-        for j in jd:
-            self.assertAlmostEqual(j, 2455471.685593298)
+        jd1 = [datetime_to_julian(d[0]) for d in dt]
+        # jd2 = [datetime_to_julian_old(d[0]) for d in dt]
+        for i, j in enumerate(jd1):
+            self.assertAlmostEqual(j, dt[i][1])
 
     def test_julian_to_iso(self):
         self.assertEqual(julian_to_iso(2455471.685593298), "2010-10-02T04:27:15.261")

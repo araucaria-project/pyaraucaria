@@ -14,14 +14,17 @@ Licence: MIT
 import logging
 import re
 import datetime as _dtt
+
+from pyaraucaria.erfa import eraCal2jd
+
 logger = logging.getLogger('dates')
 
 import numpy as __np
 
 _datetime_regexps = [re.compile(r) for r in [
-    r'(?P<Y>\d\d\d\d)[-/\.](?P<M>\d\d)[-/\.](?P<D>\d\d)((?:\s+|T)(?P<h>\d?\d):(?P<m>\d?\d)(?::(?P<s>\d?\d(?:\.\d*)?))?)?(?:Z|(?P<tzs>[+-])(?P<tzh>\d\d):?(?P<tzm>\d\d))?',
-    r'(?P<D>\d?\d)[-/](?P<M>\d?\d)[-/](?P<Y>\d?\d)((?:\s+)(?P<h>\d?\d):(?P<m>\d?\d)(?:(?::(?P<s>\d?\d(?:\.\d*)?)))?)?(?P<tzs>)(?P<tzh>)(?P<tzm>)',
-    r'(?P<Y>\d\d\d\d)(?P<M>\d\d)(?P<D>\d\d)((?: +|T)?(?P<h>\d\d)(?P<m>\d\d)(?:(?P<s>\d?\d(?:\.\d*)?))?)?(?:Z|(?P<tzs>[+-])(?P<tzh>\d\d):?(?P<tzm>\d\d))?',
+    r'^\s*(?P<Y>\d\d\d\d)[-/\.](?P<M>\d\d)[-/\.](?P<D>\d\d)((?:\s+|T)(?P<h>\d?\d):(?P<m>\d?\d)(?::(?P<s>\d?\d(?:\.\d*)?))?)?(?:Z|(?P<tzs>[+-])(?P<tzh>\d\d):?(?P<tzm>\d\d))?(\s.*)?$',
+    r'^\s*(?P<D>\d?\d)[-/](?P<M>\d?\d)[-/](?P<Y>\d{2}(?:\d{2})?)((?:\s+)(?P<h>\d?\d):(?P<m>\d?\d)(?:(?::(?P<s>\d?\d(?:\.\d*)?)))?)?(\s.*)?$',
+    r'^\s*(?P<Y>\d\d\d\d)(?P<M>\d\d)(?P<D>\d\d)((?: +|T)?(?P<h>\d\d)(?P<m>\d\d)(?:(?P<s>\d?\d(?:\.\d*)?))?)?(?:Z|(?P<tzs>[+-])(?P<tzh>\d\d):?(?P<tzm>\d\d))?(\s.*)?$',
 ]]
 
 
@@ -104,11 +107,44 @@ def datetime_to_julian(date):
     dtuple = datetime_to_tuple(date)
     return tuple_to_julian(*dtuple)
 
+def datetime_to_julian_old(date):
+    # type: (Union(str, datetime.datetime)) -> float
+    """ Parse date (with optional time and/or timezone) string to julian date
+
+    If timezone is specified (e.g. +02:00) correction is applied in order to return julian date in UT
+
+    Warning
+    -------
+    For ambiguous date formats like 'xx/yy/zz' or 'zz-yy-zz' the assumed order is DAY, MONTH, YEAR (DD/MM/YY)!
+
+    Parameters
+    ----------
+    date : str or datetime.datetime
+        Date/time to be parsed, supports most of iso8601 format and some other popular representations
+
+    Returns
+    -------
+    float
+        julian date
+    """
+    dtuple = datetime_to_tuple(date)
+    return tuple_to_julian_old(*dtuple)
+
 def tuple_to_julian(Y, M, D, h, m, s, tzs=0, tzh=0, tzm=0):
     # type: (int, int, int, int, int, float, int, int, int) -> (float)
-    return (1461 * (Y + 4801 + (M - 14) // 12)) // 4 + (367 * (M - 2 - 12 * (1 + (M - 14) // 12))) // 12 \
-        - (3 * ((Y + 4901 + (M - 14) // 12) // 100)) // 4 + D - 32075 + (h - 12) / 24.0 + m / 1440.0 + s / 86400.0\
+    jd0, jd1, js = eraCal2jd(Y, M, D)
+    if js != 0:
+        raise ValueError('Date (YMD = {}, {}, {}) not correct'.format(Y, M, D))
+    jd3 = h / 24.0 + m / 1440.0 + s / 86400.0 - tzs * tzh / 24.0 - tzs * tzm / 1440.0
+    return jd0 + jd1 + jd3
+
+def tuple_to_julian_old(Y, M, D, h, m, s, tzs=0, tzh=0, tzm=0):
+    # type: (int, int, int, int, int, float, int, int, int) -> (float)
+    MM = int((M - 14) / 12.0)
+    JD = (1461 * (Y + 4801 + MM)) // 4 + int((367 * (M - 2 - 12 * (1 + MM))) / 12.0) \
+        - (3 * ((Y + 4901 + MM) // 100)) // 4 + D - 32075 + (h - 12) / 24.0 + m / 1440.0 + s / 86400.0\
         - tzs * tzh / 24.0 - tzs * tzm / 1440.0
+    return JD
 
 def datetime_to_tuple(date):
     # type: (str) -> (int, int, int, int, int, float, int, int, int)
@@ -186,10 +222,14 @@ def datetime_to_tuple(date):
     if isinstance(date, _dtt.datetime):
         return date.year, date.month, date.day, date.hour, date.minute, date.second + date.microsecond / 1000000.0
     for regexp in _datetime_regexps:
-        res = regexp.search(date)
+        try:
+            res = regexp.search(date)
+        except TypeError as e:
+            logger.error('Rexp date failed for argument of type ', type(date), ' and value: ', date)
+            raise e
         if res:
             rg = res.groupdict()
-            return tuple(t(rg[v] if rg[v] is not None else 0) for v, t in [
+            return tuple(t(rg[v] if rg.get(v, None) is not None else 0) for v, t in [
                 ('Y', lambda x: correct_year(int(x)) if x else 0),
                 ('M', lambda x: int(x) if x else 0),
                 ('D', lambda x: int(x) if x else 0),
