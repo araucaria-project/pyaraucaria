@@ -157,7 +157,7 @@ def parse_tab_all(file_path=None, skip_errors=True, radec_decimal=False):
                 obj['ra'] = ra_to_decimal(obj['ra'])
                 obj['dec'] = dec_to_decimal(obj['dec'])
             except ValueError:
-                logger.error('file: %s, coordinates of %s: (ra dec)=(%s %s) can not be converted into decimal '
+                logger.warning('file: %s, coordinates of %s: (ra dec)=(%s %s) can not be converted into decimal '
                               'representation and will be removed',
                               file_path, ob_id, obj.get('ra'), obj.get('dec'))
                 try:
