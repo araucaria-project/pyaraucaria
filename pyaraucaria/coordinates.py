@@ -35,17 +35,21 @@ def parse_sexagesimal(sexagesimal):
 
 def format_sexagesimal(deg, multiplier, sign, sep=':'):
     # type: (float, float, bool, str) -> str
+    if len(sep) == 1:
+        sep = sep * 2
+
     sig = 1 if deg > 0 else -1
     h = sig * multiplier * deg
     m = (h * 60) % 60
     s = (m * 60) % 60
-    return '{}{:02d}{}{:02d}{}{:06.3f}'.format(
+    return '{}{:02d}{}{:02d}{}{:06.3f}{}'.format(
         ('+' if sig > 0 else '-') if sign else '',
         int(h),
-        sep,
+        sep[0],
         int(m),
-        sep,
-        s
+        sep[1],
+        s,
+        sep[2] if len(sep) == 3 else ''
     )
 
 
