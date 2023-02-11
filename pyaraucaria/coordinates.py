@@ -37,8 +37,8 @@ def format_sexagesimal(deg, multiplier, sign, sep=':'):
     # type: (float, float, bool, str) -> str
     sig = 1 if deg > 0 else -1
     h = sig * multiplier * deg
-    m = (h % 1.0) * 60
-    s = (m % 1.0) * 60
+    m = (h * 60) % 60
+    s = (m * 60) % 60
     return '{}{:02d}{}{:02d}{}{:06.3f}'.format(
         ('+' if sig > 0 else '-') if sign else '',
         int(h),
