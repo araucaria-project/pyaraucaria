@@ -75,9 +75,19 @@ def dec_to_decimal(dms):
 
 def ra_to_sexagesimal(deg, sep=':'):
     # type: (float, str) -> str
-    return format_sexagesimal(deg, 24.0/360, sign=False, sep=sep)
+    return to_hourangle_sexagesimal(deg, sep=sep, sign=False)
 
 
 def dec_to_sexagesimal(deg, sep=':'):
     # type: (float, str) -> str
-    return format_sexagesimal(deg, 1, sign=True, sep=sep)
+    return to_degminsec_sexagesimal(deg, sep=sep, sign=True)
+
+def to_hourangle_sexagesimal(deg, sep=':', sign=False):
+    # type: (float, str, bool) -> str
+    return format_sexagesimal(deg, 24.0/360, sign=sign, sep=sep)
+
+def to_degminsec_sexagesimal(deg, sep=':', sign=True):
+    # type: (float, str, bool) -> str
+    return format_sexagesimal(deg, 1, sign=sign, sep=sep)
+
+
