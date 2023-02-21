@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='pyaraucaria',
-    version='2.6.2',
+    version='2.6.3',
     packages=['pyaraucaria'],
     url='',
     license='MIT/GPL',
