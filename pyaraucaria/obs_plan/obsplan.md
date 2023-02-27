@@ -1,4 +1,4 @@
-This file was copied and extend form ....
+This file was copied form https://github.com/araucaria-project/doc-oca-tic-toi and extended.
 
 # Observations Plan Files for OCA observatory
 
@@ -249,6 +249,21 @@ Beside `command`, `commands`, `args` and `kwargs`, we consider following tags fo
 and others...
 
 All those names are still subject to change (e.g. `command` and `commands` can be confusing).
+
+## We're getting close to a solution
+
+This part will summarise all above considerations to get some final solution.
+### Commands
+Here are all possible commands used in observation plans:
+* OBJECT
+* ZERO
+* DARK
+* DOMEFLAT
+* SKYFLAT
+* WAIT
+* FOCUS
+
+To be continued...
 
 ## References
 * Lark parser package: https://lark-parser.readthedocs.io/en/latest/index.html 
