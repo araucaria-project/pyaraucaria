@@ -33,8 +33,8 @@ def parse_sexagesimal(sexagesimal):
     return sign, int(v['A']), int(v['B']), float(v['C'])
 
 
-def format_sexagesimal(deg, multiplier, sign, sep=':'):
-    # type: (float, float, bool, str) -> str
+def format_sexagesimal(deg, multiplier, sign, sep=':', precision=3):
+    # type: (float, float, bool, str, int) -> str
     if len(sep) == 1:
         sep = sep * 2
 
@@ -42,7 +42,7 @@ def format_sexagesimal(deg, multiplier, sign, sep=':'):
     h = sig * multiplier * deg
     m = (h * 60) % 60
     s = (m * 60) % 60
-    return '{}{:02d}{}{:02d}{}{:06.3f}{}'.format(
+    return ('{}{:02d}{}{:02d}{}{:06.' + f'{precision}' + 'f}{}').format(
         ('+' if sig > 0 else '-') if sign else '',
         int(h),
         sep[0],
@@ -73,21 +73,21 @@ def dec_to_decimal(dms):
     return round(val, 6)
 
 
-def ra_to_sexagesimal(deg, sep=':'):
-    # type: (float, str) -> str
-    return to_hourangle_sexagesimal(deg, sep=sep, sign=False)
+def ra_to_sexagesimal(deg, sep=':', precision=3):
+    # type: (float, str, int) -> str
+    return to_hourangle_sexagesimal(deg, sep=sep, sign=False, precision=precision)
 
 
-def dec_to_sexagesimal(deg, sep=':'):
-    # type: (float, str) -> str
-    return to_degminsec_sexagesimal(deg, sep=sep, sign=True)
+def dec_to_sexagesimal(deg, sep=':', precision=3):
+    # type: (float, str, int) -> str
+    return to_degminsec_sexagesimal(deg, sep=sep, sign=True, precision=precision)
 
-def to_hourangle_sexagesimal(deg, sep=':', sign=False):
-    # type: (float, str, bool) -> str
-    return format_sexagesimal(deg, 24.0/360, sign=sign, sep=sep)
+def to_hourangle_sexagesimal(deg, sep=':', sign=False, precision=3):
+    # type: (float, str, bool, int) -> str
+    return format_sexagesimal(deg, 24.0/360, sign=sign, sep=sep, precision=precision)
 
-def to_degminsec_sexagesimal(deg, sep=':', sign=True):
-    # type: (float, str, bool) -> str
-    return format_sexagesimal(deg, 1, sign=sign, sep=sep)
+def to_degminsec_sexagesimal(deg, sep=':', sign=True, precision=3):
+    # type: (float, str, bool, int) -> str
+    return format_sexagesimal(deg, 1, sign=sign, sep=sep, precision=precision)
 
 
