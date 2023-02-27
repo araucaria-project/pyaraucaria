@@ -16,6 +16,55 @@ Licence: MIT
 import re
 
 
+def ra_to_decimal(hms):
+    # type: (str) -> float
+    return hourangle_to_decimal_deg(hms)
+
+
+def dec_to_decimal(dms):
+    # type: (str) -> float
+    return deg_to_decimal_deg(dms)
+
+
+def ra_to_sexagesimal(deg, sep=':', precision=3):
+    # type: (float, str, int) -> str
+    return to_hourangle_sexagesimal(deg, sep=sep, sign=False, precision=precision)
+
+
+def dec_to_sexagesimal(deg, sep=':', precision=3):
+    # type: (float, str, int) -> str
+    return to_degminsec_sexagesimal(deg, sep=sep, sign=True, precision=precision)
+
+
+def to_hourangle_sexagesimal(deg, sep=':', sign=False, precision=3):
+    # type: (float, str, bool, int) -> str
+    return format_sexagesimal(deg, 24.0/360, sign=sign, sep=sep, precision=precision)
+
+
+def to_degminsec_sexagesimal(deg, sep=':', sign=True, precision=3):
+    # type: (float, str, bool, int) -> str
+    return format_sexagesimal(deg, 1, sign=sign, sep=sep, precision=precision)
+
+
+def hourangle_to_decimal_deg(hms):
+    # type: (str) -> float
+    try:
+        val = float(hms)
+    except ValueError:
+        sign, h, m, s = parse_sexagesimal(hms)
+        val = sign * ((((s / 60) + m) / 60) + h) / 24 * 360
+    return round(val, 6)
+
+
+def deg_to_decimal_deg(dms):
+    # type: (str) -> float
+    try:
+        val = float(dms)
+    except ValueError:
+        sign, d, m, s = parse_sexagesimal(dms)
+        val = sign * ((((s / 60) + m) / 60) + d)
+    return round(val, 6)
+
 _sexagesimal_parser = re.compile(r'(?P<sign>[+\-])?(?P<A>\d\d?)[ :\-hH](?P<B>\d\d?)[ :\-mM](?P<C>\d\d?(?:\.\d*)?)')
 
 
@@ -53,41 +102,5 @@ def format_sexagesimal(deg, multiplier, sign, sep=':', precision=3):
     )
 
 
-def ra_to_decimal(hms):
-    # type: (str) -> float
-    try:
-        val = float(hms)
-    except ValueError:
-        sign, h, m, s = parse_sexagesimal(hms)
-        val = sign * ((((s / 60) + m) / 60) + h) / 24 * 360
-    return round(val, 6)
-
-
-def dec_to_decimal(dms):
-    # type: (str) -> float
-    try:
-        val = float(dms)
-    except ValueError:
-        sign, d, m, s = parse_sexagesimal(dms)
-        val = sign * ((((s / 60) + m) / 60) + d)
-    return round(val, 6)
-
-
-def ra_to_sexagesimal(deg, sep=':', precision=3):
-    # type: (float, str, int) -> str
-    return to_hourangle_sexagesimal(deg, sep=sep, sign=False, precision=precision)
-
-
-def dec_to_sexagesimal(deg, sep=':', precision=3):
-    # type: (float, str, int) -> str
-    return to_degminsec_sexagesimal(deg, sep=sep, sign=True, precision=precision)
-
-def to_hourangle_sexagesimal(deg, sep=':', sign=False, precision=3):
-    # type: (float, str, bool, int) -> str
-    return format_sexagesimal(deg, 24.0/360, sign=sign, sep=sep, precision=precision)
-
-def to_degminsec_sexagesimal(deg, sep=':', sign=True, precision=3):
-    # type: (float, str, bool, int) -> str
-    return format_sexagesimal(deg, 1, sign=sign, sep=sep, precision=precision)
 
 
