@@ -1,8 +1,9 @@
 from lark import Lark, Tree
 from lark.exceptions import UnexpectedCharacters
-from typing import Any, List
+from typing import Any, Dict
 import logging
 import sys
+
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__.rsplit('.')[-1])
@@ -68,7 +69,7 @@ class ObsPlanParser:
                 word = str(child.children[0])
                 return word
 
-    def _build_command(self, tree: Tree[Any]):
+    def _build_command(self, tree: Tree[Any]) -> Dict:
 
         command_dict = {}
         for child in tree.children:
@@ -141,7 +142,12 @@ class ObsPlanParser:
 
     @staticmethod
     def _prepare_text(text: str) -> str:
-
+        """
+        Prepare text to parse. If BEGINSEQUENCE and ENDSEQUENCE is not added it will add.
+        Also solve SKYFLAT lark error and replace for sKYFLAT, later replace back.
+        :param text: text to parse
+        :return: prepared text to parse
+        """
         return_text = text
         log.debug(f'{return_text.find("SKYFLAT")}')
         if text.find('BEGINSEQUENCE') < 0:
@@ -152,6 +158,11 @@ class ObsPlanParser:
 
     @staticmethod
     def _read_file(file_name: str) -> str:
+        """
+        Read txt file
+        :param file_name: file name
+        :return: string
+        """
         try:
             file = str(open(file_name, "r").read())
             return file
@@ -167,16 +178,20 @@ class ObsPlanParser:
         file.close()
 
     def convert_from_string(self, input_string: str) -> Any:
-
+        """
+        Method convert string to observation plan in json format
+        :param input_string: imput string
+        :return: return parsed observation plan in json format
+        """
         par_txt = self._parse_text(input_string)
         sequences = self._build_sequences(par_txt)
         return sequences
 
     def convert_from_file(self, input_file_name: str, output_file_name: str) -> None:
         """
-        Use method to parse observation plan from txt file to txt file.
-        :param input_file_name:
-        :param output_file_name:
+        Method parse observation plan from txt file to txt file.
+        :param input_file_name: input file name
+        :param output_file_name: output file name
         :return:
         """
         text = self._read_file(input_file_name)
