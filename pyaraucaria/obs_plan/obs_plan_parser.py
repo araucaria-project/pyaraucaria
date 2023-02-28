@@ -1,6 +1,5 @@
 from lark import Lark, Tree
 from lark.exceptions import UnexpectedCharacters
-from typing import Any, Dict
 import logging
 import sys
 
@@ -38,7 +37,7 @@ class ObsPlanParser:
         return lin_gr
 
     @staticmethod
-    def _build_kwargs(tree: Tree[Any]):
+    def _build_kwargs(tree: Tree):
 
         kwargs_dict = {}
         for child in tree.children:
@@ -54,7 +53,7 @@ class ObsPlanParser:
         return kwargs_dict
 
     @staticmethod
-    def _build_args(tree: Tree[Any]):
+    def _build_args(tree: Tree):
 
         all_args_list = []
         for child in tree.children:
@@ -62,14 +61,14 @@ class ObsPlanParser:
         return all_args_list
 
     @staticmethod
-    def _build_command_name(tree: Tree[Any]) -> str:
+    def _build_command_name(tree: Tree) -> str:
 
         for child in tree.children:
             if child.data == 'word':
                 word = str(child.children[0])
                 return word
 
-    def _build_command(self, tree: Tree[Any]) -> Dict:
+    def _build_command(self, tree: Tree):
 
         command_dict = {}
         for child in tree.children:
@@ -88,7 +87,7 @@ class ObsPlanParser:
                         command_dict['kwargs'] = self._build_kwargs(child)
         return command_dict
 
-    def _build_all_commands(self, tree: Tree[Any]) -> Any:
+    def _build_all_commands(self, tree: Tree):
 
         all_commands_list = []
         for child in tree.children:
@@ -99,7 +98,7 @@ class ObsPlanParser:
                     all_commands_list.append(self._build_sequence(child.children[0]))
         return all_commands_list
 
-    def _build_sequence(self, tree: Tree[Any]):
+    def _build_sequence(self, tree: Tree):
 
         sequence_dict = {}
         for child in tree.children:
@@ -117,7 +116,7 @@ class ObsPlanParser:
                 sequence_dict['all_commands'] = self._build_all_commands(child)
         return sequence_dict
 
-    def _build_sequences(self, tree: Tree[Any]):
+    def _build_sequences(self, tree: Tree):
 
         sequence_list = []
         try:
@@ -128,7 +127,7 @@ class ObsPlanParser:
         except AttributeError:
             log.error(f'Text cannot be parsed, please check string')
 
-    def _parse_text(self, text: str) -> Tree[Any]:
+    def _parse_text(self, text: str) -> Tree:
 
         line_parser = Lark(self._line_grammar)
         parse = line_parser.parse
@@ -177,7 +176,7 @@ class ObsPlanParser:
         file.write(str(builded_sequences))
         file.close()
 
-    def convert_from_string(self, input_string: str) -> Any:
+    def convert_from_string(self, input_string: str):
         """
         Method convert string to observation plan in json format
         :param input_string: imput string
