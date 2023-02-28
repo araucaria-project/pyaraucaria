@@ -250,20 +250,122 @@ and others...
 
 All those names are still subject to change (e.g. `command` and `commands` can be confusing).
 
-## We're getting close to a solution
+# We're getting close to a solution
+This section summarizes all of the above considerations for a final solution.
+## Main commands
+Here are main commands used in observation plans:
+#### OBJECT
+* Description: This command will unpark mount, turn on tracking, slew to sky object co-ordinates. Also, will check if 
+dome is open, if not it will open and slew dome to az telescope position and finally sync moves. OBJECT command strongly goes
+together with "seq" kwarg.
+* Args: object name - this name will be used to put into fits header also in future can be used to get object
+co-ordinates from catalogue; ra, dec - object co-ordinates, in future optional.
+* Kwargs: seq, focus, az, alt
+* Syntax: OBJECT [object name] [optional: ra] [optional: dec] [optional: kwargs]
+* Example: OBJECT FF_Aql 18:58:14.75 17:21:39.29 seq=5/I/60,5/V/70
 
-This part will summarise all above considerations to get some final solution.
-### Commands
-Here are all possible commands used in observation plans:
-* OBJECT
-* ZERO
-* DARK
-* DOMEFLAT
-* SKYFLAT
-* WAIT
-* FOCUS
+#### ZERO
+* Description: 
+* Args:
+* Kwargs:
+* Syntax:
+* Example: 
+#### DARK
+* Description: 
+* Args:
+* Kwargs:
+* Syntax:
+* Example: 
+#### DOMEFLAT
+* Description: 
+* Args:
+* Kwargs:
+* Syntax:
+* Example: 
+#### SKYFLAT
+* Description: 
+* Args:
+* Kwargs:
+* Syntax:
+* Example: 
+#### WAIT
+* Description: 
+* Args:
+* Kwargs:
+* Syntax:
+* Example: 
+#### FOCUS
+* Description: 
+* Args:
+* Kwargs:
+* Syntax:
+* Example: 
+#### BEGINSEQUENCE
+* Description: 
+* Args:
+* Kwargs:
+* Syntax:
+* Example: 
+#### ENDSEQUENCE
+* Description: 
+* Args:
+* Kwargs:
+* Syntax:
+* Example: 
 
-To be continued...
+## Kwargs
+#### seq
+* Description: Sequence of sub-exposures with designated filters. Filter names must match with available filters in
+filter wheel. Time of sub-exposure is set in seconds. If main command will prompt with "seq", camera immediately will 
+set to parameters and filter wheel will rotate to proper position.
+* Syntax: seq=[number of subexposures 1]/[filter name 1]/[time of subexposures 1], 
+[number of subexposures 2]/[filter name 2]/[time of subexposures 2],...
+* Example: seq=10/I/20,10/V/30,5/V/50
+#### focus
+* Description:
+* Syntax:
+* Example:
+#### skyflat_adu
+* Description:
+* Syntax:
+* Example:
+#### priority
+* Description:
+* Syntax:
+* Example:
+#### execute_at_dawn
+* Description:
+* Syntax:
+* Example:
+#### execute_at_time
+* Description:
+* Syntax:
+* Example:
+#### t
+* Description:
+* Syntax:
+* Example:
+#### alt
+* Description:
+* Syntax:
+* Example:
+#### az
+* Description:
+* Syntax:
+* Example:
+#### execute_periodically
+* Description:
+* Syntax:
+* Example:
+#### domeflat_lamp
+* Description:
+* Syntax:
+* Example:
+#### ut
+* Description:
+* Syntax:
+* Example:
+
 
 ## References
 * Lark parser package: https://lark-parser.readthedocs.io/en/latest/index.html 

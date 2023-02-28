@@ -169,9 +169,9 @@ class TestObsPlanParser(unittest.TestCase):
             DOMEFLAT seq=7/V/20,7/I/20
             DOMEFLAT seq=10/str_u/100 domeflat_lamp=0.7
             WAIT sunset=-12
-            SKYFLAT alt=60:00:00 az=270:00:00  seq=10/I/20,10/V/30 
+            SKYFLAT alt=60:00:00 az=270:00:00 seq=10/I/20,10/V/30 
             SKYFLAT seq=10/I/0,10/V/0
-            SKYFLAT_adu=30
+            SKYFLAT adu=30
             WAIT t=600
             FOCUS NG31 12:12:12 20:20:20
             OBJECT HD193901 20:23:35.8 -21:22:14.0 seq=1/V/300
@@ -190,7 +190,7 @@ class TestObsPlanParser(unittest.TestCase):
                 {'command_name': 'SKYFLAT',
                  'kwargs': {'alt': '60:00:00', 'az': '270:00:00', 'seq': '10/I/20,10/V/30'}},
                 {'command_name': 'SKYFLAT', 'kwargs': {'seq': '10/I/0,10/V/0'}},
-                {'command_name': 'SKYFLAT', 'kwargs': {'_adu': '30'}},
+                {'command_name': 'SKYFLAT', 'kwargs': {'adu': '30'}},
                 {'command_name': 'WAIT', 'kwargs': {'t': '600'}},
                 {'command_name': 'FOCUS', 'args': ['NG31', '12:12:12', '20:20:20']},
                 {'command_name': 'OBJECT', 'args':
