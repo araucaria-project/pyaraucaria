@@ -169,17 +169,17 @@ class ObsPlanParser:
             log.error(f'File: {file_name} not found.')
 
     @staticmethod
-    def _write_to_file(file_name: str, builded_sequences) -> None:
+    def _write_to_file(file_name: str, sequences) -> None:
 
         file = open(file_name, "w")
-        log.debug(f'{builded_sequences}')
-        file.write(str(builded_sequences))
+        log.debug(f'{sequences}')
+        file.write(str(sequences))
         file.close()
 
     def convert_from_string(self, input_string: str):
         """
         Method convert string to observation plan in json format
-        :param input_string: imput string
+        :param input_string: input string
         :return: return parsed observation plan in json format
         """
         par_txt = self._parse_text(input_string)
@@ -195,8 +195,8 @@ class ObsPlanParser:
         """
         text = self._read_file(input_file_name)
         par_txt = self._parse_text(text)
-        builded_sequences = self._build_sequences(par_txt)
-        self._write_to_file(output_file_name, builded_sequences)
+        sequences = self._build_sequences(par_txt)
+        self._write_to_file(output_file_name, sequences)
 
 
 if __name__ == '__main__':
