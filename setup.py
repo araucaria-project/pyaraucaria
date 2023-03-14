@@ -13,8 +13,8 @@ setup(
 
     package_data={'pyaraucaria': [
         'databases/Objects.database',
-        'databases/TAB.ALL'
-        
+        'databases/TAB.ALL',
+        'obs_plan/obs_plan_parser.py',
     ]},
     entry_points={'console_scripts': [
         'lookup_objects=pyaraucaria.lookup_objects:main',
