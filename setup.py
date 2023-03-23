@@ -20,7 +20,7 @@ setup(
         'lookup_objects=pyaraucaria.lookup_objects:main',
     ]},
     install_requires=[
-        'numpy', 'ephem', 'lark'
+        'numpy', 'ephem', 'lark', 'astropy'
     ],
     extras_require={
         'yaml': ['yaml'],

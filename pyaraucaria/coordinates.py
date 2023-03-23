@@ -14,6 +14,7 @@ Licence: MIT
 """
 
 import re
+import ephem
 
 
 def ra_to_decimal(hms):
@@ -101,6 +102,32 @@ def format_sexagesimal(deg, multiplier, sign, sep=':', precision=3):
         sep[2] if len(sep) == 3 else ''
     )
 
+def ra_dec_epoch(longitude, latitude, elevation, ra, dec, epoch):
+    """
+    Func calculates coordinates ra, def for epoch: now
+    Parameters
+    ----------
+    longitude - site longitude
+    latitude - site latitude
+    elevation - site elevation
+    ra - ra for input epoch
+    dec - dec for input epoch
+    epoch - epoch for input ra, dec
 
+    Returns - ra, dec for epoch: now
+    -------
+
+    """
+    site = ephem.Observer()
+    site.date = ephem.now()
+    site.lon = longitude
+    site.lat = latitude
+    site.elevation = float(elevation)
+    star = ephem.FixedBody()
+    star._ra = ephem.hours(ra)
+    star._dec = ephem.degrees(dec)
+    star._epoch = epoch
+    star.compute(site)
+    return str(star.g_ra), str(star.g_dec)
 
 
