@@ -102,21 +102,21 @@ def format_sexagesimal(deg, multiplier, sign, sep=':', precision=3):
         sep[2] if len(sep) == 3 else ''
     )
 
-def ra_dec_epoch(longitude: str, latitude: str, elevation: float, ra: str, dec: str, epoch: int):
+def ra_dec_epoch(ra: str, dec: str, longitude: str, latitude: str, elevation: str, epoch:str):
     """
-    Func calculates coordinates ra, def for epoch=now
+    Func calculates coordinates (ra, dec) for site longitude latitude elevation and epoch=now
     Parameters
     ----------
     longitude - site longitude
     latitude - site latitude
     elevation - site elevation
-    ra - ra for input epoch
-    dec - dec for input epoch
-    epoch - epoch for input ra, dec
+    ra - ra for given epoch
+    dec - dec for given epoch
+    epoch - epoch of (ra, dec), example: '2000/01/01'
 
     Returns
     -------
-    tuple (ra, dec) for epoch=now
+    (ra, dec) for epoch=now and given site
     """
     site = ephem.Observer()
     site.date = ephem.now()
