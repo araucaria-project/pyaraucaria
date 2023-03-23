@@ -102,9 +102,9 @@ def format_sexagesimal(deg, multiplier, sign, sep=':', precision=3):
         sep[2] if len(sep) == 3 else ''
     )
 
-def ra_dec_epoch(longitude, latitude, elevation, ra, dec, epoch):
+def ra_dec_epoch(longitude: str, latitude: str, elevation: float, ra: str, dec: str, epoch: int):
     """
-    Func calculates coordinates ra, def for epoch: now
+    Func calculates coordinates ra, def for epoch=now
     Parameters
     ----------
     longitude - site longitude
@@ -114,9 +114,9 @@ def ra_dec_epoch(longitude, latitude, elevation, ra, dec, epoch):
     dec - dec for input epoch
     epoch - epoch for input ra, dec
 
-    Returns - ra, dec for epoch: now
+    Returns
     -------
-
+    tuple (ra, dec) for epoch=now
     """
     site = ephem.Observer()
     site.date = ephem.now()
@@ -129,5 +129,3 @@ def ra_dec_epoch(longitude, latitude, elevation, ra, dec, epoch):
     star._epoch = epoch
     star.compute(site)
     return str(star.g_ra), str(star.g_dec)
-
-
