@@ -1,3 +1,5 @@
+import os
+
 from astropy.io import fits
 import numpy
 
@@ -12,7 +14,9 @@ def save_fits_from_array(array, folder: str, file_name: str, header, overwrite: 
     header - fits header in dict format, example: {"FITS_STD": "beta_1", "TEL": "iris"}
     overwrite - overwrite existing file, default=False
     """
-    file_name = f"{folder}{file_name}.fits"
+    if os.path.splitext(file_name)[1] == "":
+        file_name = f"{file_name}.fits"
+    file_name = os.path.join(folder, file_name)
 
     hdr = fits.Header()
     if isinstance(header, dict):
