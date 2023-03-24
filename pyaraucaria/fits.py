@@ -1,7 +1,7 @@
 import os
 
 from astropy.io import fits
-import numpy
+import numpy as np
 
 def save_fits_from_array(array, folder: str, file_name: str, header, overwrite: bool = False):
     """
@@ -25,6 +25,7 @@ def save_fits_from_array(array, folder: str, file_name: str, header, overwrite: 
     else:
         hdr["FITS_STD"] = "No fits header loaded"
 
-    hdu = fits.PrimaryHDU(data=array, header=hdr)
+    narray = np.array(array, dtype=np.int32)
+    hdu = fits.PrimaryHDU(data=narray, header=hdr)
     hdul = fits.HDUList([hdu])
     hdul.writeto(file_name, overwrite=overwrite)
