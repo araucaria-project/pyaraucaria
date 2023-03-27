@@ -112,7 +112,7 @@ def ra_dec_epoch(ra: str, dec: str, longitude: str, latitude: str, elevation: st
     elevation - site elevation
     ra - ra for given epoch
     dec - dec for given epoch
-    epoch - epoch of (ra, dec), example: '2000/01/01'
+    epoch - epoch of (ra, dec), example: '2000/01/01', '2000'
 
     Returns
     -------
@@ -129,3 +129,41 @@ def ra_dec_epoch(ra: str, dec: str, longitude: str, latitude: str, elevation: st
     star._epoch = epoch
     star.compute(site)
     return str(star.g_ra), str(star.g_dec)
+
+def ra_dec_2_az_alt(ra: str, dec: str, longitude: str, latitude: str,
+                    elevation: str, epoch:str, time = None):
+    """
+    Func calculate alt, az from ra, dec for given site and time
+    Parameters
+    ----------
+    ra - ra for given epoch
+    dec - dec for given epoch
+    longitude - site longitude
+    latitude - site latitude
+    elevation - site elevation
+    epoch - epoch of (ra, dec), example: '2000/01/01', '2000'
+    time - time UTC
+
+    Returns
+    -------
+    (alt, az) for given parameters
+    """
+    site = ephem.Observer()
+    if time:
+        site.date = time
+    else:
+        site.date = ephem.now()
+    site.lon = longitude
+    site.lat = latitude
+    site.elevation = float(elevation)
+    star = ephem.FixedBody()
+    star._ra = ephem.hours(ra)
+    star._dec = ephem.degrees(dec)
+    star._epoch = epoch
+    star.compute(site)
+
+    return str(star.az), str(star.alt)
+
+def deg_str_to_deg(deg: str):
+    w = deg.split(":")
+    return int(w[0]) + int(w[1])/60 + float(w[2])/3600
