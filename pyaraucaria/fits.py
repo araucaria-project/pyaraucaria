@@ -1,9 +1,9 @@
 import os
-
+from collections import OrderedDict
 from astropy.io import fits
 import numpy as np
 
-def save_fits_from_array(array, folder: str, file_name: str, header, overwrite: bool = False):
+def save_fits_from_array(array, folder: str, file_name: str, header, overwrite: bool = False, dtyp: str = 'int32'):
     """
     Save fits file from array to selected location.
     Parameters
@@ -13,19 +13,101 @@ def save_fits_from_array(array, folder: str, file_name: str, header, overwrite: 
     file_name - file name without '.fits', example: 'file_no_2233'
     header - fits header in dict format, example: {"FITS_STD": "beta_1", "TEL": "iris"}
     overwrite - overwrite existing file, default=False
+    dtyp - array type [str], exammple: 'int16', 'int32'
     """
     if os.path.splitext(file_name)[1] == "":
         file_name = f"{file_name}.fits"
     file_name = os.path.join(folder, file_name)
 
     hdr = fits.Header()
+
     if isinstance(header, dict):
         for n in header.keys():
-            hdr[n] = header[n]
+            hdr[n] = header[n][0]
+            hdr.comments[n] = header[n][1]
     else:
-        hdr["FITS_STD"] = "No fits header loaded"
-
-    narray = np.array(array, dtype=np.int32)
+        hdr["OCASTD"] = "No fits header loaded"
+    dtype = np.int32
+    if dtyp=='int32': dtype=np.int32
+    elif dtyp=='int16': dtype=np.int16
+    narray = np.array(array, dtype=dtype)
     hdu = fits.PrimaryHDU(data=narray, header=hdr)
     hdul = fits.HDUList([hdu])
     hdul.writeto(file_name, overwrite=overwrite)
+
+def fits_header(oca_std="BETA2",
+                obs="OCA",
+                obs_lat='',
+                parsed_obs_lat='',
+                obs_lon='',
+                parsed_obs_lon='',
+                obs_elev='',
+                tel_id='',
+                utc_now='',
+                jd='',
+                req_ra='',
+                req_dec='',
+                epoch='',
+                tel_ra='',
+                tel_dec='',
+                tel_alt='',
+                tel_az='',
+                airmass='',
+                obs_mode='',
+                focus='',
+                rotator_pos='',
+                observer='',
+                obs_type='',
+                object='',
+                filter='',
+                req_exp='',
+                cam_exp='',
+                det_size='',
+                ccd_sec='',
+                ccd_name='',
+                ccd_temp='',
+                ccd_binx='',
+                ccd_biny='',
+                read_mod='',
+                gain='',
+                r_noise=''
+                ):
+
+    _header = OrderedDict({
+        "OCASTD": (oca_std, "OCA FITS HDU standard version"),
+        "OBS": (obs, "Cerro Armazones Observatory"),
+        "OBS-LAT": (parsed_obs_lat, f"[deg] Observatory east longitude {obs_lat}"),
+        "OBS-LONG": (parsed_obs_lon, f"[deg] Observatory latitude {obs_lon}"),
+        "OBS-ELEV": (obs_elev, f"[m] Observatory elevation"),
+        "TEL": (tel_id, ''),
+        "DATE-OBS": (utc_now, "DateTime of observation start"),
+        "JD": (jd, "Julian date of observation start"),
+        "RA": (req_ra, "Requested object RA"),
+        "DEC": (req_dec, "Requested object DEC"),
+        "EQUINOX": (epoch, "Requested RA DEC epoch"),
+        "TEL_RA": (tel_ra, "Telescope RA"),
+        "TEL_DEC": (tel_dec, "Telescope DEC"),
+        "TEL_ALT": (tel_alt, "[deg] Telescope mount ALT"),
+        "TEL_AZ": (tel_az, "[deg] Telescope mount AZ"),
+        "AIRMASS": (airmass, ''),
+        "OBSMODE": (obs_mode, "TRACKING, GUIDING, JITTER or ELSE"),
+        "FOCUS": (focus, "Focus position"),
+        "ROTATOR": (rotator_pos, "[deg] Rotator position"),
+        "OBSERVER": (observer, ''),
+        "OBSTYPE": (obs_type, ''),
+        "OBJECT": (object, ''),
+        "FILTER": (filter, ''),
+        "EXPREQ": (req_exp, "[s] Requested exposure time"),
+        "EXPTIME": (cam_exp, "[s] Executed exposure time"),
+        "DETSIZE": (det_size, ''),
+        "CCDSEC": (ccd_sec, ''),
+        "CCD_NAME": (ccd_name, ''),
+        "CCD_TEMP": (ccd_temp, ''),
+        "CCD_BINX": (ccd_binx, ''),
+        "CCD_BINY": (ccd_biny, ''),
+        "READ_MOD": (read_mod, ''),
+        "GAIN": (gain, ''),
+        "RNOISE": (r_noise, ''),
+    })
+
+    return _header
