@@ -26,7 +26,7 @@ def save_fits_from_array(array, folder: str, file_name: str, header, overwrite: 
             try:
                 hdr[n] = header[n][0]
                 hdr.comments[n] = header[n][1]
-            except LookupError:
+            except (LookupError, TypeError):
                 hdr[n] = header[n]
     elif isinstance(header, fits.Header):
         hdr = header
