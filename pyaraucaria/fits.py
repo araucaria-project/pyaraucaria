@@ -33,7 +33,6 @@ def save_fits_from_array(array, folder: str, file_name: str, header, overwrite: 
     else:
         hdr["OCASTD"] = "No fits header provided"
 
-    dtyp = np.int32
     if dtyp=='int32':
         narray = np.array(array, dtype=np.int32)
     elif dtyp=='int16':
@@ -93,7 +92,7 @@ def fits_header(bzero=32768,
                 ):
 
     _header = OrderedDict({
-        "BZERO": bzero,
+        "BZERO": (bzero,""),
         "OCASTD": (oca_std, "OCA FITS HDU standard version"),
         "OBSERVAT": (obs, "Cerro Armazones Observatory"),
         "OBS-LAT": (parsed_obs_lat, f"[deg] Observatory east longitude {obs_lat}"),
