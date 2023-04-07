@@ -38,7 +38,7 @@ def save_fits_from_array(array, folder: str, file_name: str, header, overwrite: 
     elif dtyp=='int16':
         narray = np.array(array, dtype=np.int16)
     elif dtyp=='sideint16':
-        s_array = array - 32768
+        s_array = np.array(array) - 32768
         narray = np.array(s_array, dtype=np.int16)
     elif dtyp=='none':
         narray = array
