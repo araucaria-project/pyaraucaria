@@ -32,12 +32,16 @@ def save_fits_from_array(array, folder: str, file_name: str, header, overwrite: 
         hdr = header
     else:
         hdr["OCASTD"] = "No fits header provided"
+
     dtyp = np.int32
-    if dtyp == 'int32':
+    if dtyp=='int32':
         narray = np.array(array, dtype=np.int32)
-    elif dtyp == 'int16':
+    elif dtyp=='int16':
         narray = np.array(array, dtype=np.int16)
-    elif dtyp == 'none':
+    elif dtyp=='sideint16':
+        s_array = array - 32768
+        narray = np.array(s_array, dtype=np.int16)
+    elif dtyp=='none':
         narray = array
     hdu = fits.PrimaryHDU(data=narray, header=hdr)
     hdul = fits.HDUList([hdu])
@@ -47,7 +51,9 @@ def save_fits_from_array(array, folder: str, file_name: str, header, overwrite: 
 # https://fits.gsfc.nasa.gov/fits_standard.html
 # https://fits.gsfc.nasa.gov/standard40/fits_standard40aa-le.pdf
 # https://heasarc.gsfc.nasa.gov/docs/fcg/common_dict.html may be also useful
-def fits_header(oca_std="BETA3",
+
+def fits_header(bzero=32768,
+                oca_std="BETA3",
                 obs="OCA",
                 obs_lat='',
                 parsed_obs_lat='',
@@ -87,6 +93,7 @@ def fits_header(oca_std="BETA3",
                 ):
 
     _header = OrderedDict({
+        "BZERO": bzero,
         "OCASTD": (oca_std, "OCA FITS HDU standard version"),
         "OBSERVAT": (obs, "Cerro Armazones Observatory"),
         "OBS-LAT": (parsed_obs_lat, f"[deg] Observatory east longitude {obs_lat}"),
