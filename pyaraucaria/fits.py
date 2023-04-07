@@ -52,7 +52,8 @@ def save_fits_from_array(array, folder: str, file_name: str, header, overwrite: 
 # https://heasarc.gsfc.nasa.gov/docs/fcg/common_dict.html may be also useful
 
 def fits_header(bzero=32768,
-                oca_std="BETA3",
+                bscale=1,
+                oca_std="BETA4",
                 obs="OCA",
                 obs_lat='',
                 parsed_obs_lat='',
@@ -92,7 +93,10 @@ def fits_header(bzero=32768,
                 ):
 
     _header = OrderedDict({
-        "BZERO": (bzero,""),
+        "BZERO": bzero,
+        "BSCALE": bscale,
+        "TEST2": 3,
+        "TEST4": '3',
         "OCASTD": (oca_std, "OCA FITS HDU standard version"),
         "OBSERVAT": (obs, "Cerro Armazones Observatory"),
         "OBS-LAT": (parsed_obs_lat, f"[deg] Observatory east longitude {obs_lat}"),
