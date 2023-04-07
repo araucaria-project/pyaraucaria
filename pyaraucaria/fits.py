@@ -26,7 +26,7 @@ def save_fits_from_array(array, folder: str, file_name: str, header, overwrite: 
             hdr[n] = header[n][0]
             hdr.comments[n] = header[n][1]
     else:
-        hdr["OCASTD"] = "No fits header loaded"
+        hdr["OCASTD"] = "No fits header provided"
     dtyp = np.int32
     if dtyp=='int32':
         narray = np.array(array, dtype=np.int32)
