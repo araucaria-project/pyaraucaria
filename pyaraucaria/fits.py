@@ -27,10 +27,13 @@ def save_fits_from_array(array, folder: str, file_name: str, header, overwrite: 
             hdr.comments[n] = header[n][1]
     else:
         hdr["OCASTD"] = "No fits header loaded"
-    dtype = np.int32
-    if dtyp=='int32': dtype=np.int32
-    elif dtyp=='int16': dtype=np.int16
-    narray = np.array(array, dtype=dtype)
+    dtyp = np.int32
+    if dtyp=='int32':
+        narray = np.array(array, dtype=np.int32)
+    elif dtyp=='int16':
+        narray = np.array(array, dtype=np.int16)
+    elif dtyp=='none':
+        narray=array
     hdu = fits.PrimaryHDU(data=narray, header=hdr)
     hdul = fits.HDUList([hdu])
     hdul.writeto(file_name, overwrite=overwrite)
