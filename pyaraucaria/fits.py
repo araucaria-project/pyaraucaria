@@ -64,9 +64,9 @@ def save_fits_from_array(array,
     hdul = fits.HDUList([hdu])
     hdul.writeto(file_name, overwrite=overwrite)
     if dtyp=='sideint16':
-        hdul = fits.open(file_name)
-        hdul[0].header['BZERO'] = 32768
-        hdul.close()
+        hdul2 = fits.open(file_name)
+        hdul2[0].header['BZERO'] = 32768
+        hdul2.writeto(file_name, overwrite=True)
 
 # Lets Follow the FitS standard version 4, as defined in
 # https://fits.gsfc.nasa.gov/fits_standard.html
