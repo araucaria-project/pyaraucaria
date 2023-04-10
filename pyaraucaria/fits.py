@@ -3,7 +3,16 @@ from collections import OrderedDict
 from astropy.io import fits
 import numpy as np
 
-def save_fits_from_array(array, folder: str, file_name: str, header, overwrite: bool = False, dtyp: str = 'int32'):
+def save_fits_from_array(array,
+                         folder: str,
+                         file_name: str,
+                         header,
+                         overwrite: bool = False,
+                         dtyp: str = 'int32',
+                         do_not_scale_image_data: bool = False,
+                         ignore_blank: bool = False,
+                         uint: bool = False,
+                         scale_back: bool or None = None):
     """
     Save fits file from array to selected location.
     Parameters
@@ -14,6 +23,10 @@ def save_fits_from_array(array, folder: str, file_name: str, header, overwrite: 
     header - fits header in dict format, example: {"FITS_STD": "beta_1", "TEL": "iris"}
     overwrite - overwrite existing file, default=False
     dtyp - array type [str], example: 'int16', 'int32'
+    do_not_scale_image_data - astropy PrimaryHDU  parameter
+    ignore_blank - astropy PrimaryHDU  parameter
+    uint - astropy PrimaryHDU  parameter
+    scale_back - astropy PrimaryHDU  parameter
     """
     if os.path.splitext(file_name)[1] == "":
         file_name = f"{file_name}.fits"
@@ -42,7 +55,12 @@ def save_fits_from_array(array, folder: str, file_name: str, header, overwrite: 
         narray = np.array(s_array, dtype=np.int16)
     elif dtyp=='none':
         narray = array
-    hdu = fits.PrimaryHDU(data=narray, header=hdr)
+    hdu = fits.PrimaryHDU(data=narray,
+                          header=hdr,
+                          do_not_scale_image_data=do_not_scale_image_data,
+                          ignore_blank=ignore_blank,
+                          uint=uint,
+                          scale_back=scale_back)
     hdul = fits.HDUList([hdu])
     hdul.writeto(file_name, overwrite=overwrite)
 
@@ -51,9 +69,7 @@ def save_fits_from_array(array, folder: str, file_name: str, header, overwrite: 
 # https://fits.gsfc.nasa.gov/standard40/fits_standard40aa-le.pdf
 # https://heasarc.gsfc.nasa.gov/docs/fcg/common_dict.html may be also useful
 
-def fits_header(bzero=32768,
-                bscale=1,
-                oca_std="BETA4",
+def fits_header(oca_std="BETA2",
                 obs="OCA",
                 obs_lat='',
                 parsed_obs_lat='',
@@ -93,16 +109,12 @@ def fits_header(bzero=32768,
                 ):
 
     _header = OrderedDict({
-        "BZERO": bzero,
-        "BSCALE": bscale,
-        "TEST2": 3,
-        "TEST4": '3',
         "OCASTD": (oca_std, "OCA FITS HDU standard version"),
         "OBSERVAT": (obs, "Cerro Armazones Observatory"),
-        "OBS-LAT": (parsed_obs_lat, f"[deg] Observatory east longitude {obs_lat}"),
+        "OBS-LAT": (parsed_obs_lat, f"[deg] Observatory longitude {obs_lat}"),
         "OBS-LONG": (parsed_obs_lon, f"[deg] Observatory latitude {obs_lon}"),
         "OBS-ELEV": (obs_elev, f"[m] Observatory elevation"),
-        "ORIGIN": (origin, "Institution responsible for creating the FITS file"),
+        "ORIGIN": (origin, "Institution created this FITS file"),
         "TEL": (tel_id, ''),
         "DATE-OBS": (utc_now, "DateTime of observation start"),
         "JD": (jd, "Julian date of observation start"),
