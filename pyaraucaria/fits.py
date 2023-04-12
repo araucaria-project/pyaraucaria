@@ -151,3 +151,36 @@ def fits_header(oca_std="BETA2",
     })
 
     return _header
+
+def fits_stat(array, min: bool = True, max: bool = True, mean: bool = True, median: bool = True, std: bool = True):
+    """
+    Main fits statistics
+    Parameters
+    ----------
+    array - list like image data, example: [[2, 3, 4], [1, 1, 1], [2, 3, 1]]
+    min - array minimum, should calculate this stat, default Yes
+    max - array maximum, should calculate this stat, default Yes
+    mean - array mean, should calculate this stat, default Yes
+    median - array median, should calculate this stat, default Yes
+    std - array standard deviation, should calculate this stat, default Yes
+    ----------
+    Returns - Dict[str, float]
+    """
+    result = {}
+    narray = np.array(array)
+    if min:
+        result['min'] = np.amin(narray)
+
+    if max:
+        result['max'] = np.amax(narray)
+
+    if mean:
+        result['mean'] = np.mean(narray)
+
+    if median:
+        result['median'] = np.median(narray)
+
+    if std:
+        result['std'] = np.std(narray)
+
+    return result
