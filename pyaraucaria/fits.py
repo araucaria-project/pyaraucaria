@@ -55,6 +55,9 @@ def save_fits_from_array(array,
         narray = np.array(s_array, dtype=np.int16)
     elif dtyp=='none':
         narray = array
+    else:
+        narray = array
+
     hdu = fits.PrimaryHDU(data=narray,
                           header=hdr,
                           do_not_scale_image_data=do_not_scale_image_data,
@@ -152,22 +155,25 @@ def fits_header(oca_std="BETA2",
 
     return _header
 
-def fits_stat(array, min: bool = True, max: bool = True, mean: bool = True, median: bool = True, std: bool = True):
+def fits_stat(array, size: int or None = None, min: bool = True, max: bool = True,
+              mean: bool = True, median: bool = True, std: bool = True):
     """
     Main fits statistics
-    Parameters
-    ----------
-    array - list like image data, example: [[2, 3, 4], [1, 1, 1], [2, 3, 1]]
-    min - array minimum, should calculate this stat, default Yes
-    max - array maximum, should calculate this stat, default Yes
-    mean - array mean, should calculate this stat, default Yes
-    median - array median, should calculate this stat, default Yes
-    std - array standard deviation, should calculate this stat, default Yes
-    ----------
-    Returns - Dict[str, float]
+    :param array: list like image data, example: [[2, 3, 4], [1, 1, 1], [2, 3, 1]]
+    :param size: size of sample taken random (if size=None will calculate whole array)
+    :param min: array minimum, should calculate this stat, default Yes
+    :param max: array maximum, should calculate this stat, default Yes
+    :param mean: array mean, should calculate this stat, default Yes
+    :param median: array median, should calculate this stat, default Yes
+    :param std: array standard deviation, should calculate this stat, default Yes
+    :return: Dict[str, float]
     """
+
     result = {}
     narray = np.array(array)
+    if size is not None:
+        narray = array_random_subset_2d(narray, size=size)
+
     if min:
         result['min'] = np.amin(narray)
 
@@ -184,3 +190,16 @@ def fits_stat(array, min: bool = True, max: bool = True, mean: bool = True, medi
         result['std'] = np.std(narray)
 
     return result
+
+def array_random_subset_2d(array, size: int, replace: bool = False):
+    """
+    Func randomly selecting points from array
+    :param array: 2d numpy array
+    :param size: size of subset
+    :param replace: with or without replacement
+    :return: array random subset
+    """
+    nrows, ncols = array.shape
+    row_indices = np.random.choice(nrows, size=size, replace=replace)
+    col_indices = np.random.choice(ncols, size=size, replace=replace)
+    return array[row_indices, col_indices]
