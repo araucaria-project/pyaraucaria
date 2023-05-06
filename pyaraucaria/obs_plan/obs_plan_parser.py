@@ -13,7 +13,7 @@ class ObsPlanParser:
     @property
     def _line_grammar(self):
         lin_gr = r"""
-        ?start: sequences
+        ?start          : sequences
         !sequences      : sequence*
         !sequence       : end_line* begin_sequence args kwargs comment? separator all_commands end_sequence comment? (end_line* comment?)*
         !all_commands   : (command separator)*
@@ -33,6 +33,7 @@ class ObsPlanParser:
         ?string_quoted  : /[\"].*[\"]|[\'].*[\']/
         ?string_simple  : /[^\s=\'\"]+/
         %ignore /[ \f]+/
+        %ignore "#" /[^\n]/*
         """
         return lin_gr
 
