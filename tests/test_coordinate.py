@@ -25,6 +25,15 @@ class TestCoo(unittest.TestCase):
         for (_, t), r in zip(tst, res):
             self.assertAlmostEqual(t, r)
 
+    def test_sex_format(self):
+        tst = [
+            (12.58225, '+12:34:56.1'),
+            (-12.58225, '-12:34:56.1'),
+            ]
+        res = [to_degminsec_sexagesimal(d[0], precision=1) for d in tst]
+        for (_, t), r in zip(tst, res):
+            self.assertEqual(t, r)
+
 class TestRaDecEpoch(unittest.TestCase):
 
     def test_ra_dec_epoch_1(self):

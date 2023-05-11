@@ -203,7 +203,7 @@ class TestObsPlanParser(unittest.TestCase):
         opp = ObsPlanParser()
         self.assertEqual(opp.convert_from_string(input), output)
 
-    def test_sequence_4_comments(self):
+    def test_sequence_5_comments(self):
 
         # No use: BEGINSEQUENCE ENDSEQUENCE
 
@@ -222,6 +222,27 @@ class TestObsPlanParser(unittest.TestCase):
         opp = ObsPlanParser()
         self.assertEqual(opp.convert_from_string(input), output)
 
+    def test_sequence_6_comments(self):
+
+        # No use: BEGINSEQUENCE ENDSEQUENCE
+
+        input = """
+            WAIT ut=16:00
+            ZERO seq=15/I/0
+            # dupa
+            OBJECT HD193901 20:23:35.8 -21:22:14.0 seq=1/V/300
+            """
+
+        output = [
+            {'begin_sequence': 'begin', 'all_commands': [
+                {'command_name': 'WAIT', 'kwargs': {'ut': '16:00'}},
+                {'command_name': 'ZERO', 'kwargs': {'seq': '15/I/0'}},
+                {'command_name': 'OBJECT', 'args':
+                    ['HD193901', '20:23:35.8', '-21:22:14.0'], 'kwargs': {'seq': '1/V/300'}},
+            ]}]
+
+        opp = ObsPlanParser()
+        self.assertEqual(opp.convert_from_string(input), output)
 
 if __name__ == '__main__':
     unittest.main()

@@ -92,7 +92,7 @@ def format_sexagesimal(deg, multiplier, sign, sep=':', precision=3):
     h = sig * multiplier * deg
     m = (h * 60) % 60
     s = (m * 60) % 60
-    return ('{}{:02d}{}{:02d}{}{:06.' + f'{precision}' + 'f}{}').format(
+    return ('{}{:02d}{}{:02d}{}{:0'+ f'{precision + 3}'+ '.' + f'{precision}' + 'f}{}').format(
         ('+' if sig > 0 else '-') if sign else '',
         int(h),
         sep[0],
