@@ -165,5 +165,34 @@ def ra_dec_2_az_alt(ra: str, dec: str, longitude: str, latitude: str,
     return str(star.az), str(star.alt)
 
 def deg_str_to_deg(deg: str):
+    """
+    Converts degrees from str XX:XX:XX to float
+    :param deg: degrees in XX:XX:XX (string) format
+    :return: degrees in float
+    """
     w = deg.split(":")
     return int(w[0]) + int(w[1])/60 + float(w[2])/3600
+
+def site_sidereal_time(longitude: str, latitude: str,
+                    elevation: str, time = None, deg_output: bool = False) -> str or float:
+    """
+    Func returns site sidereal time
+    :param longitude: site longitude
+    :param latitude: site latitude
+    :param elevation: site elevation
+    :param time: make calculation for different time than now, defalut None
+    :param deg_output: if True degrees output
+    :return: site sidereal time (str)
+    """
+    site = ephem.Observer()
+    if time:
+        site.date = time
+    else:
+        site.date = ephem.now()
+    site.lon = longitude
+    site.lat = latitude
+    site.elevation = float(elevation)
+    sidereal_time = (site.sidereal_time()).__str__()
+    if deg_output:
+        sidereal_time = hourangle_to_decimal_deg(sidereal_time.__str__())
+    return sidereal_time

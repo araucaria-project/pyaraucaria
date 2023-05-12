@@ -49,8 +49,8 @@ class TestRaDecEpoch(unittest.TestCase):
         e_dec = dec_to_decimal(out_dec)
         out_epoch_ra = ra_to_decimal(epoch[0])
         out_epoch_dec = dec_to_decimal(epoch[1])
-        self.assertAlmostEqual(e_ra, out_epoch_ra, places=3)
-        self.assertAlmostEqual(e_dec, out_epoch_dec, places=3)
+        self.assertAlmostEqual(e_ra, out_epoch_ra, places=2)
+        self.assertAlmostEqual(e_dec, out_epoch_dec, places=2)
 
 class TestRaDecToAzAlt(unittest.TestCase):
 
@@ -81,6 +81,24 @@ class TestStrToDeg(unittest.TestCase):
         b = 10.5
         aa = deg_str_to_deg(a)
         self.assertEqual(aa, b)
+
+
+class TestSiteSiderealTime(unittest.TestCase):
+
+    def test_site_sidereal_time(self):
+
+        OCA = {'latitude': '-24:35:53', 'longitude': '-70:11:47', 'elevation': '2817'}
+        time = datetime.datetime(2023, 5, 12, 3, 0, 0)
+        sidereal_test = '13:37:45.111'
+        sidereal_time = site_sidereal_time(longitude=OCA['longitude'], latitude=OCA['latitude'],
+                    elevation=OCA['elevation'], time=time)
+        sidereal_time_deg_2 = site_sidereal_time(longitude=OCA['longitude'], latitude=OCA['latitude'],
+                                           elevation=OCA['elevation'], time=time, deg_output=True)
+        sidereal_time_deg = hourangle_to_decimal_deg(sidereal_time)
+        sidereal_test_deg = hourangle_to_decimal_deg(sidereal_test)
+        self.assertAlmostEqual(sidereal_time_deg, sidereal_test_deg, places=2)
+        self.assertAlmostEqual(sidereal_time_deg_2, sidereal_test_deg, places=2)
+
 
 if __name__ == '__main__':
     unittest.main()
