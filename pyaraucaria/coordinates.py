@@ -15,6 +15,7 @@ Licence: MIT
 
 import re
 import ephem
+import math
 
 
 def ra_to_decimal(hms):
@@ -171,18 +172,27 @@ def deg_str_to_deg(deg: str):
     :return: degrees in float
     """
     w = deg.split(":")
-    return int(w[0]) + int(w[1])/60 + float(w[2])/3600
+    if int(w[0]) < 0:
+        sign = -1
+    else:
+        sign = 1
+    return sign * (abs(int(w[0])) + int(w[1])/60 + float(w[2])/3600)
 
 def site_sidereal_time(longitude: str, latitude: str,
                     elevation: str, time = None, deg_output: bool = False) -> str or float:
     """
     Func returns site sidereal time
-    :param longitude: site longitude
-    :param latitude: site latitude
-    :param elevation: site elevation
-    :param time: make calculation for different time than now, defalut None
-    :param deg_output: if True degrees output
-    :return: site sidereal time (str)
+    Parameters
+    ----------
+    longitude - site longitude
+    latitude - site latitude
+    elevation - site elevation
+    time - make calculation for different time than now, defalut None
+    deg_output - if True degrees output
+
+    Returns
+    -------
+    site sidereal time (str)
     """
     site = ephem.Observer()
     if time:
@@ -196,3 +206,53 @@ def site_sidereal_time(longitude: str, latitude: str,
     if deg_output:
         sidereal_time = hourangle_to_decimal_deg(sidereal_time.__str__())
     return sidereal_time
+
+def az_alt_2_ra_dec(az: float or str, alt: float or str, longitude: str, latitude: str,
+                    elevation: str, time = None, ra_hour: bool = False, dec_sex: bool = False):
+    """
+    Func calculate alt, az from ra, dec for given site and time
+    Parameters
+    ----------
+    az - azimuth
+    alt - altitude
+    longitude - site longitude
+    latitude - site latitude
+    elevation - site elevation
+    time - time UTC
+    ra_hour - if True returns ra in hourangle sexagesimal, else in degrees float
+    dec_sex - if True returns dec in sexagesimal, else in degrees float
+
+    Returns
+    -------
+    (ra, dec) for given parameters
+    """
+    site = ephem.Observer()
+    if time:
+        site.date = time
+    else:
+        site.date = ephem.now()
+    site.lon = longitude
+    site.lat = latitude
+    site.elevation = float(elevation)
+
+    if isinstance(az, str) and isinstance(alt, str):
+        az = az
+        alt = alt
+    elif isinstance(az, float) and isinstance(alt, float):
+        az = math.radians(az)
+        alt = math.radians(alt)
+    else:
+        raise ValueError
+    _ra, _dec = site.radec_of(az, alt)
+    _ra = math.degrees(_ra)
+    _dec = math.degrees(_dec)
+    if ra_hour:
+        ra = ra_to_sexagesimal(_ra)
+    else:
+        ra = _ra
+    if dec_sex:
+        dec = dec_to_sexagesimal(_dec)
+    else:
+        dec = _dec
+
+    return ra, dec
