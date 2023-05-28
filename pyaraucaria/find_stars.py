@@ -3,7 +3,7 @@
 
 import sys,os, time
 from astropy.io import fits
-from ffs import FFS
+from .ffs import FFS
 
 
 """A script for star detection for a FITS files, and basic statistics calculation.  
