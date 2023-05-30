@@ -16,6 +16,10 @@ Licence: MIT
 import re
 import ephem
 import math
+import datetime
+from astropy.coordinates import SkyCoord, EarthLocation, FK5
+import astropy.units as u
+
 
 
 def ra_to_decimal(hms):
@@ -103,7 +107,9 @@ def format_sexagesimal(deg, multiplier, sign, sep=':', precision=3):
         sep[2] if len(sep) == 3 else ''
     )
 
-def ra_dec_epoch(ra: str, dec: str, longitude: str, latitude: str, elevation: str, epoch:str):
+
+def ra_dec_epoch(ra, dec, longitude, latitude, elevation, epoch):
+    # type: (str, str, str, str, str, str) -> (str, str)
     """
     Func calculates coordinates (ra, dec) for site longitude latitude elevation and epoch=now
     Parameters
@@ -131,8 +137,9 @@ def ra_dec_epoch(ra: str, dec: str, longitude: str, latitude: str, elevation: st
     star.compute(site)
     return str(star.g_ra), str(star.g_dec)
 
-def ra_dec_2_az_alt(ra: str, dec: str, longitude: str, latitude: str,
-                    elevation: str, epoch:str, time = None):
+
+def ra_dec_2_az_alt(ra, dec, longitude, latitude, elevation, epoch, time=None):
+    # type: (str, str, str, str, str, str, datetime or None) -> (str, str)
     """
     Func calculate alt, az from ra, dec for given site and time
     Parameters
@@ -165,11 +172,18 @@ def ra_dec_2_az_alt(ra: str, dec: str, longitude: str, latitude: str,
 
     return str(star.az), str(star.alt)
 
-def deg_str_to_deg(deg: str):
+
+def deg_str_to_deg(deg):
+    # type: (str) -> float
     """
     Converts degrees from str XX:XX:XX to float
-    :param deg: degrees in XX:XX:XX (string) format
-    :return: degrees in float
+    Parameters
+    ----------
+    deg - degrees in XX:XX:XX (string) format
+
+    Returns
+    -------
+    degrees in float
     """
     w = deg.split(":")
     if int(w[0]) < 0:
@@ -178,8 +192,9 @@ def deg_str_to_deg(deg: str):
         sign = 1
     return sign * (abs(int(w[0])) + int(w[1])/60 + float(w[2])/3600)
 
-def site_sidereal_time(longitude: str, latitude: str,
-                    elevation: str, time = None, deg_output: bool = False) -> str or float:
+
+def site_sidereal_time(longitude, latitude, elevation, time=None, deg_output=False):
+    # type: (str, str, str, datetime, bool) -> str or float
     """
     Func returns site sidereal time
     Parameters
@@ -207,8 +222,9 @@ def site_sidereal_time(longitude: str, latitude: str,
         sidereal_time = hourangle_to_decimal_deg(sidereal_time.__str__())
     return sidereal_time
 
-def az_alt_2_ra_dec(az: float or str, alt: float or str, longitude: str, latitude: str,
-                    elevation: str, time = None, ra_hour: bool = False, dec_sex: bool = False):
+
+def az_alt_2_ra_dec(az, alt, longitude, latitude, elevation, epoch, calc_time=None):
+    # type: (float, float, float, float, float, str, datetime or None) -> (float, float)
     """
     Func calculate alt, az from ra, dec for given site and time
     Parameters
@@ -218,41 +234,20 @@ def az_alt_2_ra_dec(az: float or str, alt: float or str, longitude: str, latitud
     longitude - site longitude
     latitude - site latitude
     elevation - site elevation
+    epoch - ra, dec epoch calculation. Exemple: 'J2000'
     time - time UTC
-    ra_hour - if True returns ra in hourangle sexagesimal, else in degrees float
-    dec_sex - if True returns dec in sexagesimal, else in degrees float
 
     Returns
     -------
     (ra, dec) for given parameters
     """
-    site = ephem.Observer()
-    if time:
-        site.date = time
+    if calc_time:
+        time_s = calc_time
     else:
-        site.date = ephem.now()
-    site.lon = longitude
-    site.lat = latitude
-    site.elevation = float(elevation)
+        time_s = datetime.datetime.now()
+    loc = EarthLocation.from_geodetic(lon=longitude * u.degree, lat=latitude * u.degree, height=elevation)
+    alt_az = SkyCoord(alt=alt * u.degree, az=az * u.degree, frame='altaz', obstime=time_s, location=loc)
+    radec = alt_az.transform_to('icrs')
+    radec_equinox = radec.transform_to(FK5(equinox=epoch))
 
-    if isinstance(az, str) and isinstance(alt, str):
-        az = az
-        alt = alt
-    elif isinstance(az, float) and isinstance(alt, float):
-        az = math.radians(az)
-        alt = math.radians(alt)
-    else:
-        raise ValueError
-    _ra, _dec = site.radec_of(az, alt)
-    _ra = math.degrees(_ra)
-    _dec = math.degrees(_dec)
-    if ra_hour:
-        ra = ra_to_sexagesimal(_ra)
-    else:
-        ra = _ra
-    if dec_sex:
-        dec = dec_to_sexagesimal(_dec)
-    else:
-        dec = _dec
-
-    return ra, dec
+    return radec_equinox.ra.deg, radec_equinox.dec.deg

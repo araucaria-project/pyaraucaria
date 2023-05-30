@@ -79,8 +79,12 @@ class TestStrToDeg(unittest.TestCase):
     def test_str_to_deg(self):
         a = '10:30:00'
         b = 10.5
+        a1 = '-05:00:30.30'
+        b1 = -5.008416667
         aa = deg_str_to_deg(a)
+        aa1 = deg_str_to_deg(a1)
         self.assertEqual(aa, b)
+        self.assertAlmostEqual(aa1, b1, 8)
 
 
 class TestSiteSiderealTime(unittest.TestCase):
@@ -106,13 +110,20 @@ class TestAzAlt2RaDec(unittest.TestCase):
         latitude = OCA['latitude']
         longitude = OCA['longitude']
         elevation = OCA['elevation']
-        ra = '12:00:00'
-        dec = '-70:00:00'
+        ra = '10:00:00'
+        dec = '70:00:00'
+        tim = datetime.datetime.now()
         az, alt = ra_dec_2_az_alt(ra=ra, dec=dec, latitude=latitude,
-                                  longitude=longitude, elevation=elevation, epoch='2000')
-        ra_2, dec_2 = az_alt_2_ra_dec(az, alt, latitude=latitude, longitude=longitude, elevation=elevation)
-        ra_0 = hourangle_to_decimal_deg(ra)
-        dec_0 = deg_str_to_deg(dec)
+                                  longitude=longitude, elevation=elevation, epoch='2000', time=tim)
+        ra_2, dec_2 = az_alt_2_ra_dec(az=deg_str_to_deg(az),
+                                      alt=deg_str_to_deg(alt),
+                                      latitude=deg_str_to_deg(latitude),
+                                      longitude=deg_str_to_deg(longitude),
+                                      elevation=float(elevation),
+                                      epoch='J2000',
+                                      calc_time=tim)
+        ra_0 = ra_to_decimal(ra)
+        dec_0 = dec_to_decimal(dec)
         self.assertAlmostEqual(ra_0, ra_2, places=3)
         self.assertAlmostEqual(dec_0, dec_2, places=3)
 
