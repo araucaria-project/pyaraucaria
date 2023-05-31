@@ -74,13 +74,18 @@ class TestRaDecToAzAlt(unittest.TestCase):
         self.assertAlmostEqual(e_az, out_az, places=1)
         self.assertAlmostEqual(e_alt, out_alt, places=1)
 
+
 class TestStrToDeg(unittest.TestCase):
 
     def test_str_to_deg(self):
         a = '10:30:00'
         b = 10.5
+        a1 = '-05:00:30.30'
+        b1 = -5.008416667
         aa = deg_str_to_deg(a)
+        aa1 = deg_str_to_deg(a1)
         self.assertEqual(aa, b)
+        self.assertAlmostEqual(aa1, b1, 8)
 
 
 class TestSiteSiderealTime(unittest.TestCase):
