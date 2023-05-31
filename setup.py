@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='pyaraucaria',
-    version='2.6.26',
+    version='2.7.0',
     packages=['pyaraucaria'],
     url='',
     license='MIT/GPL',
@@ -18,9 +18,10 @@ setup(
     ]},
     entry_points={'console_scripts': [
         'lookup_objects=pyaraucaria.lookup_objects:main',
+        'find_stars=pyaraucaria.find_stars:main',
     ]},
     install_requires=[
-        'numpy', 'ephem', 'lark', 'astropy'
+        'numpy', 'ephem', 'lark', 'astropy', 'scipy',
     ],
     extras_require={
         'yaml': ['yaml'],
