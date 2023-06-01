@@ -220,8 +220,8 @@ def site_sidereal_time(longitude, latitude, elevation, time=None, deg_output=Fal
     return sidereal_time
 
 
-def az_alt_2_ra_dec(az, alt, longitude, latitude, elevation, time = None, ra_hour = False, dec_sex = False):
-    # type: (float or str, float or str, str, str, str, datetime or None, bool, bool) -> (float or str, float or str)
+def az_alt_2_ra_dec(az, alt, longitude, latitude, elevation, time = None):
+    # type: (float, float, float, float, float, datetime or None) -> (float, float)
     """
     Func calculate alt, az from ra, dec for given site and time
     Parameters
@@ -232,8 +232,6 @@ def az_alt_2_ra_dec(az, alt, longitude, latitude, elevation, time = None, ra_hou
     latitude - site latitude
     elevation - site elevation
     time - time UTC
-    ra_hour - if True returns ra in hourangle sexagesimal, else in degrees float
-    dec_sex - if True returns dec in sexagesimal, else in degrees float
 
     Returns
     -------
@@ -244,28 +242,11 @@ def az_alt_2_ra_dec(az, alt, longitude, latitude, elevation, time = None, ra_hou
         site.date = time
     else:
         site.date = ephem.now()
-    site.lon = longitude
-    site.lat = latitude
-    site.elevation = float(elevation)
-
-    if isinstance(az, str) and isinstance(alt, str):
-        az = az
-        alt = alt
-    elif isinstance(az, float) and isinstance(alt, float):
-        az = math.radians(az)
-        alt = math.radians(alt)
-    else:
-        raise ValueError
+    site.lon = math.radians(longitude)
+    site.lat = math.radians(latitude)
+    site.elevation = elevation
+    az = math.radians(az)
+    alt = math.radians(alt)
     _ra, _dec = site.radec_of(az, alt)
-    _ra = math.degrees(_ra)
-    _dec = math.degrees(_dec)
-    if ra_hour:
-        ra = ra_to_sexagesimal(_ra)
-    else:
-        ra = _ra
-    if dec_sex:
-        dec = dec_to_sexagesimal(_dec)
-    else:
-        dec = _dec
 
-    return ra, dec
+    return math.degrees(_ra), math.degrees(_dec)

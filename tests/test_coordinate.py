@@ -106,18 +106,19 @@ class TestSiteSiderealTime(unittest.TestCase):
 
 class TestAzAlt2RaDec(unittest.TestCase):
 
-    def test_ra_dec_2_az_alt(self):
+    def test_az_alt_2_ra_dec(self):
         OCA = {'latitude': '-24:35:53', 'longitude': '-70:11:47', 'elevation': '2817'}
         latitude = OCA['latitude']
         longitude = OCA['longitude']
         elevation = OCA['elevation']
-        ra = '12:00:00'
-        dec = '-70:00:00'
+        ra = '19:50:46.68'
+        dec = '8:52:03'
         az, alt = ra_dec_2_az_alt(ra=ra, dec=dec, latitude=latitude,
                                   longitude=longitude, elevation=elevation, epoch='2000')
-        ra_2, dec_2 = az_alt_2_ra_dec(az, alt, latitude=latitude, longitude=longitude, elevation=elevation)
+        ra_2, dec_2 = az_alt_2_ra_dec(deg_str_to_deg(az), deg_str_to_deg(alt), latitude=deg_str_to_deg(OCA['latitude']),
+                                      longitude=deg_str_to_deg(OCA['longitude']), elevation=float(OCA['elevation']))
         ra_0 = hourangle_to_decimal_deg(ra)
-        dec_0 = deg_str_to_deg(dec)
+        dec_0 = dec_to_decimal(dec)
         self.assertAlmostEqual(ra_0, ra_2, places=3)
         self.assertAlmostEqual(dec_0, dec_2, places=3)
 
