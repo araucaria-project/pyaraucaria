@@ -105,38 +105,33 @@ def format_sexagesimal(deg, multiplier, sign, sep=':', precision=3):
     )
 
 
-def ra_dec_epoch(ra, dec, longitude, latitude, elevation, epoch):
-    # type: (str, str, str, str, str, str) -> (str, str)
+def ra_dec_epoch(ra, dec, epoch):
+    # type: (float, float, str) -> (float, float)
     """
-    Func calculates coordinates (ra, dec) for site longitude latitude elevation and epoch=now
+    Func calculates coordinates (ra, dec) for site longitude latitude elevation and epoch
     Parameters
     ----------
-    longitude - site longitude
-    latitude - site latitude
-    elevation - site elevation
     ra - ra for given epoch
     dec - dec for given epoch
-    epoch - epoch of (ra, dec), example: '2000/01/01', '2000'
+    epoch - epoch of param: ra, dec; example: '2000/01/01', '2000'
 
     Returns
     -------
-    (ra, dec) for epoch=now and given site
+    (ra, dec) for epoch now
     """
-    site = ephem.Observer()
-    site.date = ephem.now()
-    site.lon = longitude
-    site.lat = latitude
-    site.elevation = float(elevation)
+    ob = ephem.Observer()
+    ob.epoch = ephem.now()
     star = ephem.FixedBody()
-    star._ra = ephem.hours(ra)
-    star._dec = ephem.degrees(dec)
     star._epoch = epoch
-    star.compute(site)
-    return str(star.g_ra), str(star.g_dec)
+    star._ra = math.radians(ra)
+    star._dec = math.radians(dec)
+    star.compute(ob)
+
+    return math.degrees(star.g_ra), math.degrees(star.g_dec)
 
 
 def ra_dec_2_az_alt(ra, dec, longitude, latitude, elevation, epoch, time=None):
-    # type: (str, str, str, str, str, str, datetime or None) -> (str, str)
+    # type: (float, float, float, float, float, str, datetime or None) -> (float, float)
     """
     Func calculate alt, az from ra, dec for given site and time
     Parameters
@@ -158,16 +153,16 @@ def ra_dec_2_az_alt(ra, dec, longitude, latitude, elevation, epoch, time=None):
         site.date = time
     else:
         site.date = ephem.now()
-    site.lon = longitude
-    site.lat = latitude
+    site.lon = math.radians(longitude)
+    site.lat = math.radians(latitude)
     site.elevation = float(elevation)
     star = ephem.FixedBody()
-    star._ra = ephem.hours(ra)
-    star._dec = ephem.degrees(dec)
+    star._ra = math.radians(ra)
+    star._dec = math.radians(dec)
     star._epoch = epoch
     star.compute(site)
 
-    return str(star.az), str(star.alt)
+    return math.degrees(star.az), math.degrees(star.alt)
 
 
 def deg_str_to_deg(deg):
@@ -190,8 +185,8 @@ def deg_str_to_deg(deg):
     return sign * (abs(int(w[0])) + int(w[1])/60 + float(w[2])/3600)
 
 
-def site_sidereal_time(longitude, latitude, elevation, time=None, deg_output=False):
-    # type: (str, str, str, datetime or None, bool) -> str or float
+def site_sidereal_time(longitude, latitude, elevation, time=None):
+    # type: (float, float, float, datetime or None) -> float
     """
     Func returns site sidereal time
     Parameters
@@ -200,7 +195,6 @@ def site_sidereal_time(longitude, latitude, elevation, time=None, deg_output=Fal
     latitude - site latitude
     elevation - site elevation
     time - make calculation for different time than now, defalut None
-    deg_output - if True degrees output
 
     Returns
     -------
@@ -211,13 +205,11 @@ def site_sidereal_time(longitude, latitude, elevation, time=None, deg_output=Fal
         site.date = time
     else:
         site.date = ephem.now()
-    site.lon = longitude
-    site.lat = latitude
-    site.elevation = float(elevation)
-    sidereal_time = (site.sidereal_time()).__str__()
-    if deg_output:
-        sidereal_time = hourangle_to_decimal_deg(sidereal_time.__str__())
-    return sidereal_time
+    site.lon = math.radians(longitude)
+    site.lat = math.radians(latitude)
+    site.elevation = elevation
+
+    return hourangle_to_decimal_deg(site.sidereal_time().__str__())
 
 
 def az_alt_2_ra_dec(az, alt, longitude, latitude, elevation, time = None):
