@@ -16,6 +16,7 @@ Licence: MIT
 import re
 import ephem
 import math
+import datetime
 
 
 def ra_to_decimal(hms):
@@ -103,7 +104,9 @@ def format_sexagesimal(deg, multiplier, sign, sep=':', precision=3):
         sep[2] if len(sep) == 3 else ''
     )
 
-def ra_dec_epoch(ra: str, dec: str, longitude: str, latitude: str, elevation: str, epoch:str):
+
+def ra_dec_epoch(ra, dec, longitude, latitude, elevation, epoch):
+    # type: (str, str, str, str, str, str) -> (str, str)
     """
     Func calculates coordinates (ra, dec) for site longitude latitude elevation and epoch=now
     Parameters
@@ -131,8 +134,9 @@ def ra_dec_epoch(ra: str, dec: str, longitude: str, latitude: str, elevation: st
     star.compute(site)
     return str(star.g_ra), str(star.g_dec)
 
-def ra_dec_2_az_alt(ra: str, dec: str, longitude: str, latitude: str,
-                    elevation: str, epoch:str, time = None):
+
+def ra_dec_2_az_alt(ra, dec, longitude, latitude, elevation, epoch, time=None):
+    # type: (str, str, str, str, str, str, datetime or None) -> (str, str)
     """
     Func calculate alt, az from ra, dec for given site and time
     Parameters
@@ -165,11 +169,18 @@ def ra_dec_2_az_alt(ra: str, dec: str, longitude: str, latitude: str,
 
     return str(star.az), str(star.alt)
 
-def deg_str_to_deg(deg: str):
+
+def deg_str_to_deg(deg):
+    # type: (str) -> float
     """
     Converts degrees from str XX:XX:XX to float
-    :param deg: degrees in XX:XX:XX (string) format
-    :return: degrees in float
+    Parameters
+    ----------
+    deg - degrees in XX:XX:XX (string) format
+
+    Returns
+    -------
+    degrees in float
     """
     w = deg.split(":")
     if int(w[0]) < 0:
@@ -178,8 +189,9 @@ def deg_str_to_deg(deg: str):
         sign = 1
     return sign * (abs(int(w[0])) + int(w[1])/60 + float(w[2])/3600)
 
-def site_sidereal_time(longitude: str, latitude: str,
-                    elevation: str, time = None, deg_output: bool = False) -> str or float:
+
+def site_sidereal_time(longitude, latitude, elevation, time=None, deg_output=False):
+    # type: (str, str, str, datetime or None, bool) -> str or float
     """
     Func returns site sidereal time
     Parameters
@@ -207,8 +219,9 @@ def site_sidereal_time(longitude: str, latitude: str,
         sidereal_time = hourangle_to_decimal_deg(sidereal_time.__str__())
     return sidereal_time
 
-def az_alt_2_ra_dec(az: float or str, alt: float or str, longitude: str, latitude: str,
-                    elevation: str, time = None, ra_hour: bool = False, dec_sex: bool = False):
+
+def az_alt_2_ra_dec(az, alt, longitude, latitude, elevation, time = None):
+    # type: (float, float, float, float, float, datetime or None) -> (float, float)
     """
     Func calculate alt, az from ra, dec for given site and time
     Parameters
@@ -219,8 +232,6 @@ def az_alt_2_ra_dec(az: float or str, alt: float or str, longitude: str, latitud
     latitude - site latitude
     elevation - site elevation
     time - time UTC
-    ra_hour - if True returns ra in hourangle sexagesimal, else in degrees float
-    dec_sex - if True returns dec in sexagesimal, else in degrees float
 
     Returns
     -------
@@ -231,28 +242,11 @@ def az_alt_2_ra_dec(az: float or str, alt: float or str, longitude: str, latitud
         site.date = time
     else:
         site.date = ephem.now()
-    site.lon = longitude
-    site.lat = latitude
-    site.elevation = float(elevation)
-
-    if isinstance(az, str) and isinstance(alt, str):
-        az = az
-        alt = alt
-    elif isinstance(az, float) and isinstance(alt, float):
-        az = math.radians(az)
-        alt = math.radians(alt)
-    else:
-        raise ValueError
+    site.lon = math.radians(longitude)
+    site.lat = math.radians(latitude)
+    site.elevation = elevation
+    az = math.radians(az)
+    alt = math.radians(alt)
     _ra, _dec = site.radec_of(az, alt)
-    _ra = math.degrees(_ra)
-    _dec = math.degrees(_dec)
-    if ra_hour:
-        ra = ra_to_sexagesimal(_ra)
-    else:
-        ra = _ra
-    if dec_sex:
-        dec = dec_to_sexagesimal(_dec)
-    else:
-        dec = _dec
 
-    return ra, dec
+    return math.degrees(_ra), math.degrees(_dec)
