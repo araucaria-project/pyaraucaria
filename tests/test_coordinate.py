@@ -34,6 +34,7 @@ class TestCoo(unittest.TestCase):
         for (_, t), r in zip(tst, res):
             self.assertEqual(t, r)
 
+
 class TestRaDecEpoch(unittest.TestCase):
 
     def test_ra_dec_epoch(self):
@@ -46,6 +47,7 @@ class TestRaDecEpoch(unittest.TestCase):
                                    epoch='2000')
         self.assertAlmostEqual(ra_f, out_ra , places=2)
         self.assertAlmostEqual(dec_f, out_dec, places=2)
+
 
 class TestRaDecToAzAlt(unittest.TestCase):
 
@@ -98,6 +100,7 @@ class TestSiteSiderealTime(unittest.TestCase):
         sidereal_test_deg = hourangle_to_decimal_deg(sidereal_test)
         self.assertAlmostEqual(sidereal_time_deg, sidereal_test_deg, places=2)
 
+
 class TestAzAlt2RaDec(unittest.TestCase):
 
     def test_az_alt_2_ra_dec(self):
@@ -119,6 +122,32 @@ class TestAzAlt2RaDec(unittest.TestCase):
         dec_0 = dec_to_decimal(dec)
         self.assertAlmostEqual(ra_0, ra_2, places=3)
         self.assertAlmostEqual(dec_0, dec_2, places=3)
+
+
+class TestAzAlt2RaDecAstropy(unittest.TestCase):
+
+    def test_ra_dec_2_az_alt_astropy(self):
+        OCA = {'latitude': '-24:35:53', 'longitude': '-70:11:47', 'elevation': '2817'}
+        latitude = OCA['latitude']
+        longitude = OCA['longitude']
+        elevation = OCA['elevation']
+        ra = '10:00:00'
+        dec = '70:00:00'
+        tim = datetime.datetime.now()
+        az, alt = ra_dec_2_az_alt(ra=ra_to_decimal(ra), dec=dec_to_decimal(dec), latitude=deg_str_to_deg(latitude),
+                                  longitude=deg_str_to_deg(longitude), elevation=float(elevation), epoch='2000', time=tim)
+        ra_2, dec_2 = az_alt_2_ra_dec_astropy(az=az,
+                                              alt=alt,
+                                              latitude=deg_str_to_deg(latitude),
+                                              longitude=deg_str_to_deg(longitude),
+                                              elevation=float(elevation),
+                                              epoch='J2000',
+                                              calc_time=tim)
+        ra_0 = ra_to_decimal(ra)
+        dec_0 = dec_to_decimal(dec)
+        self.assertAlmostEqual(ra_0, ra_2, places=3)
+        self.assertAlmostEqual(dec_0, dec_2, places=3)
+
 
 if __name__ == '__main__':
     unittest.main()
