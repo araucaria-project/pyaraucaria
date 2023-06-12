@@ -17,6 +17,8 @@ import re
 import ephem
 import math
 import datetime
+from astropy.coordinates import SkyCoord, EarthLocation, FK5
+import astropy.units as u
 
 
 def ra_to_decimal(hms):
@@ -242,3 +244,32 @@ def az_alt_2_ra_dec(az, alt, longitude, latitude, elevation, time = None):
     _ra, _dec = site.radec_of(az, alt)
 
     return math.degrees(_ra), math.degrees(_dec)
+
+def az_alt_2_ra_dec_astropy(az, alt, longitude, latitude, elevation, epoch, calc_time=None):
+    # type: (float, float, float, float, float, str, datetime or None) -> (float, float)
+    """
+    Func calculate alt, az from ra, dec for given site and time
+    Parameters
+    ----------
+    az - azimuth
+    alt - altitude
+    longitude - site longitude
+    latitude - site latitude
+    elevation - site elevation
+    epoch - ra, dec epoch calculation. Exemple: 'J2000'
+    time - time UTC
+
+    Returns
+    -------
+    (ra, dec) for given parameters
+    """
+    if calc_time:
+        time_s = calc_time
+    else:
+        time_s = datetime.datetime.now()
+    loc = EarthLocation.from_geodetic(lon=longitude * u.degree, lat=latitude * u.degree, height=elevation)
+    alt_az = SkyCoord(alt=alt * u.degree, az=az * u.degree, frame='altaz', obstime=time_s, location=loc)
+    radec = alt_az.transform_to('icrs')
+    radec_equinox = radec.transform_to(FK5(equinox=epoch))
+
+    return radec_equinox.ra.deg, radec_equinox.dec.deg
