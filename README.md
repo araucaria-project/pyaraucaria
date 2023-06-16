@@ -4,7 +4,7 @@ This library is intended to group various common routines and commandline tools 
 
 Routines of this library should contain external dependencies as limited as possible and be compatible with Python 3.6+.
 
-The compatibility with Python 2.7 is also valuable.
+The compatibility with Python 2.7 is also valuable, but not mandatory.
 
 ## Installation
 
@@ -100,3 +100,7 @@ Example
  'v0': 11.836}
 ```
 
+### Fast FITS Statistics
+Stolen from the [FFS Project](https://github.com/SrebrnySpodek/fast_fits_stats).
+
+The documentation for FFS is in [docs/ffs.md](docs/ffs.md). 
