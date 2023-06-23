@@ -20,6 +20,7 @@ class TestCoo(unittest.TestCase):
             ('12:34:56.1', 12.58225),
             ('-12 34 56.1', -12.58225),
             ('12.58225', 12.58225),
+            ('200:30:00', 200.5),
             ]
         res = [deg_to_decimal_deg(d[0]) for d in tst]
         for (_, t), r in zip(tst, res):
