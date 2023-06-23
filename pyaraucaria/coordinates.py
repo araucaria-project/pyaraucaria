@@ -70,7 +70,7 @@ def deg_to_decimal_deg(dms):
         val = sign * ((((s / 60) + m) / 60) + d)
     return round(val, 6)
 
-_sexagesimal_parser = re.compile(r"(?P<sign>[+\-])?(?P<A>\d\d?)[ :\-hHₕ°](?P<B>\d\d?)[ :\-mMₘ′'](?P<C>\d\d?(?:\.\d*)?)")
+_sexagesimal_parser = re.compile(r"(?P<sign>[+\-])?(?P<A>\d\d?\d?)[ :\-hHₕ°](?P<B>\d\d?)[ :\-mMₘ′'](?P<C>\d\d?(?:\.\d*)?)")
 
 
 def parse_sexagesimal(sexagesimal):
