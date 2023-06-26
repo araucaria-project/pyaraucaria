@@ -79,6 +79,8 @@ class ObsPlanParser:
                     com_name = 'SKYFLAT'
                 if com_name == 'sTOP':
                     com_name = 'STOP'
+                if com_name == 'sNAP':
+                    com_name = 'SNAP'
                 command_dict['command_name'] = com_name
             if child.data == 'args':
                 if child.children:
@@ -158,6 +160,8 @@ class ObsPlanParser:
             return_text = return_text.replace('SKYFLAT', 'sKYFLAT')
         if return_text.find('STOP') >= 0:
             return_text = return_text.replace('STOP', 'sTOP')
+        if return_text.find('SNAP') >= 0:
+            return_text = return_text.replace('SNAP', 'sNAP')
         return return_text
 
     @staticmethod

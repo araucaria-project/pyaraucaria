@@ -47,6 +47,7 @@ class TestObsPlanParser(unittest.TestCase):
             # WAIT ut=16:00
             # ZERO seq=15/I/0
             STOP
+            SNAP seq=10/V/300,10/I/200
             DARK seq=10/V/300,10/I/200
             DOMEFLAT seq=7/V/20,7/I/20
             DOMEFLAT seq=10/str_u/100 domeflat_lamp=0.7
@@ -67,6 +68,7 @@ class TestObsPlanParser(unittest.TestCase):
             # {'command_name': 'WAIT', 'kwargs': {'ut': '16:00'}},
             # {'command_name': 'ZERO', 'kwargs': {'seq': '15/I/0'}},
             {'command_name': 'STOP'},
+            {'command_name': 'SNAP', 'kwargs': {'seq': '10/V/300,10/I/200'}},
             {'command_name': 'DARK', 'kwargs': {'seq': '10/V/300,10/I/200'}},
             {'command_name': 'DOMEFLAT', 'kwargs': {'seq': '7/V/20,7/I/20'}},
             {'command_name': 'DOMEFLAT', 'kwargs': {'seq': '10/str_u/100', 'domeflat_lamp': '0.7'}},

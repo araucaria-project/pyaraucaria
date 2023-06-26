@@ -67,23 +67,10 @@ class TestRaDecToAzAlt(unittest.TestCase):
                                       elevation=OCA['elevation'],
                                       epoch='2000',
                                       time=time)
-        out_az = deg_str_to_deg(out_az)
-        out_alt = deg_str_to_deg(out_alt)
+        out_az = deg_to_decimal_deg(out_az)
+        out_alt = deg_to_decimal_deg(out_alt)
         self.assertAlmostEqual(e_az, out_az, places=1)
         self.assertAlmostEqual(e_alt, out_alt, places=1)
-
-
-class TestStrToDeg(unittest.TestCase):
-
-    def test_str_to_deg(self):
-        a = '10:30:00'
-        b = 10.5
-        a1 = '-05:00:30.30'
-        b1 = -5.008416667
-        aa = deg_str_to_deg(a)
-        aa1 = deg_str_to_deg(a1)
-        self.assertEqual(aa, b)
-        self.assertAlmostEqual(aa1, b1, 8)
 
 
 class TestSiteSiderealTime(unittest.TestCase):
@@ -135,18 +122,18 @@ class TestAzAlt2RaDecAstropy(unittest.TestCase):
         ra = '10:00:00'
         dec = '70:00:00'
         tim = datetime.datetime.now()
-        az, alt = ra_dec_2_az_alt(ra=ra_to_decimal(ra), dec=dec_to_decimal(dec), latitude=deg_str_to_deg(latitude),
-                                  longitude=deg_str_to_deg(longitude), elevation=float(elevation), epoch='2000', time=tim)
+        az, alt = ra_dec_2_az_alt(ra=ra_to_decimal(ra), dec=dec_to_decimal(dec), latitude=deg_to_decimal_deg(latitude),
+                                  longitude=deg_to_decimal_deg(longitude), elevation=float(elevation), epoch='2000', time=tim)
         ra_2, dec_2 = az_alt_2_ra_dec_astropy(az=az,
                                               alt=alt,
-                                              latitude=deg_str_to_deg(latitude),
-                                              longitude=deg_str_to_deg(longitude),
+                                              latitude=deg_to_decimal_deg(latitude),
+                                              longitude=deg_to_decimal_deg(longitude),
                                               elevation=float(elevation),
                                               epoch='J2000',
                                               calc_time=tim)
         ra_0 = ra_to_decimal(ra)
         dec_0 = dec_to_decimal(dec)
-        self.assertAlmostEqual(ra_0, ra_2, places=3)git s
+        self.assertAlmostEqual(ra_0, ra_2, places=3)
         self.assertAlmostEqual(dec_0, dec_2, places=3)
 
 
