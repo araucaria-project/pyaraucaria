@@ -79,6 +79,8 @@ class ObsPlanParser:
                     com_name = 'SKYFLAT'
                 if com_name == 'sTOP':
                     com_name = 'STOP'
+                if com_name == 'sNAP':
+                    com_name = 'SNAP'
                 command_dict['command_name'] = com_name
             if child.data == 'args':
                 if child.children:
@@ -106,7 +108,7 @@ class ObsPlanParser:
         sequence_dict = {}
         for child in tree.children:
             if child.data == 'begin_sequence':
-                sequence_dict['begin_sequence'] = 'begin'
+                sequence_dict['command_name'] = 'SEQUENCE'
             if child.data == 'args':
                 if child.children:
                     if child.children[0].data == 'val':
@@ -116,17 +118,14 @@ class ObsPlanParser:
                     if child.children[0].children[1].data == 'val':
                         sequence_dict['kwargs'] = self._build_kwargs(child)
             if child.data == 'all_commands':
-                sequence_dict['all_commands'] = self._build_all_commands(child)
+                sequence_dict['subcommands'] = self._build_all_commands(child)
         return sequence_dict
 
     def _build_sequences(self, tree: Tree):
 
-        sequence_list = []
         try:
             for child in tree.children:
-                if child.data == 'sequence':
-                    sequence_list.append(self._build_sequence(child))
-            return sequence_list
+                return self._build_sequence(child)
         except AttributeError:
             log.error(f'Text cannot be parsed, please check string')
 
@@ -145,19 +144,20 @@ class ObsPlanParser:
     @staticmethod
     def _prepare_text(text: str) -> str:
         """
-        Prepare text to parse. If BEGINSEQUENCE and ENDSEQUENCE is not added it will add.
+        Prepare text to parse. BEGINSEQUENCE and ENDSEQUENCE is added to put all in SEQUENCE.
         Also solve SKYFLAT lark error and replace for sKYFLAT, later replace back.
         :param text: text to parse
         :return: prepared text to parse
         """
         return_text = text
-        log.debug(f'{return_text.find("SKYFLAT")}')
-        if text.find('BEGINSEQUENCE') < 0:
-            return_text = f"BEGINSEQUENCE \n{text} \nENDSEQUENCE"
+        log.debug(f'preparing text to parse')
+        return_text = f"BEGINSEQUENCE \n{text} \nENDSEQUENCE"
         if return_text.find('SKYFLAT') >= 0:
             return_text = return_text.replace('SKYFLAT', 'sKYFLAT')
         if return_text.find('STOP') >= 0:
             return_text = return_text.replace('STOP', 'sTOP')
+        if return_text.find('SNAP') >= 0:
+            return_text = return_text.replace('SNAP', 'sNAP')
         return return_text
 
     @staticmethod
