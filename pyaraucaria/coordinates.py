@@ -167,26 +167,6 @@ def ra_dec_2_az_alt(ra, dec, longitude, latitude, elevation, epoch, time=None):
     return math.degrees(star.az), math.degrees(star.alt)
 
 
-def deg_str_to_deg(deg):
-    # type: (str) -> float
-    """
-    Converts degrees from str XX:XX:XX to float
-    Parameters
-    ----------
-    deg - degrees in XX:XX:XX (string) format
-
-    Returns
-    -------
-    degrees in float
-    """
-    w = deg.split(":")
-    if int(w[0]) < 0:
-        sign = -1
-    else:
-        sign = 1
-    return sign * (abs(int(w[0])) + int(w[1])/60 + float(w[2])/3600)
-
-
 def site_sidereal_time(longitude, latitude, elevation, time=None):
     # type: (float, float, float, datetime or None) -> float
     """
