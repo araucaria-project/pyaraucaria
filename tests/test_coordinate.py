@@ -146,7 +146,7 @@ class TestAzAlt2RaDecAstropy(unittest.TestCase):
                                               calc_time=tim)
         ra_0 = ra_to_decimal(ra)
         dec_0 = dec_to_decimal(dec)
-        self.assertAlmostEqual(ra_0, ra_2, places=3)
+        self.assertAlmostEqual(ra_0, ra_2, places=3)git s
         self.assertAlmostEqual(dec_0, dec_2, places=3)
 
 
