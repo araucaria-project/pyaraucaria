@@ -37,7 +37,7 @@ class TestObsPlanParser(unittest.TestCase):
 
         opp = ObsPlanParser()
 
-        self.assertEqual(opp.convert_from_string(input), output)
+        self.assertEqual(ObsPlanParser.convert_from_string(input), output)
 
     def test_sequence_2(self):
 
@@ -81,7 +81,7 @@ class TestObsPlanParser(unittest.TestCase):
 
 
         opp = ObsPlanParser()
-        self.assertEqual(opp.convert_from_string(input), output)
+        self.assertEqual(ObsPlanParser.convert_from_string(input), output)
 
     def test_sequence_3(self):
 
@@ -153,7 +153,7 @@ class TestObsPlanParser(unittest.TestCase):
 
 
         opp = ObsPlanParser()
-        self.assertEqual(opp.convert_from_string(input), output)
+        self.assertEqual(ObsPlanParser.convert_from_string(input), output)
 
     def test_sequence_4(self):
 
@@ -194,7 +194,7 @@ class TestObsPlanParser(unittest.TestCase):
 
 
         opp = ObsPlanParser()
-        self.assertEqual(opp.convert_from_string(input), output)
+        self.assertEqual(ObsPlanParser.convert_from_string(input), output)
 
     def test_sequence_5_comments(self):
 
@@ -212,7 +212,7 @@ class TestObsPlanParser(unittest.TestCase):
 
 
         opp = ObsPlanParser()
-        self.assertEqual(opp.convert_from_string(input), output)
+        self.assertEqual(ObsPlanParser.convert_from_string(input), output)
 
     def test_sequence_6_comments(self):
 
@@ -232,7 +232,7 @@ class TestObsPlanParser(unittest.TestCase):
 
 
         opp = ObsPlanParser()
-        self.assertEqual(opp.convert_from_string(input), output)
+        self.assertEqual(ObsPlanParser.convert_from_string(input), output)
 
 if __name__ == '__main__':
     unittest.main()

@@ -10,9 +10,7 @@ log = logging.getLogger(__name__.rsplit('.')[-1])
 
 class ObsPlanParser:
 
-    @property
-    def _line_grammar(self):
-        lin_gr = r"""
+    LINE_GRAMMAR = r"""
         ?start          : sequences
         !sequences      : sequence*
         !sequence       : end_line* begin_sequence args kwargs comment? separator all_commands end_sequence comment? (end_line* comment?)*
@@ -35,7 +33,6 @@ class ObsPlanParser:
         %ignore /[ \f]+/
         %ignore "#" /[^\n]/*
         """
-        return lin_gr
 
     @staticmethod
     def _build_kwargs(tree: Tree):
@@ -69,12 +66,12 @@ class ObsPlanParser:
                 word = str(child.children[0])
                 return word
 
-    def _build_command(self, tree: Tree):
+    def _build_command(tree: Tree):
 
         command_dict = {}
         for child in tree.children:
             if child.data == 'command_name':
-                com_name = self._build_command_name(child)
+                com_name = ObsPlanParser._build_command_name(child)
                 if com_name == 'sKYFLAT':
                     com_name = 'SKYFLAT'
                 if com_name == 'sTOP':
@@ -85,25 +82,25 @@ class ObsPlanParser:
             if child.data == 'args':
                 if child.children:
                     if child.children[0].data == 'val':
-                        command_dict['args'] = self._build_args(child)
+                        command_dict['args'] = ObsPlanParser._build_args(child)
             if child.data == 'kwargs':
                 if child.children:
                     if child.children[0].children[1].data == 'val':
-                        command_dict['kwargs'] = self._build_kwargs(child)
+                        command_dict['kwargs'] = ObsPlanParser._build_kwargs(child)
         return command_dict
 
-    def _build_all_commands(self, tree: Tree):
+    def _build_all_commands(tree: Tree):
 
         all_commands_list = []
         for child in tree.children:
             if child.data == 'command':
                 if child.children[0].data == 'command_name':
-                    all_commands_list.append(self._build_command(child))
+                    all_commands_list.append(ObsPlanParser._build_command(child))
                 if child.children[0].data == 'sequence':
-                    all_commands_list.append(self._build_sequence(child.children[0]))
+                    all_commands_list.append(ObsPlanParser._build_sequence(child.children[0]))
         return all_commands_list
 
-    def _build_sequence(self, tree: Tree):
+    def _build_sequence(tree: Tree):
 
         sequence_dict = {}
         for child in tree.children:
@@ -112,29 +109,29 @@ class ObsPlanParser:
             if child.data == 'args':
                 if child.children:
                     if child.children[0].data == 'val':
-                        sequence_dict['args'] = self._build_args(child)
+                        sequence_dict['args'] = ObsPlanParser._build_args(child)
             if child.data == 'kwargs':
                 if child.children:
                     if child.children[0].children[1].data == 'val':
-                        sequence_dict['kwargs'] = self._build_kwargs(child)
+                        sequence_dict['kwargs'] = ObsPlanParser._build_kwargs(child)
             if child.data == 'all_commands':
-                sequence_dict['subcommands'] = self._build_all_commands(child)
+                sequence_dict['subcommands'] = ObsPlanParser._build_all_commands(child)
         return sequence_dict
 
-    def _build_sequences(self, tree: Tree):
+    def _build_sequences(tree: Tree):
 
         try:
             for child in tree.children:
-                return self._build_sequence(child)
+                return ObsPlanParser._build_sequence(child)
         except AttributeError:
             log.error(f'Text cannot be parsed, please check string')
 
-    def _parse_text(self, text: str) -> Tree:
+    def _parse_text(text: str) -> Tree:
 
-        line_parser = Lark(self._line_grammar)
+        line_parser = Lark(ObsPlanParser.LINE_GRAMMAR)
         parse = line_parser.parse
         try:
-            parsed = parse(self._prepare_text(text))
+            parsed = parse(ObsPlanParser._prepare_text(text))
             return parsed
         except AttributeError:
             log.error(f'Text cannot be parsed, please check string')
@@ -163,7 +160,7 @@ class ObsPlanParser:
     @staticmethod
     def _read_file(file_name: str) -> str:
         """
-        Read txt file
+        Read txt
         :param file_name: file name
         :return: string
         """
@@ -181,35 +178,34 @@ class ObsPlanParser:
         file.write(str(sequences))
         file.close()
 
-    def convert_from_string(self, input_string: str):
+    def convert_from_string(input_string: str):
         """
         Method convert string to observation plan in json format
         :param input_string: input string
         :return: return parsed observation plan in json format
         """
-        par_txt = self._parse_text(input_string)
-        sequences = self._build_sequences(par_txt)
+        par_txt = ObsPlanParser._parse_text(input_string)
+        sequences = ObsPlanParser._build_sequences(par_txt)
         return sequences
 
-    def convert_from_file(self, input_file_name: str, output_file_name: str) -> None:
+    def convert_from_file(input_file_name: str, output_file_name: str) -> None:
         """
         Method parse observation plan from txt file to txt file.
         :param input_file_name: input file name
         :param output_file_name: output file name
         :return:
         """
-        text = self._read_file(input_file_name)
-        par_txt = self._parse_text(text)
-        sequences = self._build_sequences(par_txt)
-        self._write_to_file(output_file_name, sequences)
+        text = ObsPlanParser._read_file(input_file_name)
+        par_txt = ObsPlanParser._parse_text(text)
+        sequences = ObsPlanParser._build_sequences(par_txt)
+        ObsPlanParser._write_to_file(output_file_name, sequences)
 
 
 if __name__ == '__main__':
-    opp = ObsPlanParser()
     try:
         txt = sys.argv[1]
         log.debug(txt)
-        result = opp.convert_from_string(txt)
+        result = ObsPlanParser.convert_from_string(txt)
         if result:
             log.info(f'{result}')
     except IndexError:
