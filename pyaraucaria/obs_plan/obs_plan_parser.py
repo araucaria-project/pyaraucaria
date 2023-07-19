@@ -66,6 +66,7 @@ class ObsPlanParser:
                 word = str(child.children[0])
                 return word
 
+    @staticmethod
     def _build_command(tree: Tree):
 
         command_dict = {}
@@ -89,6 +90,7 @@ class ObsPlanParser:
                         command_dict['kwargs'] = ObsPlanParser._build_kwargs(child)
         return command_dict
 
+    @staticmethod
     def _build_all_commands(tree: Tree):
 
         all_commands_list = []
@@ -100,6 +102,7 @@ class ObsPlanParser:
                     all_commands_list.append(ObsPlanParser._build_sequence(child.children[0]))
         return all_commands_list
 
+    @staticmethod
     def _build_sequence(tree: Tree):
 
         sequence_dict = {}
@@ -118,6 +121,7 @@ class ObsPlanParser:
                 sequence_dict['subcommands'] = ObsPlanParser._build_all_commands(child)
         return sequence_dict
 
+    @staticmethod
     def _build_sequences(tree: Tree):
 
         try:
@@ -126,6 +130,7 @@ class ObsPlanParser:
         except AttributeError:
             log.error(f'Text cannot be parsed, please check string')
 
+    @staticmethod
     def _parse_text(text: str) -> Tree:
 
         line_parser = Lark(ObsPlanParser.LINE_GRAMMAR)
@@ -178,6 +183,7 @@ class ObsPlanParser:
         file.write(str(sequences))
         file.close()
 
+    @staticmethod
     def convert_from_string(input_string: str):
         """
         Method convert string to observation plan in json format
@@ -188,6 +194,7 @@ class ObsPlanParser:
         sequences = ObsPlanParser._build_sequences(par_txt)
         return sequences
 
+    @staticmethod
     def convert_from_file(input_file_name: str, output_file_name: str) -> None:
         """
         Method parse observation plan from txt file to txt file.
