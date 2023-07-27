@@ -3,7 +3,7 @@ import math
 class AirmassCalculator:
     def airmass(elevation: float) -> float:
         """
-        Airmass is a measure of the path length of sunlight through the Earth's atmosphere.
+        airmass is a measure of the path length of sunlight through the Earth's atmosphere.
         It is defined as the secant of the zenith angle and is used in various atmospheric
         and astronomical calculations.
 
