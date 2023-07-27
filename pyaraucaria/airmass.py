@@ -3,7 +3,9 @@ import math
 class AirmassCalculator:
     def airmass(elevation: float) -> float:
         """
-        Airmass is a measure of the path length of sunlight through the Earth's atmosphere.
+        Calculate the airmass.
+
+        The airmass is a measure of the path length of sunlight through the Earth's atmosphere.
         It is defined as the secant of the zenith angle and is used in various atmospheric
         and astronomical calculations.
 
@@ -20,17 +22,20 @@ class AirmassCalculator:
         if not 0 <= elevation <= 90:
             raise ValueError("Elevation angle must be between 0 and 90 degrees.")
 
-        #special case for the zenith angle (elevation of 0.0 degrees)
+        # Special case for the zenith angle (elevation of 0.0 degrees)
         if elevation == 0.0:
             return 1.0
 
-        #special case for the zenith angle (elevation of 90.0 degrees)
+        # Special case for the zenith angle (elevation of 90.0 degrees)
         if elevation == 90.0:
             return 1.0
 
-        #converting the elevation angle to radians
+        # Convert the elevation angle to radians correctly
         elevation_rad = math.radians(elevation)
 
-        #calculating the airmass
-        airmass = 1 / (math.cos(elevation_rad) + 0.50572 * pow((96.07995 - elevation) * 180 / math.pi, -1.6364))
+        # Calculate the zenith angle
+        zenith_angle = 90 - elevation
+
+        # Calculate the airmass using the Kasten-Young formula
+        airmass = 1 / (math.cos(elevation_rad) + 0.50572 * pow((96.07995 - zenith_angle) * 180 / math.pi, -1.6364))
         return airmass
