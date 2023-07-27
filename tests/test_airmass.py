@@ -1,6 +1,5 @@
 import unittest
-import math
-from pyaraucaria.airmass import AirmassCalculator
+from pyaraucaria.airmass import airmass
 
 class TestAirmassCalculator(unittest.TestCase):
     def test_airmass(self):
@@ -10,7 +9,7 @@ class TestAirmassCalculator(unittest.TestCase):
 
         for elevation in test_cases:
             try:
-                result = AirmassCalculator.airmass(elevation)
+                result = airmass(elevation)
 
                 #asserting that the calculated airmass is within reasonable bounds
                 self.assertGreaterEqual(result, 1.0, f"Expected airmass to be greater than or equal to 1.0. Failed for elevation: {elevation:.2f} degrees")
