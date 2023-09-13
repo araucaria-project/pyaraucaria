@@ -3,6 +3,7 @@ from collections import OrderedDict
 from astropy.io import fits
 import numpy as np
 
+
 def save_fits_from_array(array,
                          folder: str,
                          file_name: str,
@@ -71,17 +72,21 @@ def save_fits_from_array(array,
         hdul2[0].header['BZERO'] = 32768
         hdul2.writeto(file_name, overwrite=True)
 
-# Lets Follow the FitS standard version 4, as defined in
+# Let's Follow the FitS standard version 4, as defined in
 # https://fits.gsfc.nasa.gov/fits_standard.html
 # https://fits.gsfc.nasa.gov/standard40/fits_standard40aa-le.pdf
 # https://heasarc.gsfc.nasa.gov/docs/fcg/common_dict.html may be also useful
 
-def fits_header(oca_std="BETA2",
+# Mirk PROP:
+# APERTURE FOC_LEN CREATOR (soft.) OBS_ID MOON_RA MOON_DEC or MOONANGL? DATAMAX DATAMIN
+# PIXSIZE1= 3.800000E+00 / Pixel Size 1 (microns) PIXSIZE2=
+# PIERSIDE OFFSET ?
+
+
+def fits_header(oca_std="BETA3",
                 obs="OCA",
                 obs_lat='',
-                parsed_obs_lat='',
                 obs_lon='',
-                parsed_obs_lon='',
                 obs_elev='',
                 origin='CAMK PAN',
                 tel_id='',
@@ -90,6 +95,8 @@ def fits_header(oca_std="BETA2",
                 req_ra='',
                 req_dec='',
                 epoch='',
+                ra_obj='',
+                dec_obj='',
                 tel_ra='',
                 tel_dec='',
                 tel_alt='',
@@ -99,61 +106,81 @@ def fits_header(oca_std="BETA2",
                 focus='',
                 rotator_pos='',
                 observer='',
+                image_type='',
                 obs_type='',
                 object='',
+                obs_prog='',
+                n_loops='',
+                loop='',
                 filter='',
-                req_exp='',
-                cam_exp='',
-                det_size='',
-                ccd_sec='',
-                ccd_name='',
+                exp_time='',
+                instrume_name='',
                 ccd_temp='',
-                ccd_binx='',
-                ccd_biny='',
+                set_temp='',
+                binx='',
+                biny='',
                 read_mod='',
+                gain_mod='',
                 gain='',
-                r_noise=''
+                r_noise='',
+                subraster='',
+                comment='',
+                scale='',
+                saturate=''
                 ):
 
     _header = OrderedDict({
         "OCASTD": (oca_std, "OCA FITS HDU standard version"),
-        "OBSERVAT": (obs, "Cerro Armazones Observatory"),
-        "OBS-LAT": (parsed_obs_lat, f"[deg] Observatory longitude {obs_lat}"),
-        "OBS-LONG": (parsed_obs_lon, f"[deg] Observatory latitude {obs_lon}"),
+        "OBSERVAT": (obs, "Observatory name"),
+        "OBS-LAT": (obs_lat, f"[deg] Observatory longitude"),
+        "OBS-LONG": (obs_lon, f"[deg] Observatory latitude"),
         "OBS-ELEV": (obs_elev, f"[m] Observatory elevation"),
         "ORIGIN": (origin, "Institution created this FITS file"),
-        "TEL": (tel_id, ''),
+        "TELESCOP": (tel_id, 'Telescope name'),
         "DATE-OBS": (utc_now, "DateTime of observation start"),
         "JD": (jd, "Julian date of observation start"),
-        "RA": (req_ra, "Requested object RA"),
-        "DEC": (req_dec, "Requested object DEC"),
+        "RA": (req_ra, "Requested field RA"),
+        "DEC": (req_dec, "Requested field DEC"),
         "EQUINOX": (epoch, "Requested RA DEC epoch"),
-        "TEL_RA": (tel_ra, "Telescope RA"),
-        "TEL_DEC": (tel_dec, "Telescope DEC"),
-        "TEL_ALT": (tel_alt, "[deg] Telescope mount ALT"),
-        "TEL_AZ": (tel_az, "[deg] Telescope mount AZ"),
-        "AIRMASS": (airmass, ''),
-        "OBSMODE": (obs_mode, "TRACKING, GUIDING, JITTER or ELSE"),
-        "FOCUS": (focus, "Focus position"),
+        "RA_OBJ": (ra_obj, "Program object RA"),
+        "DEC_OBJ": (dec_obj, "Program object DEC"),
+        "RA_TEL": (tel_ra, "Telescope mount RA"),
+        "DEC_TEL": (tel_dec, "Telescope mount DEC"),
+        "ALT_TEL": (tel_alt, "[deg] Telescope mount ALT"),
+        "AZ_TEL": (tel_az, "[deg] Telescope mount AZ"),
+        "AIRMASS": (airmass, 'Airmass'),
+        "OBSMODE": (obs_mode, "Observation mode"),  # values exampl.: "TRACKING, GUIDING, JITTER or ELSE"
+        "FOCUS": (focus, "Focuser position"),
         "ROTATOR": (rotator_pos, "[deg] Rotator position"),
-        "OBSERVER": (observer, ''),
-        "OBSTYPE": (obs_type, ''),
-        "OBJECT": (object, ''),
-        "FILTER": (filter, ''),
-        "EXPREQ": (req_exp, "[s] Requested exposure time"),
-        "EXPTIME": (cam_exp, "[s] Executed exposure time"),
-        "DETSIZE": (det_size, ''),
-        "CCDSEC": (ccd_sec, ''),
-        "CCD_NAME": (ccd_name, ''),
-        "CCD_TEMP": (ccd_temp, ''),
-        "CCD_BINX": (ccd_binx, ''),
-        "CCD_BINY": (ccd_biny, ''),
-        "READ_MOD": (read_mod, ''),
-        "GAIN": (gain, ''),
-        "RNOISE": (r_noise, ''),
+        "OBSERVER": (observer, 'Observers who acquired the data'),
+        "IMAGETYP": (image_type, 'Image type'), # values exampl.: zero, flat, dark, science, focus
+        "OBSTYPE": (obs_type, 'Observation type'),  # values exampl.: science, test, calib, art
+        "OBJECT": (object, 'Object name'),
+        "OBS-PROG": (obs_prog, 'Name of the science project'),
+        "NLOOPS": (n_loops, 'Number of all exposures in this sequence'),
+        "LOOP": (loop, 'Number of exposure within this sequence'),
+        "FILTER": (filter, 'Filter'),
+        "EXPTIME": (exp_time, "[s] Executed exposure time"),
+        # "DETSIZE": (det_size, 'Detector size'),  # ?
+        "INSTRUME": (instrume_name, 'Instrument name'),  # full instrument name, like: 'Andor iKon-L DW936_BV'
+        "CCD-TEMP": (ccd_temp, 'Ccd actual temperature'),
+        "SET-TEMP": (set_temp, 'Ccd set temperature'),
+        "XBINNING": (binx, 'Ccd binx'),
+        "YBINNING": (biny, 'Ccd biny'),
+        "READ-MOD": (read_mod, 'Readout mode'),
+        "GAIN-MOD": (gain_mod, 'Gain mode'),
+        "GAIN": (gain, '[e-/ADU] Gain'),
+        "RON": (r_noise, '[e-/read] Readout noise'),
+        "SUBRASTR": (subraster, 'Subraster size'),
+        # "CCDSEC": (ccd_sec, 'Ccd section'),
+        "COMMENT": (comment, 'Comment'),
+        "SCALE": (scale, '[arcsec/pixel] Image scale'),
+        "SATURATE": (saturate, 'Data value at which saturation occurs'),
+
     })
 
     return _header
+
 
 def fits_stat(array, size: int or None = None, min: bool = True, max: bool = True,
               mean: bool = True, median: bool = True, std: bool = True):
@@ -190,6 +217,7 @@ def fits_stat(array, size: int or None = None, min: bool = True, max: bool = Tru
         result['std'] = np.std(narray)
 
     return result
+
 
 def array_random_subset_2d(array, size: int, replace: bool = False):
     """
