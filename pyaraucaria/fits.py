@@ -72,16 +72,21 @@ def save_fits_from_array(array,
         hdul2[0].header['BZERO'] = 32768
         hdul2.writeto(file_name, overwrite=True)
 
-# Lets Follow the FitS standard version 4, as defined in
+# Let's Follow the FitS standard version 4, as defined in
 # https://fits.gsfc.nasa.gov/fits_standard.html
 # https://fits.gsfc.nasa.gov/standard40/fits_standard40aa-le.pdf
 # https://heasarc.gsfc.nasa.gov/docs/fcg/common_dict.html may be also useful
 
+# Mirk PROP:
+# APERTURE FOC_LEN CREATOR (soft.) OBS_ID MOON_RA MOON_DEC or MOONANGL? DATAMAX DATAMIN
+# PIXSIZE1= 3.800000E+00 / Pixel Size 1 (microns) PIXSIZE2=
+# PIERSIDE OFFSET ?
+
 
 def fits_header(oca_std="BETA3",
                 obs="OCA",
-                parsed_obs_lat='',
-                parsed_obs_lon='',
+                obs_lat='',
+                obs_lon='',
                 obs_elev='',
                 origin='CAMK PAN',
                 tel_id='',
@@ -90,6 +95,8 @@ def fits_header(oca_std="BETA3",
                 req_ra='',
                 req_dec='',
                 epoch='',
+                ra_obj='',
+                dec_obj='',
                 tel_ra='',
                 tel_dec='',
                 tel_alt='',
@@ -99,20 +106,19 @@ def fits_header(oca_std="BETA3",
                 focus='',
                 rotator_pos='',
                 observer='',
+                image_type='',
                 obs_type='',
                 object='',
                 obs_prog='',
                 n_loops='',
                 loop='',
                 filter='',
-                req_exp='',
-                cam_exp='',
-                det_size='',
-                ccd_sec='',
-                ccd_name='',
+                exp_time='',
+                instrume_name='',
                 ccd_temp='',
-                ccd_binx='',
-                ccd_biny='',
+                set_temp='',
+                binx='',
+                biny='',
                 read_mod='',
                 gain_mod='',
                 gain='',
@@ -120,15 +126,14 @@ def fits_header(oca_std="BETA3",
                 subraster='',
                 comment='',
                 scale='',
-                saturate='',
-                radec_sys=''
+                saturate=''
                 ):
 
     _header = OrderedDict({
         "OCASTD": (oca_std, "OCA FITS HDU standard version"),
         "OBSERVAT": (obs, "Observatory name"),
-        "OBS-LAT": (parsed_obs_lat, f"[deg] Observatory longitude"),
-        "OBS-LONG": (parsed_obs_lon, f"[deg] Observatory latitude"),
+        "OBS-LAT": (obs_lat, f"[deg] Observatory longitude"),
+        "OBS-LONG": (obs_lon, f"[deg] Observatory latitude"),
         "OBS-ELEV": (obs_elev, f"[m] Observatory elevation"),
         "ORIGIN": (origin, "Institution created this FITS file"),
         "TELESCOP": (tel_id, 'Telescope name'),
@@ -144,24 +149,24 @@ def fits_header(oca_std="BETA3",
         "ALT_TEL": (tel_alt, "[deg] Telescope mount ALT"),
         "AZ_TEL": (tel_az, "[deg] Telescope mount AZ"),
         "AIRMASS": (airmass, 'Airmass'),
-        "OBSMODE": (obs_mode, "Observation mode"),  #  "TRACKING, GUIDING, JITTER or ELSE"
+        "OBSMODE": (obs_mode, "Observation mode"),  # values exampl.: "TRACKING, GUIDING, JITTER or ELSE"
         "FOCUS": (focus, "Focuser position"),
         "ROTATOR": (rotator_pos, "[deg] Rotator position"),
         "OBSERVER": (observer, 'Observers who acquired the data'),
-        "IMAGETYP": (image_type, 'Image type'), #  zero, flat, dark, science, focus
-        "OBSTYPE": (obs_typ, 'Observation type'), # tylko wartości: science, test, calib, art
+        "IMAGETYP": (image_type, 'Image type'), # values exampl.: zero, flat, dark, science, focus
+        "OBSTYPE": (obs_type, 'Observation type'),  # values exampl.: science, test, calib, art
         "OBJECT": (object, 'Object name'),
         "OBS-PROG": (obs_prog, 'Name of the science project'),
         "NLOOPS": (n_loops, 'Number of all exposures in this sequence'),
         "LOOP": (loop, 'Number of exposure within this sequence'),
         "FILTER": (filter, 'Filter'),
-        "EXPTIME": (cam_exp, "[s] Executed exposure time"),
+        "EXPTIME": (exp_time, "[s] Executed exposure time"),
         # "DETSIZE": (det_size, 'Detector size'),  # ?
-        "INSTRUME": (ccd_name, 'Instrument name'),  # pełna nazwa instrumentu, tj. 'Andor iKon-L DW936_BV'
+        "INSTRUME": (instrume_name, 'Instrument name'),  # full instrument name, like: 'Andor iKon-L DW936_BV'
         "CCD-TEMP": (ccd_temp, 'Ccd actual temperature'),
-        "SET-TEMP": (ccd_temp, 'Ccd set temperature'),
-        "XBINNING": (ccd_binx, 'Ccd binx'),
-        "YBINNING": (ccd_biny, 'Ccd biny'),
+        "SET-TEMP": (set_temp, 'Ccd set temperature'),
+        "XBINNING": (binx, 'Ccd binx'),
+        "YBINNING": (biny, 'Ccd biny'),
         "READ-MOD": (read_mod, 'Readout mode'),
         "GAIN-MOD": (gain_mod, 'Gain mode'),
         "GAIN": (gain, '[e-/ADU] Gain'),
@@ -172,10 +177,6 @@ def fits_header(oca_std="BETA3",
         "SCALE": (scale, '[arcsec/pixel] Image scale'),
         "SATURATE": (saturate, 'Data value at which saturation occurs'),
 
-        # MY PROP:
-        # APERTURE FOC_LEN CREATOR (soft.) OBS_ID MOON_RA MOON_DEC or MOONANGL? DATAMAX DATAMIN
-        # PIXSIZE1= 3.800000E+00 / Pixel Size 1 (microns) PIXSIZE2=
-        # PIERSIDE OFFSET ?
     })
 
     return _header
