@@ -1,72 +1,67 @@
-
-
 import numpy
 from scipy.signal import convolve2d
-from scipy.signal import find_peaks
 from scipy.ndimage.filters import maximum_filter
-
-"""
-    FFS (Fast Fits Statistics) library for star detection in an image, and basic statistics. 
-
-    Args:
-        image (numpy.ndarray): The input image.
-        gain (float, optional): Detector gain value. Used for noise estimation. Defaults to 1.
-        rn_noise (float, optional): Detector readout noise. Used for noise estimation. Defaults to 0.
-
-    Attributes:
-        all Args
-        min (float): The minimum value of the ADU.
-        max (float): The maximum value of the ADU.
-        mean (float): The mean value of the ADU.
-        median (float): The median value of the ADU.
-        rms (float): The root mean square value of the ADU.
-        sigma_quantile (float): The sigma value calculated as the quantile 0.5 - 0.159 .
-        noise (float): The noise calculated as the Poisson noise accounting gain and readout noise.
-
-    Methods:
-        find_stars(self,threshold=5.,method="sigma quantile",kernel_size=9,fwhm=2): Finds the stars in the image with specified noise calulation method.
-
-          Args:
-              threshold (float, optional): The threshold value for star detection. Defaults to 5.
-              method (str, optional): The method used for determining the sigma value. Can be 'rms Poisson','rms','sigma quantile'. Defaults to "sigma quantile".
-              kernel_size (int, optional): The size of the Gaussian kernel. Defaults to 9.
-              fwhm (float, optional): FWHM value. Defaults to 2.
-
-          Returns:
-              coo (numpy.ndarray): An sorted array of coordinates representing the positions of stars.
-              adu (numpy.ndarray): An sorted array of ADU values corresponding to the detected stars.
-
-        fwhm(self,saturation=65000,radius=10,all_stars=False): Calculates the average fwhm for stars in the X and Y axis.
-
-          Args:
-            saturation (float): Saturation level above fwhm calculation will be ignored for a star. Defaults to 65000
-            radius (int): Radius in which fwhm will be calculated. Defaults to 10
-            all_stars (bool): If True, fwhm will be calculated for all stars. 
-                              If False, only for 100 non saturated brightests. Defaults to False
-
-          Returns: 
-            fwhm_x,fwhm_y (float,float): Median of fwhm for X and Y axis, respectively
-
-          Attributes:
-            fwhm_xarr (numpy.ndarray): array of fwhm in X axis for stars, ordered accordingly to star ADU
-            fwhm_yarr (numpy.ndarray): array of fwhm in Y axis for stars, ordered accordingly to star ADU
-
-    Example usage:
-        stats = FFS(data,threshold=5,kernel_size=9,fwhm=6)
-        sigma = stats.sigma_quantile
-        p_noise = stats.noise
-        coo,adu = stats.find_stars()
-        fwhm_x,fwhm_u = stats.fwhm(saturation=50000,all_stars=True)
-        fwhm_xarr = stats.fwhm_xarr
-        fwhm_yarr = stats.fwhm_yarr
-
-"""
-
 
 
 class FFS:
+    """
+        FFS (Fast Fits Statistics) library for star detection in an image, and basic statistics.
+
+        Args:
+            image (numpy.ndarray): The input image.
+            gain (float, optional): Detector gain value. Used for noise estimation. Defaults to 1.
+            rn_noise (float, optional): Detector readout noise. Used for noise estimation. Defaults to 0.
+
+        Attributes:
+            all Args
+            min (float): The minimum value of the ADU.
+            max (float): The maximum value of the ADU.
+            mean (float): The mean value of the ADU.
+            median (float): The median value of the ADU.
+            rms (float): The root mean square value of the ADU.
+            sigma_quantile (float): The sigma value calculated as the quantile 0.5 - 0.159 .
+            noise (float): The noise calculated as the Poisson noise accounting gain and readout noise.
+
+        Methods:
+            find_stars(self,threshold=5.,method="sigma quantile",kernel_size=9,fwhm=2): Finds the stars in the image with specified noise calulation method.
+
+              Args:
+                  threshold (float, optional): The threshold value for star detection. Defaults to 5.
+                  method (str, optional): The method used for determining the sigma value. Can be 'rms Poisson','rms','sigma quantile'. Defaults to "sigma quantile".
+                  kernel_size (int, optional): The size of the Gaussian kernel. Defaults to 9.
+                  fwhm (float, optional): FWHM value. Defaults to 2.
+
+              Returns:
+                  coo (numpy.ndarray): An sorted array of coordinates representing the positions of stars.
+                  adu (numpy.ndarray): An sorted array of ADU values corresponding to the detected stars.
+
+            fwhm(self,saturation=65000,radius=10,all_stars=False): Calculates the average fwhm for stars in the X and Y axis.
+
+              Args:
+                saturation (float): Saturation level above fwhm calculation will be ignored for a star. Defaults to 65000
+                radius (int): Radius in which fwhm will be calculated. Defaults to 10
+                all_stars (bool): If True, fwhm will be calculated for all stars.
+                                  If False, only for 100 non saturated brightests. Defaults to False
+
+              Returns:
+                fwhm_x,fwhm_y (float,float): Median of fwhm for X and Y axis, respectively
+
+              Attributes:
+                fwhm_xarr (numpy.ndarray): array of fwhm in X axis for stars, ordered accordingly to star ADU
+                fwhm_yarr (numpy.ndarray): array of fwhm in Y axis for stars, ordered accordingly to star ADU
+
+        Example usage:
+            stats = FFS(data,threshold=5,kernel_size=9,fwhm=6)
+            sigma = stats.sigma_quantile
+            p_noise = stats.noise
+            coo,adu = stats.find_stars()
+            fwhm_x,fwhm_u = stats.fwhm(saturation=50000,all_stars=True)
+            fwhm_xarr = stats.fwhm_xarr
+            fwhm_yarr = stats.fwhm_yarr
+        """
 
     def __init__(self,image,gain=1.,rn_noise=0.):
+
         self.image = numpy.transpose(image)
         self.gain = float(gain)
         self.rn_noise = float(rn_noise)
@@ -79,41 +74,45 @@ class FFS:
         self.noise = (self.median/self.gain+self.rn_noise)**0.5
 
     def gauss_kernel(self,size,sigma):
+
         kernel = numpy.fromfunction(lambda x, y: (1/(2*numpy.pi*sigma**2)) * numpy.exp(-((x-(size-1)/2)**2+(y-(size-1)/2)**2)/(2*sigma**2)),(size,size))
         return kernel / numpy.sum(kernel)
 
-    def find_stars(self,threshold=5.,method="sigma quantile",kernel_size=9,fwhm=2):
+    def find_stars(self, threshold=5., method="sigma quantile", kernel_size=9, fwhm=2):
 
         self.threshold = float(threshold)
         self.method = method
         self.fwhm_adopted = float(fwhm)
         self.kernel_size = int(kernel_size)
-        self.kernel_sigma = float(fwhm)/2.355
-        self.kernel = self.gauss_kernel(self.kernel_size,self.kernel_sigma)
-
+        self.kernel_sigma = float(fwhm) / 2.355
+        self.kernel = self.gauss_kernel(self.kernel_size, self.kernel_sigma)
 
         if self.method == "rms Poisson":
-          self.sigma = self.noise
+            self.sigma = self.noise
         elif self.method == "rms":
-          self.sigma = self.rms
+            self.sigma = self.rms
         elif self.method == "sigma quantile":
-          self.sigma = self.sigma_quantile
-        else: raise ValueError(f"Invalid method type {self.method}")
+            self.sigma = self.sigma_quantile
+        else:
+            raise ValueError(f"Invalid method type {self.method}")
 
+        mask_1 = self.image > self.median + self.threshold * self.sigma
+        data_2 = convolve2d(self.image, self.kernel, mode='same')
+        mask_2 = (data_2 == maximum_filter(data_2, 3))
+        mask = numpy.logical_and(mask_1, mask_2)
+        self.coo = numpy.argwhere(mask)
+        if len(self.coo) > 0:
+            x, y = zip(*self.coo)
+            val = self.image[x, y]
+            sorted_i = numpy.argsort(val.astype(float))[::-1]
+            sorted_coo = self.coo[sorted_i]
 
-        maska1 = self.image > self.median + self.threshold * self.sigma
-        data2 = convolve2d(self.image, self.kernel, mode='same')
-        maska2 = (data2 == maximum_filter(data2, 3))
-        maska = numpy.logical_and(maska1, maska2)
-        coo = numpy.argwhere(maska)
-        self.coo = coo
-        x,y=zip(*self.coo)
-        val = self.image[x,y]
-        sorted_i = numpy.argsort(val.astype(float))[::-1]
-        sorted_coo = self.coo[sorted_i]
-        sorted_val = val[sorted_i]
-        self.coo = sorted_coo
-        self.adu = sorted_val
+            sorted_val = val[sorted_i]
+            self.coo = sorted_coo
+            self.adu = sorted_val
+        else:
+            self.coo = numpy.array([])
+            self.adu = numpy.array([])
 
         return self.coo, self.adu
 
