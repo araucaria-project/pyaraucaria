@@ -36,7 +36,7 @@ class TestObsPlanParser(unittest.TestCase):
             {'command_name': 'SEQUENCE', 'kwargs': {'execute_periodically': '02:00', 'priority': '+10'},
              'subcommands': [
                  {'command_name': 'FOCUS', 'args': ['NG31', '12:12:12', '20:20:20']}]}]}
-
+        print(ObsPlanParser.convert_from_string("OBJECT FF_Aql 18:58:14.75 17:21:39.29 seq=2/I/60,2/V/70"))
         self.assertEqual(ObsPlanParser.convert_from_string(input), output)
 
     def test_sequence_2(self):
