@@ -10,7 +10,7 @@ class Focus:
 
     @staticmethod
     def build_focus_sharpness_coef(list_a: List, deg: int, focus_keyword: str,
-                                   crop: int, focus_list: List = None) -> Tuple:
+                                   crop: int, focus_list: List = None, range: List or None = None) -> Tuple:
         focus_list_ret = []
         sharpness_list_ret = []
 
@@ -19,8 +19,12 @@ class Focus:
             hdr = hdu[0].header
             if focus_list is None:
                 focus = hdr[focus_keyword]
+
             else:
                 focus = focus_list[my_iter]
+
+            if focus < range[0] or focus > range[1]:
+                break
             data = hdu[0].data
 
             edge_rows = int(data.shape[0] * float(crop) / 100.)
@@ -43,7 +47,7 @@ class Focus:
 
     @staticmethod
     def calculate(fits_path: str, focus_keyword: str = "FOCUS", focus_list: List = None,
-                  crop: int = 10, method: str = "rms_quad") -> Tuple[int, Dict]:
+                  crop: int = 10, method: str = "rms_quad", range: List or None = None) -> Tuple[int, Dict]:
         """
         Function to calculate the focus position of maximum sharpness for a given FITS files.
 
@@ -93,7 +97,8 @@ class Focus:
                                                                                         deg=deg,
                                                                                         focus_keyword=focus_keyword,
                                                                                         crop=crop,
-                                                                                        focus_list=focus_list)
+                                                                                        focus_list=focus_list,
+                                                                                        range=range)
 
         # ##### RMS with parabolic fit ######
         elif method == "rms":
@@ -105,7 +110,8 @@ class Focus:
                                                                                         deg=deg,
                                                                                         focus_keyword=focus_keyword,
                                                                                         crop=crop,
-                                                                                        focus_list=focus_list)
+                                                                                        focus_list=focus_list,
+                                                                                        range=range)
 
         else:
             focus_list_ret = []
