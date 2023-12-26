@@ -22,9 +22,9 @@ class Focus:
 
             else:
                 focus = focus_list[my_iter]
-
-            if focus < range[0] or focus > range[1]:
-                break
+            if range is not None:
+                if focus < range[0] or focus > range[1]:
+                    continue
             data = hdu[0].data
 
             edge_rows = int(data.shape[0] * float(crop) / 100.)
