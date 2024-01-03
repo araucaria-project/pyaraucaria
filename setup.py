@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='pyaraucaria',
-    version='2.8.2',
+    version='2.9.0',
     packages=['pyaraucaria'],
     url='',
     license='MIT/GPL',
@@ -21,7 +21,7 @@ setup(
         'find_stars=pyaraucaria.find_stars:main',
     ]},
     install_requires=[
-        'numpy', 'ephem', 'lark', 'astropy', 'scipy',
+        'numpy', 'ephem', 'lark', 'astropy', 'scipy', 'astroplan'
     ],
     extras_require={
         'yaml': ['yaml'],
