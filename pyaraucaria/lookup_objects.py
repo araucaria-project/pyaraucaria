@@ -40,7 +40,9 @@ def name_canonizator(name: str) -> str:
 
     This should be used for astronomical objects name comparision, and for database lookup and indices.
     """
-    return re.sub(r'\W+', '', name).lower()
+    # return re.sub(r'\W+', '', name).lower()
+    return re.sub(r'[^\w]|_', '', name).lower()
+
 
 
 def parse_objects_database(file_path=None, skip_errors=True, radec_decimal=False):
