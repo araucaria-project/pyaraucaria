@@ -35,6 +35,16 @@ tab_all_locations = [
 ]
 
 
+def name_canonizator(name: str) -> str:
+    """Name canonization by removing any non-alphanumeric characters and converting to lower case
+
+    This should be used for astronomical objects name comparision, and for database lookup and indices.
+    """
+    # return re.sub(r'\W+', '', name).lower()
+    return re.sub(r'[^\w]|_', '', name).lower()
+
+
+
 def parse_objects_database(file_path=None, skip_errors=True, radec_decimal=False):
     """
     Reads `Objects.database` file, returns objects dictionary and alias mapping.
