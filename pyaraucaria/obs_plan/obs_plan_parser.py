@@ -150,7 +150,6 @@ class ObsPlanParser:
         :param text: text to parse
         :return: prepared text to parse
         """
-        return_text = text
         log.debug(f'preparing text to parse')
         return_text = f"BEGINSEQUENCE \n{text} \nENDSEQUENCE"
         if return_text.find('SKYFLAT') >= 0:
@@ -159,6 +158,7 @@ class ObsPlanParser:
             return_text = return_text.replace('STOP', 'sTOP')
         if return_text.find('SNAP') >= 0:
             return_text = return_text.replace('SNAP', 'sNAP')
+        return_text = return_text.replace('\t', ' ')
         return return_text
 
     @staticmethod
