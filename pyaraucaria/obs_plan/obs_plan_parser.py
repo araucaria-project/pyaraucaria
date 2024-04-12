@@ -4,7 +4,6 @@ import logging
 import sys
 
 
-logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__.rsplit('.')[-1])
 
 
