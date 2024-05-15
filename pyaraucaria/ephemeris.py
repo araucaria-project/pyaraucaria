@@ -37,4 +37,4 @@ def moon_separation(ra: float, dec: float, utc_time: Time):
     """
     moon = get_body(body="moon", time=utc_time)
     obj_coo = SkyCoord(ra=ra * u.deg, dec=dec * u.deg, frame=FK5(equinox=utc_time))
-    return moon.separation(obj_coo, origin_mismatch='ignore').to(u.deg).deg
+    return float(moon.separation(obj_coo, origin_mismatch='ignore').to(u.deg).deg)
