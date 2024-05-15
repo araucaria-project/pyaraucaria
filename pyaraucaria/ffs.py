@@ -60,8 +60,7 @@ class FFS:
             fwhm_yarr = stats.fwhm_yarr
         """
 
-    def __init__(self,image,gain=1.,rn_noise=0.):
-
+    def __init__(self, image, gain=1., rn_noise=0.):
         self.image = numpy.transpose(image)
         self.gain = float(gain)
         self.rn_noise = float(rn_noise)
@@ -70,16 +69,18 @@ class FFS:
         self.mean = numpy.mean(image)
         self.median = numpy.median(image)
         self.rms = numpy.std(image)
-        self.sigma_quantile = numpy.median(image)-numpy.quantile(image, 0.159)
-        self.noise = (self.median/self.gain+self.rn_noise)**0.5
+        self.sigma_quantile = numpy.median(image) - numpy.quantile(image, 0.159)
+        self.noise = (self.median / self.gain + self.rn_noise) ** 0.5
 
-    def gauss_kernel(self,size,sigma):
-
-        kernel = numpy.fromfunction(lambda x, y: (1/(2*numpy.pi*sigma**2)) * numpy.exp(-((x-(size-1)/2)**2+(y-(size-1)/2)**2)/(2*sigma**2)),(size,size))
+    def gauss_kernel(self, size, sigma):
+        kernel = numpy.fromfunction(lambda x, y: (1 / (2 * numpy.pi * sigma ** 2)) * numpy.exp(
+            -((x - (size - 1) / 2) ** 2 + (y - (size - 1) / 2) ** 2) / (2 * sigma ** 2)), (size, size))
         return kernel / numpy.sum(kernel)
 
-    def find_stars(self, threshold=5., method="sigma quantile", kernel_size=9, fwhm=2):
+    def find_stars(self, threshold=5., method="sigma quantile", kernel_size=30, fwhm=10):
 
+        self.coo = []
+        self.adu = []
         self.threshold = float(threshold)
         self.method = method
         self.fwhm_adopted = float(fwhm)
@@ -96,104 +97,105 @@ class FFS:
         else:
             raise ValueError(f"Invalid method type {self.method}")
 
-        mask_1 = self.image > self.median + self.threshold * self.sigma
-        data_2 = convolve2d(self.image, self.kernel, mode='same')
-        mask_2 = (data_2 == maximum_filter(data_2, 3))
-        mask = numpy.logical_and(mask_1, mask_2)
-        self.coo = numpy.argwhere(mask)
-        if len(self.coo) > 0:
+        maska1 = self.image > self.median + self.threshold * self.sigma
+        data2 = convolve2d(self.image, self.kernel, mode='same')
+        maska2 = (data2 == maximum_filter(data2, 3))
+        maska = numpy.logical_and(maska1, maska2)
+        coo = numpy.argwhere(maska)
+        if len(coo) > 1:
+            self.coo = coo
             x, y = zip(*self.coo)
             val = self.image[x, y]
             sorted_i = numpy.argsort(val.astype(float))[::-1]
             sorted_coo = self.coo[sorted_i]
-
             sorted_val = val[sorted_i]
             self.coo = sorted_coo
             self.adu = sorted_val
-        else:
-            self.coo = numpy.array([])
-            self.adu = numpy.array([])
 
         return self.coo, self.adu
 
-    def fwhm(self,saturation=65000,radius=10,all_stars=False):
-        radius=int(radius)
-        self.fwhm_xarr=[]
-        self.fwhm_yarr=[]
-        self.fwhm_x=None
-        self.fwhm_y=None
-        for i,tmp in enumerate(self.coo):
-            if all_stars: i_max = 100
-            else: i_max = len(self.adu)
-            if self.adu[i] < int(saturation) and i<i_max:
-                x,y = self.coo[i]
+    def fwhm(self, saturation=65000, radius=10, all_stars=True):
+        radius = int(radius)
+        self.fwhm_xarr = []
+        self.fwhm_yarr = []
+        self.fwhm_x = None
+        self.fwhm_y = None
+        for i, tmp in enumerate(self.coo):
+            if all_stars:
+                i_max = len(self.adu)
+            else:
+                i_max = 100
+            d1 = d2 = d3 = d4 = None
+            if self.adu[i] < int(saturation) and i < i_max:
+                x, y = self.coo[i]
                 max_adu = self.adu[i]
-                half_adu = (max_adu-self.sigma_quantile)/2.
+                half_adu = (max_adu - self.median) / 2.
 
-                d1=d2=d3=d4 = None
                 if True:
-                    line = self.image[x-radius:x,y] - self.sigma_quantile - half_adu
-                    maska1,maska2 = line > 0, line < 0
-                    pos,neg = line[maska1], line[maska2]
+                    line = self.image[x - radius:x + radius, y] - self.median - half_adu
+                    line = self.image[x - radius + 1:x + 1, y] - self.median - half_adu
+                    maska1, maska2 = line > 0, line < 0
+                    pos, neg = line[maska1], line[maska2]
                     if len(pos) > 0 and len(neg) > 0:
-                        lower,upper = max(neg), min(pos)
+                        lower, upper = max(neg), min(pos)
                         line = list(line)
-                        lower_i,upper_i = line.index(lower),line.index(upper)
-                        lower_adu,upper_adu = line[lower_i],line[upper_i]
-                        d1 = radius - upper_i + numpy.abs(lower_adu)/(numpy.abs(lower_adu)+numpy.abs(upper_adu))
+                        lower_i, upper_i = line.index(lower), line.index(upper)
+                        lower_adu, upper_adu = line[lower_i], line[upper_i]
+                        d1 = radius - upper_i - numpy.abs(lower_adu) / (numpy.abs(lower_adu) + numpy.abs(upper_adu))
 
-                    line = self.image[x:x+radius,y] - self.sigma_quantile - half_adu
-                    maska1,maska2 = line > 0, line < 0
-                    pos,neg = line[maska1], line[maska2]
+                    line = self.image[x:x + radius, y] - self.median - half_adu
+                    maska1, maska2 = line > 0, line < 0
+                    pos, neg = line[maska1], line[maska2]
                     if len(pos) > 0 and len(neg) > 0:
-                        lower,upper = max(neg), min(pos)
+                        lower, upper = max(neg), min(pos)
                         line = list(line)
-                        lower_i,upper_i = line.index(lower),line.index(upper)
-                        lower_adu,upper_adu = line[lower_i],line[upper_i]
-                        d2 =  upper_i + numpy.abs(lower_adu)/(numpy.abs(lower_adu)+numpy.abs(upper_adu))
+                        lower_i, upper_i = line.index(lower), line.index(upper)
+                        lower_adu, upper_adu = line[lower_i], line[upper_i]
+                        d2 = upper_i + 1 - numpy.abs(lower_adu) / (numpy.abs(lower_adu) + numpy.abs(upper_adu))
 
-                    line = self.image[x,y-radius:y] - self.sigma_quantile - half_adu
-                    maska1,maska2 = line > 0, line < 0
-                    pos,neg = line[maska1], line[maska2]
+                    line = self.image[x, y - radius + 1:y + 1] - self.median - half_adu
+                    maska1, maska2 = line > 0, line < 0
+                    pos, neg = line[maska1], line[maska2]
                     if len(pos) > 0 and len(neg) > 0:
-                        lower,upper = max(neg), min(pos)
+                        lower, upper = max(neg), min(pos)
                         line = list(line)
-                        lower_i,upper_i = line.index(lower),line.index(upper)
-                        lower_adu,upper_adu = line[lower_i],line[upper_i]
-                        d3 = radius - upper_i + numpy.abs(lower_adu)/(numpy.abs(lower_adu)+numpy.abs(upper_adu))
+                        lower_i, upper_i = line.index(lower), line.index(upper)
+                        lower_adu, upper_adu = line[lower_i], line[upper_i]
+                        d3 = radius - upper_i - numpy.abs(lower_adu) / (numpy.abs(lower_adu) + numpy.abs(upper_adu))
 
-                    line = self.image[x,y:y+radius] - self.sigma_quantile - half_adu
-                    maska1,maska2 = line > 0, line < 0
-                    pos,neg = line[maska1], line[maska2]
+                    line = self.image[x, y:y + radius] - self.median - half_adu
+                    maska1, maska2 = line > 0, line < 0
+                    pos, neg = line[maska1], line[maska2]
                     if len(pos) > 0 and len(neg) > 0:
-                        lower,upper = max(neg), min(pos)
+                        lower, upper = max(neg), min(pos)
                         line = list(line)
-                        lower_i,upper_i = line.index(lower),line.index(upper)
-                        lower_adu,upper_adu = line[lower_i],line[upper_i]
-                        d4 =  upper_i + numpy.abs(lower_adu)/(numpy.abs(lower_adu)+numpy.abs(upper_adu))
+                        lower_i, upper_i = line.index(lower), line.index(upper)
+                        lower_adu, upper_adu = line[lower_i], line[upper_i]
+                        d4 = upper_i + 1 - numpy.abs(lower_adu) / (numpy.abs(lower_adu) + numpy.abs(upper_adu))
 
-                    if d1!=None and d2!=None:
-                        dx = (d1+d2)
-                    else: dx = 0
+            if d1 != None and d2 != None:
+                dx = (d1 + d2)
+            else:
+                dx = 0
 
-                    if d3!=None and d4!=None:
-                        dy = (d3+d4)
-                    else: dy = 0
+            if d3 != None and d4 != None:
+                dy = (d3 + d4)
+            else:
+                dy = 0
+            self.fwhm_xarr.append(dx)
+            self.fwhm_yarr.append(dy)
 
-                    self.fwhm_xarr.append(dx)
-                    self.fwhm_yarr.append(dy)
+        self.fwhm_xarr, self.fwhm_yarr = numpy.array(self.fwhm_xarr), numpy.array(self.fwhm_yarr)
 
-        self.fwhm_xarr,self.fwhm_yarr=numpy.array(self.fwhm_xarr),numpy.array(self.fwhm_yarr)
-
-        maska = self.fwhm_xarr==0
+        maska = self.fwhm_xarr == 0
         fwhm_xarr = self.fwhm_xarr[~maska]
 
-        maska = self.fwhm_yarr==0
+        maska = self.fwhm_yarr == 0
         fwhm_yarr = self.fwhm_yarr[~maska]
 
-        if len(fwhm_xarr)>2:
+        if len(fwhm_xarr) > 2:
             self.fwhm_x = numpy.median(fwhm_xarr)
-        if len(fwhm_yarr)>2:
+        if len(fwhm_yarr) > 2:
             self.fwhm_y = numpy.median(fwhm_yarr)
 
-        return self.fwhm_x,self.fwhm_y
+        return self.fwhm_x, self.fwhm_y
