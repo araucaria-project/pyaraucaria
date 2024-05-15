@@ -21,6 +21,7 @@ def dome_eq_azimuth(ra: float, dec: float, r_dome: float, spx: float, spy: float
     @param epoch: Epoch for radec, example: '2000'
     @return: Eq mount dome azimuth [deg]
     """
+    # TODO do in vectors np
 
     # Calc. az alt from ra, dec and epoch
     az, alt = ra_dec_2_az_alt(ra=ra,
@@ -30,6 +31,11 @@ def dome_eq_azimuth(ra: float, dec: float, r_dome: float, spx: float, spy: float
                               elevation=elevation,
                               epoch=epoch)
 
+    # dome_azimuth_vector = np.array([
+    # math.sin(math.radians(az)) * r_dome,
+    # math.cos(math.radians(az)) * r_dome
+    # ]).reshape(-1, 1)
+
     # Calc. dome azimuth vector
     az_rad = math.radians(az)
     dome_azimuth_vector_x = math.sin(az_rad) * r_dome
@@ -37,6 +43,12 @@ def dome_eq_azimuth(ra: float, dec: float, r_dome: float, spx: float, spy: float
     dome_azimuth_vector = [dome_azimuth_vector_x, dome_azimuth_vector_y]
 
     # Calc. alt az target point on xy plane (as vector)
+
+    # target_point = np.array([
+    # r_dome * math.cos(math.radians(90 - az))) * math.sin(math.radians(90 - alt)),
+    # r_dome * math.sin(math.radians(90 - az)) * math.sin(math.radians(90 - alt))
+    # ]).reshape(-1, 1)
+
     target_point = [r_dome * math.cos(math.radians(-(az - 90))) * math.sin(math.radians(90 - alt)),
                     r_dome * math.sin(math.radians(-(az - 90))) * math.sin(math.radians(90 - alt))]
 
@@ -59,9 +71,18 @@ def dome_eq_azimuth(ra: float, dec: float, r_dome: float, spx: float, spy: float
     vector_gem = [x, n_s * y * math.cos(math.radians(abs(latitude)))]
     vector_spx_spy = [spx, spy]
 
+    # TODO Add vectors
+    # new_dome_vector = target_point + vector_spx_spy + vector_gem
+
     # Calc. new dome vector
     new_dome_vector = [target_point[0] + vector_spx_spy[0] + vector_gem[0],
                        target_point[1] + vector_spx_spy[1] + vector_gem[1]]
+
+
+    # TODO NEW VER OF FINAL ANGLE CALC
+    # new_dome_az = math.degrees(math.acos((v.transpose() @ u).ravel()[0] / (np.linalg.norm(u) * np.linalg.norm(v))))
+    # if new_dome_vector[0] < 0:
+    #     new_dome_az = 360 - new_dome_az
 
     # Final azimuth calculation
     if new_dome_vector[0] >= 0 and new_dome_vector[1] >= 0:
