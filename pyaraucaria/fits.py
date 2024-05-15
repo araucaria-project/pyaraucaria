@@ -202,19 +202,19 @@ def fits_stat(array, size: int or None = None, min: bool = True, max: bool = Tru
         narray = array_random_subset_2d(narray, size=size)
 
     if min:
-        result['min'] = np.amin(narray)
+        result['min'] = float(np.amin(narray))
 
     if max:
-        result['max'] = np.amax(narray)
+        result['max'] = float(np.amax(narray))
 
     if mean:
-        result['mean'] = np.mean(narray)
+        result['mean'] = float(np.mean(narray))
 
     if median:
-        result['median'] = np.median(narray)
+        result['median'] = float(np.median(narray))
 
     if std:
-        result['std'] = np.std(narray)
+        result['std'] = float(np.std(narray))
 
     return result
 
