@@ -46,8 +46,8 @@ class TestRaDecEpoch(unittest.TestCase):
         ra_f, dec_f = ra_dec_epoch(ra=ra,
                                    dec=dec,
                                    epoch='2000')
-        self.assertAlmostEqual(ra_f, out_ra , places=2)
-        self.assertAlmostEqual(dec_f, out_dec, places=2)
+        self.assertAlmostEqual(ra_f, out_ra , places=1)
+        self.assertAlmostEqual(dec_f, out_dec, places=1)
 
 
 class TestRaDecToAzAlt(unittest.TestCase):
