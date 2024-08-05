@@ -38,3 +38,20 @@ def moon_separation(ra: float, dec: float, utc_time: Time):
     moon = get_body(body="moon", time=utc_time)
     obj_coo = SkyCoord(ra=ra * u.deg, dec=dec * u.deg, frame=FK5(equinox=utc_time))
     return float(moon.separation(obj_coo).to(u.deg).deg)
+
+
+def moon_phase(date_utc: datetime, latitude: float, longitude: float, elevation: float):
+    """
+    Func. returns moon phase (illumination).
+    :param date_utc: calculating utc date
+    :param latitude: latitude of observer
+    :param longitude: longitude of observer
+    :param elevation: elevation of observer
+    :return: moon phase (illumination) in % (range 0-100)
+    """
+
+    date = Time(val=date_utc)
+    obs = Observer(latitude=latitude,
+                   longitude=longitude,
+                   elevation=elevation * u.m)
+    return obs.moon_illumination(time=date) * 100
