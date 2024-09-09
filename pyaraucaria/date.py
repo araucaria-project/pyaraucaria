@@ -271,3 +271,12 @@ def correct_year(year):
     # type: (int) -> int
     return year if year > 100 else (year + 1900 if year > 40 else year + 2000)
 
+
+def get_oca_jd(jd: float) -> float:
+    """
+    Func. calculate oca julian date
+    @param jd: Input julian date
+    @return: Oca jd date
+    """
+    return jd - 2460000
+
