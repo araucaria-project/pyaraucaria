@@ -15,6 +15,8 @@ import logging
 import re
 import datetime as _dtt
 
+import numpy as np
+
 from pyaraucaria.erfa import eraCal2jd
 
 logger = logging.getLogger('dates')
@@ -272,7 +274,7 @@ def correct_year(year):
     return year if year > 100 else (year + 1900 if year > 40 else year + 2000)
 
 
-def get_oca_jd(jd: float) -> float:
+def get_oca_jd(jd: float or np.ndarray) -> float or np.ndarray:
     """
     Func. calculate oca julian date
     @param jd: Input julian date
