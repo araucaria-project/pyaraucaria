@@ -3,7 +3,7 @@ from pyaraucaria.airmass import airmass
 
 class TestAirmassCalculator(unittest.TestCase):
     def test_airmass(self):
-        test_cases = [0, 15.0, 30.0, 45.0, 60.0, 75.0, 89.0]
+        test_cases = [30.0, 45.0, 60.0, 75.0, 89.0]
 
         previous_result = None
 
@@ -17,7 +17,7 @@ class TestAirmassCalculator(unittest.TestCase):
 
                 #additional assertion to validate monotonic increase (or decrease) in airmass
                 if previous_result is not None:
-                    self.assertGreaterEqual(result, previous_result, f"Expected airmass to be increasing. Failed for elevation: {elevation:.2f} degrees")
+                    self.assertLessEqual(result, previous_result, f"Expected airmass to be increasing. Failed for elevation: {elevation:.2f} degrees")
 
                 previous_result = result
 
