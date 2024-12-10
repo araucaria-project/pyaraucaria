@@ -83,7 +83,7 @@ def save_fits_from_array(array,
 # PIERSIDE OFFSET ?
 
 
-def fits_header(oca_std="1.0.1",
+def fits_header(oca_std="1.0.2",
                 obs="OCA",
                 obs_lat='',
                 obs_lon='',
@@ -128,6 +128,9 @@ def fits_header(oca_std="1.0.1",
                 scale='',
                 saturate='',
                 pierside='',
+                flat_era=0,
+                zero_era=0,
+                dark_era=0,
                 ):
 
     _header = OrderedDict({
@@ -178,6 +181,9 @@ def fits_header(oca_std="1.0.1",
         "SCALE": (scale, '[arcsec/pixel] Image scale'),
         "SATURATE": (saturate, 'Data value at which saturation occurs'),
         "PIERSIDE": (pierside, 'EQ mount side of pier'),
+        "FLAT_ERA": (flat_era, 'FLAT images era, increases on changes'),
+        "ZERO_ERA": (zero_era, 'ZERO images era, increases on changes'),
+        "DARK_ERA": (dark_era, 'DARK images era, increases on changes'),
     })
 
     return _header
