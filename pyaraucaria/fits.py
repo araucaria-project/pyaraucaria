@@ -131,6 +131,7 @@ def fits_header(oca_std="1.0.2",
                 flat_era=0,
                 zero_era=0,
                 dark_era=0,
+                test=0,
                 ):
 
     _header = OrderedDict({
@@ -184,6 +185,7 @@ def fits_header(oca_std="1.0.2",
         "FLAT_ERA": (flat_era, 'FLAT images era, increases on changes'),
         "ZERO_ERA": (zero_era, 'ZERO images era, increases on changes'),
         "DARK_ERA": (dark_era, 'DARK images era, increases on changes'),
+        "TEST":     (test, 'Whether it is test frame, 0 or 1'),
     })
 
     return _header
