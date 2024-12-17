@@ -128,10 +128,14 @@ def fits_header(oca_std="1.0.2",
                 scale='',
                 saturate='',
                 pierside='',
-                flat_era=0,
-                zero_era=0,
-                dark_era=0,
-                test=0,
+                flat_era='',
+                zero_era='',
+                dark_era='',
+                test='',
+                baseline_clamp='',
+                sensor_compensation='',
+                sensor_port="",
+                vertical_shift_speed='',
                 ):
 
     _header = OrderedDict({
@@ -186,7 +190,16 @@ def fits_header(oca_std="1.0.2",
         "ZERO_ERA": (zero_era, 'ZERO images era, increases on changes'),
         "DARK_ERA": (dark_era, 'DARK images era, increases on changes'),
         "TEST":     (test, 'Whether it is test frame, 0 or 1'),
+        "CCD-BLCL": (baseline_clamp, 'Baseline clamp'),
+        "CCD-SCMP": (sensor_compensation, 'Sensor compensation'),
+        "CCD-PORT": (sensor_port, 'Sensor port (amplifier)'),
+        "CCD-VSSP": (vertical_shift_speed, '[us/pixel] Vertical shift speed'),
     })
+    # vertical_shift_speed: 134.49  # us/pixel   # header: CCD-VSSP
+    # #          vertical_shift_speed: 156.89  # us/pixel
+    # baseline_clamp: False  # header: CCD-BLCL
+    # sensor_port: "all"  # which amplifier to use: all, bottom-left, bottom-right, top-left, top-right # header: CCD-PORT
+    # sensor_compenstation: False  # header: CCD-SCMP
 
     return _header
 
