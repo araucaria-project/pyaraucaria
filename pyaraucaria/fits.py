@@ -1,6 +1,6 @@
 import os
 from collections import OrderedDict
-from typing import List
+from typing import List, Dict
 
 from astropy.io import fits
 import numpy as np
@@ -206,8 +206,10 @@ def fits_header(oca_std="1.0.2",
     return _header
 
 
-def fits_stat(array: np.ndarray or List, size: int or None = None, min: bool = True, max: bool = True,
-              mean: bool = True, median: bool = True, std: bool = True, rms: bool = True , sigma_quantile: bool = True):
+def fits_stat(
+        array: np.ndarray or List, size: int or None = None,
+        min: bool = True, max: bool = True, mean: bool = True, median: bool = True,
+        std: bool = True, rms: bool = True , sigma_quantile: bool = True) -> Dict:
     """
     Main fits statistics
     :param array: list like image data, example: [[2, 3, 4], [1, 1, 1], [2, 3, 1]] or numpy array
