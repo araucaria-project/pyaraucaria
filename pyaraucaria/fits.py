@@ -1,5 +1,7 @@
 import os
 from collections import OrderedDict
+from typing import List
+
 from astropy.io import fits
 import numpy as np
 
@@ -204,39 +206,50 @@ def fits_header(oca_std="1.0.2",
     return _header
 
 
-def fits_stat(array, size: int or None = None, min: bool = True, max: bool = True,
-              mean: bool = True, median: bool = True, std: bool = True):
+def fits_stat(array: np.ndarray or List, size: int or None = None, min: bool = True, max: bool = True,
+              mean: bool = True, median: bool = True, std: bool = True, rms: bool = True , sigma_quantile: bool = True):
     """
     Main fits statistics
-    :param array: list like image data, example: [[2, 3, 4], [1, 1, 1], [2, 3, 1]]
+    :param array: list like image data, example: [[2, 3, 4], [1, 1, 1], [2, 3, 1]] or numpy array
     :param size: size of sample taken random (if size=None will calculate whole array)
-    :param min: array minimum, should calculate this stat, default Yes
-    :param max: array maximum, should calculate this stat, default Yes
-    :param mean: array mean, should calculate this stat, default Yes
-    :param median: array median, should calculate this stat, default Yes
-    :param std: array standard deviation, should calculate this stat, default Yes
-    :return: Dict[str, float]
+    :param min: array minimum, if True will estimate
+    :param max: array maximum, if True will estimate
+    :param mean: array mean, if True will estimate
+    :param median: array median, if True will estimate
+    :param std: array standard deviation, if True will estimate
+    :param rms: array standard deviation, if True will estimate
+    :param sigma_quantile: array sigma quantile, if True will estimate
+    :return: Dict[str, float] with results
     """
 
     result = {}
-    narray = np.array(array)
+
+    if isinstance(array, list):
+        array = np.array(array)
+
     if size is not None:
-        narray = array_random_subset_2d(narray, size=size)
+        array = array_random_subset_2d(array, size=size)
 
     if min:
-        result['min'] = float(np.amin(narray))
+        result['min'] = float(np.amin(array))
 
     if max:
-        result['max'] = float(np.amax(narray))
+        result['max'] = float(np.amax(array))
 
     if mean:
-        result['mean'] = float(np.mean(narray))
+        result['mean'] = float(np.mean(array))
 
     if median:
-        result['median'] = float(np.median(narray))
+        result['median'] = float(np.median(array))
 
     if std:
-        result['std'] = float(np.std(narray))
+        result['std'] = float(np.std(array))
+
+    if rms:
+        result['rms'] = float(np.std(array))
+
+    if sigma_quantile:
+        result['sigma_quantile'] = float(np.median(array) - np.quantile(array, 0.159))
 
     return result
 
