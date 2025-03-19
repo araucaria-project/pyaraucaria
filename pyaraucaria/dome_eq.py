@@ -60,7 +60,8 @@ def dome_eq_azimuth(ra: float, dec: float, r_dome: float, spx: float, spy: float
     # Calc. angle between ra and sidereal + side of pier
     if int(side_of_pier) not in [0, 1]:
         side_of_pier = 0
-    ra_to_sidereal_angle = abs(ra - s_sidereal) + int(side_of_pier) * 180
+    # ra_to_sidereal_angle = abs(ra - s_sidereal) + int(side_of_pier) * 180
+    ra_to_sidereal_angle = (s_sidereal - ra) + int(side_of_pier) * 180
 
     # Calc. vector gem
     x = math.cos(math.radians(ra_to_sidereal_angle)) * gem
