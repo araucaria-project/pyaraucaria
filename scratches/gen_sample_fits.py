@@ -13,14 +13,14 @@ header['BITPIX']   = (16, 'array data type')
 header['NAXIS']    = (2, 'number of array dimensions')
 header['NAXIS1']   = 128
 header['NAXIS2']   = 128
-header['OCASTD']   = '1.1.0   '
+header['OCASTD']   = ('1.1.0   ', 'Version of the OCA FITS headers standard')
 header['OBSERVAT'] = ('OCA     ', 'Observatory name')
-header['OBS-LAT']  = (-24.598056, '[deg] Observatory longitude')
-header['OBS-LONG'] = (-70.196389, '[deg] Observatory latitude')
-header['OBS-ELEV'] = (2817, '[m] Observatory elevation')
+header['OBSGEO-B'] = (-24.598056, '[deg] Observatory latitude')
+header['OBSGEO-L'] = (-70.196389, '[deg] Observatory longitude')
+header['OBSGEO-H'] = (2817, '[m] Observatory elevation')
 header['ORIGIN']   = ('CAMK PAN', 'Institution created this FITS file')
 header['TELESCOP'] = ('dumy    ', 'Telescope name')
-header['PI']       = ('Pietzryn', 'Name of the Principal Investigator')
+header['PI']       = ('Pietrzyn', 'Name of the Principal Investigator')
 header['SCIPROG']  = ('ALICJA', 'Name of the science program')
 header['OBS-ID']   = ('zvVgRjP0.004.05', 'BLOCK-ID.SEQ-ID.LOOP-ID (8.3.2) base64.dec.dec')
 header['UOBI']     = ('96e9403b', 'Unique observing block id')
@@ -49,8 +49,8 @@ header['LOOP']     = (1, 'Number of exposure within this sequence')
 header['FILTER']   = ('B       ', 'Filter')
 header['EXPTIME']  = (60.0, '[s] Executed exposure time')
 header['INSTRUME'] = ('DW936_BV', 'Instrument name')
-header['CCD-TEMP'] = (-60.42599868774414, 'Ccd actual temperature')
-header['SET-TEMP'] = ('', 'Ccd set temperature')
+header['T_CAM']    = (-60.42599868774414, '[deg C] Temperature - current ccd/cmos')
+header['T_CAMSET'] = (-60, '[deg C] Temperature - set ccd/cmos')
 header['XBINNING'] = (1, 'Ccd binx')
 header['YBINNING'] = (1, 'Ccd biny')
 header['READ-MOD'] = (2, 'Readout mode')
@@ -90,9 +90,9 @@ header['FAN-MIRR'] = (False, 'Ventilator mirror status:  T=on, F=off')
 header['FAN-DOME'] = (True, 'Ventilator dome status:  T=on, F=off')
 header['ROT-MECH'] = (221.1, '[deg] Rotator mechanical position')
 header['LAMP-FLT'] = (True, 'Dome flat light: 0=unknown 1=off 2=busy 3=on')
-header['PRESS-WS'] = (1024.6, '[hPa] Pressure - weather station')
+header['P-WS']     = (1024.6, '[hPa] Pressure - weather station')
 header['RHUM-WS']  = (21.7, '[%] Relative humidity - weather station')
-header['TEMP-WS']  = (12.9, '[deg C] Temperature - weather station')
+header['T-WS']     = (12.9, '[deg C] Temperature - weather station')
 header['WIND-DIR'] = (34.8, '[deg] Wind direction - weather station, 0 is N')
 header['WIND-AVG'] = (12.1, '[m/s] Wind average speed - weather station')
 header['WIND-GUS'] = (14.7, '[m/s] Wind gust - weather station')
@@ -100,5 +100,15 @@ header['WIND-GUS'] = (14.7, '[m/s] Wind gust - weather station')
 header['COMMENT'] = ""
 
 # Save
+fname = 'example_ocm_1_1_0.fits'
 hdu = fits.PrimaryHDU(data=data, header=header)
-hdu.writeto('example_ocm_1_1_0.fits', overwrite=True)
+hdu.writeto(fname, overwrite=True)
+
+# Check file
+from astropy.wcs import WCS
+
+with fits.open(fname) as hdul:
+    header = hdul[0].header
+    wcs = WCS(header)
+    print(f"Successfully loaded WCS from {fname}")
+    print(f"WCS info: {wcs}")
