@@ -12,7 +12,7 @@ class Focus:
     METHODS = ["rms", "rms_quad", "fwhm"]
 
     @staticmethod
-    def fwhm_for_exec(
+    def fwhm(
             array, saturation: float, threshold: float = 20,
             kernel_size: float = 6, fwhm: float = 4) -> float | None:
         ffs = FFS(image=array)
@@ -55,14 +55,15 @@ class Focus:
             if measurement == 'rms':
                 sharpness = numpy.std(data)
             elif measurement == 'fwhm':
-                sharpness = 20 - Focus.fwhm_for_exec(
+                fwhm =  Focus.fwhm(
                     array=data,
                     saturation = data.max() * 0.8,
                 )
+                sharpness = 50 - fwhm
             else:
                 raise ValueError
             focus_list_ret.append(float(focus))
-            sharpness_list_ret.append(sharpness)
+            sharpness_list_ret.append(float(sharpness))
             hdu.close()
 
         coef = numpy.polyfit(x=focus_list_ret, y=sharpness_list_ret, deg=deg)
