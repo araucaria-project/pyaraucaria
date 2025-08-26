@@ -3,13 +3,13 @@ from typing import List, Tuple, Dict, Optional
 import numpy
 import numpy as np
 from astropy.io import fits
-
+import scipy
 from pyaraucaria.ffs import FFS
 
 
 class Focus:
 
-    METHODS = ["rms", "rms_quad", "fwhm"]
+    METHODS = ["rms", "rms_quad", "fwhm", "lap"]
 
     @staticmethod
     def fwhm(
@@ -54,6 +54,12 @@ class Focus:
 
             if measurement == 'rms':
                 sharpness = numpy.std(data)
+            elif measurement == 'lap':
+                try:
+                    laplacian = scipy.ndimage.laplace(data)
+                    sharpness = float(np.var(laplacian))
+                except ValueError:
+                    sharpness = None
             elif measurement == 'fwhm':
                 fwhm =  Focus.fwhm(
                     array=data,
@@ -163,6 +169,22 @@ class Focus:
                 focus_list=focus_list,
                 range=range,
                 measurement='fwhm'
+            )
+
+        # ##### laplacian variation with quadratic fit ######
+        elif method == "lap":
+            deg = 4
+            if len(list_a) < deg:
+                raise ValueError(f"for {method} method at least 4 focus positions are required")
+
+            focus_list_ret, sharpness_list_ret, coef = Focus.build_focus_sharpness_coef(
+                list_a=list_a,
+                deg=deg,
+                focus_keyword=focus_keyword,
+                crop=crop,
+                focus_list=focus_list,
+                range=range,
+                measurement='lap'
             )
 
         else:
