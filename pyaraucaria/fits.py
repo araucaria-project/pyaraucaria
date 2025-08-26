@@ -162,9 +162,9 @@ def fits_header(
     _header = OrderedDict({
         "OCASTD": (oca_std, "OCA FITS HDU standard version"),
         "OBSERVAT": (obs, "Observatory name"),
-        "OBSGEO-B": (obs_lat, f"[deg] Observatory longitude"),
-        "OBSGEO-L": (obs_lon, f"[deg] Observatory latitude"),
-        "OBSGEO-H": (obs_elev, f"[m] Observatory elevation"),
+        "OBS-LAT": (obs_lat, f"[deg] Observatory longitude"),
+        "OBS-LONG": (obs_lon, f"[deg] Observatory latitude"),
+        "OBS-ELEV": (obs_elev, f"[m] Observatory elevation"),
         "ORIGIN": (origin, "Institution created this FITS file"),
         "TELESCOP": (tel_id, 'Telescope name'),
         "PI": (pi_name, 'Name of the Principal Investigator'),
