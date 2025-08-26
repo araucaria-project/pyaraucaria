@@ -1,16 +1,36 @@
 import os
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 import numpy
+import numpy as np
 from astropy.io import fits
+
+from pyaraucaria.ffs import FFS
 
 
 class Focus:
 
-    METHODS = ["rms", "rms_quad", ]
+    METHODS = ["rms", "rms_quad", "fwhm"]
 
     @staticmethod
-    def build_focus_sharpness_coef(list_a: List, deg: int, focus_keyword: str,
-                                   crop: int, focus_list: List = None, range: List or None = None) -> Tuple:
+    def fwhm_for_exec(
+            array, saturation: float, threshold: float = 20,
+            kernel_size: float = 6, fwhm: float = 4) -> Dict[str, float] | None:
+        ffs = FFS(image=array)
+        coo, _ = ffs.find_stars(threshold=threshold, kernel_size=kernel_size, fwhm=fwhm)
+        if len(coo) > 3:
+            fwhm_x, fwhm_y = ffs.fwhm(saturation=saturation)
+            if fwhm_x and fwhm_y:
+                return np.sqrt(fwhm_x ** 2 + fwhm_y ** 2)
+            else:
+                return None
+        else:
+            return None
+
+    @staticmethod
+    def build_focus_sharpness_coef(
+            list_a: List, deg: int, focus_keyword: str,
+            crop: int, focus_list: List = None, range: Optional[List] = None, measurement: str = "rms") -> Tuple:
+
         focus_list_ret = []
         sharpness_list_ret = []
 
@@ -32,10 +52,15 @@ class Focus:
 
             data = data[edge_rows:-edge_rows, edge_cols:-edge_cols]
 
-            # mean = numpy.mean(data)
-            # median = numpy.median(data)
-            rms = numpy.std(data)
-            sharpness = rms
+            if measurement == 'rms':
+                sharpness = numpy.std(data)
+            elif measurement == 'fwhm':
+                sharpness = Focus.fwhm_for_exec(
+                    array=data,
+                    saturation = data.max() * 0.8,
+                )
+            else:
+                raise ValueError
             focus_list_ret.append(float(focus))
             sharpness_list_ret.append(sharpness)
             hdu.close()
@@ -47,7 +72,7 @@ class Focus:
 
     @staticmethod
     def calculate(fits_path: str, focus_keyword: str = "FOCUS", focus_list: List = None,
-                  crop: int = 10, method: str = "rms_quad", range: List or None = None) -> Tuple[int, Dict]:
+                  crop: int = 10, method: str = "rms_quad", range: Optional[List] = None) -> Tuple[int, Dict]:
         """
         Function to calculate the focus position of maximum sharpness for a given FITS files.
 
@@ -93,12 +118,15 @@ class Focus:
             if len(list_a) < deg:
                 raise ValueError(f"for {method} method at least 4 focus positions are required")
 
-            focus_list_ret, sharpness_list_ret, coef = Focus.build_focus_sharpness_coef(list_a=list_a,
-                                                                                        deg=deg,
-                                                                                        focus_keyword=focus_keyword,
-                                                                                        crop=crop,
-                                                                                        focus_list=focus_list,
-                                                                                        range=range)
+            focus_list_ret, sharpness_list_ret, coef = Focus.build_focus_sharpness_coef(
+                list_a=list_a,
+                deg=deg,
+                focus_keyword=focus_keyword,
+                crop=crop,
+                focus_list=focus_list,
+                range=range,
+                measurement='rms'
+            )
 
         # ##### RMS with parabolic fit ######
         elif method == "rms":
@@ -106,12 +134,31 @@ class Focus:
             if len(list_a) < deg:
                 raise ValueError(f"for {method} method at least 2 focus positions are required")
 
-            focus_list_ret, sharpness_list_ret, coef = Focus.build_focus_sharpness_coef(list_a=list_a,
-                                                                                        deg=deg,
-                                                                                        focus_keyword=focus_keyword,
-                                                                                        crop=crop,
-                                                                                        focus_list=focus_list,
-                                                                                        range=range)
+            focus_list_ret, sharpness_list_ret, coef = Focus.build_focus_sharpness_coef(
+                list_a=list_a,
+                deg=deg,
+                focus_keyword=focus_keyword,
+                crop=crop,
+                focus_list=focus_list,
+                range=range,
+                measurement='rms'
+            )
+
+        # ##### FWHM with quadratic fit ######
+        elif method == "fwhm":
+            deg = 4
+            if len(list_a) < deg:
+                raise ValueError(f"for {method} method at least 4 focus positions are required")
+
+            focus_list_ret, sharpness_list_ret, coef = Focus.build_focus_sharpness_coef(
+                list_a=list_a,
+                deg=deg,
+                focus_keyword=focus_keyword,
+                crop=crop,
+                focus_list=focus_list,
+                range=range,
+                measurement='fwhm'
+            )
 
         else:
             focus_list_ret = []
@@ -123,7 +170,7 @@ class Focus:
         x = numpy.linspace(start=a, stop=b, num=1000)
         y = numpy.polyval(coef, x)
         k = numpy.argmax(y)
-        max_sharpness_focus = x[k]
+        max_sharpness_focus = int(x[k])
 
         if numpy.abs(numpy.max(sharpness_list_ret) - numpy.min(sharpness_list_ret)) < 5:
             status = "to small sharpness range"
