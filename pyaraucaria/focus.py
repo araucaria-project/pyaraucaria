@@ -59,11 +59,15 @@ class Focus:
                     array=data,
                     saturation = data.max() * 0.8,
                 )
-                sharpness = 50 - fwhm
+                if fwhm is not None:
+                    sharpness = 50 - fwhm
+                else:
+                    sharpness = None
             else:
                 raise ValueError
-            focus_list_ret.append(float(focus))
-            sharpness_list_ret.append(float(sharpness))
+            if sharpness:
+                focus_list_ret.append(float(focus))
+                sharpness_list_ret.append(float(sharpness))
             hdu.close()
 
         coef = numpy.polyfit(x=focus_list_ret, y=sharpness_list_ret, deg=deg)
