@@ -14,7 +14,7 @@ class Focus:
     @staticmethod
     def fwhm_for_exec(
             array, saturation: float, threshold: float = 20,
-            kernel_size: float = 6, fwhm: float = 4) -> Dict[str, float] | None:
+            kernel_size: float = 6, fwhm: float = 4) -> float | None:
         ffs = FFS(image=array)
         coo, _ = ffs.find_stars(threshold=threshold, kernel_size=kernel_size, fwhm=fwhm)
         if len(coo) > 3:
@@ -55,7 +55,7 @@ class Focus:
             if measurement == 'rms':
                 sharpness = numpy.std(data)
             elif measurement == 'fwhm':
-                sharpness = Focus.fwhm_for_exec(
+                sharpness = 20 - Focus.fwhm_for_exec(
                     array=data,
                     saturation = data.max() * 0.8,
                 )
