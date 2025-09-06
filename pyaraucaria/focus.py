@@ -150,6 +150,9 @@ class Focus:
             range=range,
         )
 
+        if not focus_list_ret or not sharpness_list_ret:
+            return None
+
         a = numpy.max(focus_list_ret)
         b = numpy.min(focus_list_ret)
         x = numpy.linspace(start=a, stop=b, num=200)
@@ -161,12 +164,18 @@ class Focus:
                 10,
                 min(sharpness_list_ret)
             ]
-            coef, _ = curve_fit(Focus.lorentzian, focus_list_ret, sharpness_list_ret, p0=p0)
+            try:
+                coef, _ = curve_fit(Focus.lorentzian, focus_list_ret, sharpness_list_ret, p0=p0)
+            except RuntimeError:
+                return None
             y = Focus.lorentzian(x, *coef)
             max_sharpness_focus = int(np.round(coef[1]))
 
         elif Focus.METHODS[method]['curve_fit'] == "polyfit":
-            coef = numpy.polyfit(x=focus_list_ret, y=sharpness_list_ret, deg=Focus.METHODS[method]['deg'])
+            try:
+                coef = numpy.polyfit(x=focus_list_ret, y=sharpness_list_ret, deg=Focus.METHODS[method]['deg'])
+            except RuntimeError:
+                return None
             y = numpy.polyval(coef, x)
             k = numpy.argmax(y)
             max_sharpness_focus = int(x[k])
