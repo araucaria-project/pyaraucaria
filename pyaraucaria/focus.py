@@ -4,12 +4,14 @@ import numpy
 import numpy as np
 from astropy.io import fits
 import scipy
+from scipy.optimize import curve_fit
+
 from pyaraucaria.ffs import FFS
 
 
 class Focus:
 
-    METHODS = ["rms", "rms_quad", "fwhm", "lap"]
+    METHODS = ["rms", "rms_quad", "fwhm", "laplacian", "lorentzian"]
 
     @staticmethod
     def fwhm(
@@ -27,8 +29,12 @@ class Focus:
             return None
 
     @staticmethod
+    def lorentzian(x, a, x0, gamma, z):
+        return a * (gamma ** 2) / ((x - x0) ** 2 + gamma ** 2) + z
+
+    @staticmethod
     def build_focus_sharpness_coef(
-            list_a: List, deg: int, focus_keyword: str,
+            list_a: List, focus_keyword: str,
             crop: int, focus_list: List = None, range: Optional[List] = None, measurement: str = "rms") -> Tuple:
 
         focus_list_ret = []
@@ -54,7 +60,7 @@ class Focus:
 
             if measurement == 'rms':
                 sharpness = numpy.std(data)
-            elif measurement == 'lap':
+            elif measurement == 'laplacian':
                 try:
                     laplacian = scipy.ndimage.laplace(data)
                     sharpness = float(np.var(laplacian))
@@ -70,15 +76,14 @@ class Focus:
                 else:
                     sharpness = None
             else:
+
                 raise ValueError
             if sharpness:
                 focus_list_ret.append(float(focus))
                 sharpness_list_ret.append(float(sharpness))
             hdu.close()
 
-        coef = numpy.polyfit(x=focus_list_ret, y=sharpness_list_ret, deg=deg)
-
-        return focus_list_ret, sharpness_list_ret, coef
+        return focus_list_ret, sharpness_list_ret
 
 
     @staticmethod
@@ -129,15 +134,40 @@ class Focus:
             if len(list_a) < deg:
                 raise ValueError(f"for {method} method at least 4 focus positions are required")
 
-            focus_list_ret, sharpness_list_ret, coef = Focus.build_focus_sharpness_coef(
+            focus_list_ret, sharpness_list_ret = Focus.build_focus_sharpness_coef(
                 list_a=list_a,
-                deg=deg,
                 focus_keyword=focus_keyword,
                 crop=crop,
                 focus_list=focus_list,
                 range=range,
                 measurement='rms'
             )
+
+            coef = numpy.polyfit(x=focus_list_ret, y=sharpness_list_ret, deg=deg)
+
+            # ##### RMS with quadratic fit ######
+        elif method == "lorentzian":
+            deg = 4
+            if len(list_a) < deg:
+                raise ValueError(f"for {method} method at least 4 focus positions are required")
+
+            focus_list_ret, sharpness_list_ret = Focus.build_focus_sharpness_coef(
+                list_a=list_a,
+                focus_keyword=focus_keyword,
+                crop=crop,
+                focus_list=focus_list,
+                range=range,
+                measurement='rms'
+            )
+
+            p0 = [
+                max(sharpness_list_ret) - min(sharpness_list_ret),
+                numpy.median(focus_list_ret),
+                10,
+                min(sharpness_list_ret)
+            ]
+            coef, _ = curve_fit(Focus.lorentzian, focus_list_ret, sharpness_list_ret, p0=p0)
+
 
         # ##### RMS with parabolic fit ######
         elif method == "rms":
@@ -145,15 +175,15 @@ class Focus:
             if len(list_a) < deg:
                 raise ValueError(f"for {method} method at least 2 focus positions are required")
 
-            focus_list_ret, sharpness_list_ret, coef = Focus.build_focus_sharpness_coef(
+            focus_list_ret, sharpness_list_ret = Focus.build_focus_sharpness_coef(
                 list_a=list_a,
-                deg=deg,
                 focus_keyword=focus_keyword,
                 crop=crop,
                 focus_list=focus_list,
                 range=range,
                 measurement='rms'
             )
+            coef = numpy.polyfit(x=focus_list_ret, y=sharpness_list_ret, deg=deg)
 
         # ##### FWHM with quadratic fit ######
         elif method == "fwhm":
@@ -161,9 +191,8 @@ class Focus:
             if len(list_a) < deg:
                 raise ValueError(f"for {method} method at least 4 focus positions are required")
 
-            focus_list_ret, sharpness_list_ret, coef = Focus.build_focus_sharpness_coef(
+            focus_list_ret, sharpness_list_ret = Focus.build_focus_sharpness_coef(
                 list_a=list_a,
-                deg=deg,
                 focus_keyword=focus_keyword,
                 crop=crop,
                 focus_list=focus_list,
@@ -171,21 +200,24 @@ class Focus:
                 measurement='fwhm'
             )
 
+            coef = numpy.polyfit(x=focus_list_ret, y=sharpness_list_ret, deg=deg)
+
         # ##### laplacian variation with quadratic fit ######
-        elif method == "lap":
+        elif method == "laplacian":
             deg = 4
             if len(list_a) < deg:
                 raise ValueError(f"for {method} method at least 4 focus positions are required")
 
-            focus_list_ret, sharpness_list_ret, coef = Focus.build_focus_sharpness_coef(
+            focus_list_ret, sharpness_list_ret = Focus.build_focus_sharpness_coef(
                 list_a=list_a,
-                deg=deg,
                 focus_keyword=focus_keyword,
                 crop=crop,
                 focus_list=focus_list,
                 range=range,
-                measurement='lap'
+                measurement="laplacian"
             )
+
+            coef = numpy.polyfit(x=focus_list_ret, y=sharpness_list_ret, deg=deg)
 
         else:
             focus_list_ret = []
@@ -194,19 +226,25 @@ class Focus:
 
         a = numpy.max(focus_list_ret)
         b = numpy.min(focus_list_ret)
-        x = numpy.linspace(start=a, stop=b, num=1000)
-        y = numpy.polyval(coef, x)
-        k = numpy.argmax(y)
-        max_sharpness_focus = int(x[k])
+        x = numpy.linspace(start=a, stop=b, num=200)
+        if method == "lorentzian":
+            y = Focus.lorentzian(x, *coef)
+            max_sharpness_focus = int(np.round(coef[1]))
+        else:
+            y = numpy.polyval(coef, x)
+            k = numpy.argmax(y)
+            max_sharpness_focus = int(x[k])
 
         if numpy.abs(numpy.max(sharpness_list_ret) - numpy.min(sharpness_list_ret)) < 5:
             status = "to small sharpness range"
-        elif y[0] >= y[k] or y[-1] >= y[k]:
+        elif max_sharpness_focus < min(focus_list_ret) or max_sharpness_focus > max(focus_list_ret):
             status = "wrong range"
+        # elif y[0] >= y[k] or y[-1] >= y[k]:
+        #     status = "wrong range"
         else:
             status = "ok"
 
-        calc_metadata = {"status": status, "poly_coef": coef, "focus_values": focus_list_ret,
-                         "sharpness_values": sharpness_list_ret}
+        calc_metadata = {"status": status, "coef": coef, "focus_values": focus_list_ret,
+                         "sharpness_values": sharpness_list_ret, "fit_x": x, "fit_y": y}
 
         return max_sharpness_focus, calc_metadata
