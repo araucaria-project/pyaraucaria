@@ -1,3 +1,4 @@
+import datetime
 import os
 from typing import List, Tuple, Dict, Optional
 import numpy
@@ -5,7 +6,7 @@ import numpy as np
 from astropy.io import fits
 import scipy
 from scipy.optimize import curve_fit
-
+import matplotlib.pyplot as plt
 from pyaraucaria.ffs import FFS
 
 
@@ -95,7 +96,8 @@ class Focus:
 
     @staticmethod
     def calculate(fits_path: str, focus_keyword: str = "FOCUS", focus_list: List = None,
-                  crop: int = 10, method: str = "rms_quad", range: Optional[List] = None) -> Optional[Tuple[int, Dict]]:
+                  crop: int = 10, method: str = "rms_quad", range: Optional[List] = None,
+                  chart_path: Optional[str] = None) -> Optional[Tuple[int, Dict]]:
         """
         Function to calculate the focus position of maximum sharpness for a given FITS files.
 
@@ -191,5 +193,22 @@ class Focus:
 
         calc_metadata = {"status": status, "coef": coef, "focus_values": focus_list_ret,
                          "sharpness_values": sharpness_list_ret, "fit_x": x, "fit_y": y}
+
+        if chart_path:
+            plt.plot(calc_metadata['fit_x'], calc_metadata['fit_y'])
+            plt.plot(
+                [max_sharpness_focus, max_sharpness_focus],
+                [min(calc_metadata['fit_y']), max(calc_metadata['fit_y'])],
+                c='green'
+            )
+            plt.scatter(calc_metadata['focus_values'], calc_metadata['sharpness_values'], c='red')
+            plt.title(
+                f"Focus done: {datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")},"
+                f" method: {method}")
+            try:
+                plt.savefig(chart_path)
+            except OSError:
+                pass
+            plt.close()
 
         return max_sharpness_focus, calc_metadata
