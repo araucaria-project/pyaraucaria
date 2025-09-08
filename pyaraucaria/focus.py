@@ -203,8 +203,9 @@ class Focus:
             )
             plt.scatter(calc_metadata['focus_values'], calc_metadata['sharpness_values'], c='red')
             plt.title(
-                f"Focus done: {datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")},"
-                f" method: {method}")
+                f'Focus done: {datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")},'
+                f' method: {method}'
+            )
             try:
                 plt.savefig(chart_path)
             except OSError:
