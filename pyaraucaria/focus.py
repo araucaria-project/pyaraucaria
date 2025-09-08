@@ -208,6 +208,8 @@ class Focus:
                 f' method: {method}'
             )
             try:
+                if os.path.exists(chart_path):
+                    os.remove(chart_path)
                 plt.savefig(chart_path)
             except OSError:
                 pass
