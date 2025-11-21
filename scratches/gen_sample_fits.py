@@ -1,8 +1,10 @@
 from astropy.io import fits
 import numpy as np
 
+
+imgsize = (128, 128)
 # Empty data creation 128x128
-data = np.zeros((128, 128), dtype=np.uint16)
+data = np.zeros(imgsize, dtype=np.uint16)
 
 # Empty header creation
 header = fits.Header()
@@ -11,8 +13,8 @@ header = fits.Header()
 header['SIMPLE']   = (True, 'conforms to FITS standard')
 header['BITPIX']   = (16, 'array data type')
 header['NAXIS']    = (2, 'number of array dimensions')
-header['NAXIS1']   = 128
-header['NAXIS2']   = 128
+header['NAXIS1']   = imgsize[0]
+header['NAXIS2']   = imgsize[1]
 header['OCASTD']   = ('1.1.2   ', 'Version of the OCA FITS headers standard')
 header['OBSERVAT'] = ('OCA     ', 'Observatory name')
 header['OBS-LAT'] = (-24.598056, '[deg] Observatory latitude')
