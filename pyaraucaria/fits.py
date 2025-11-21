@@ -1,6 +1,6 @@
 import os
 from collections import OrderedDict
-from typing import List, Dict
+from typing import List, Dict, Union, Optional
 
 from astropy.io import fits
 import numpy as np
@@ -244,7 +244,7 @@ def fits_header(
 
 
 def fits_stat(
-        array: np.ndarray or List, size: int or None = None,
+        array: Union[np.ndarray, List], size: Optional[int] = None,
         min: bool = True, max: bool = True, mean: bool = True, median: bool = True,
         std: bool = True, rms: bool = True , sigma_quantile: bool = True) -> Dict:
     """
@@ -267,7 +267,10 @@ def fits_stat(
         array = np.array(array)
 
     if size is not None:
-        array = array_random_subset_2d(array, size=size)
+        try:
+            array = array_random_subset_2d(array, size=size)
+        except ValueError:
+            pass
 
     if min:
         result['min'] = float(np.amin(array))
