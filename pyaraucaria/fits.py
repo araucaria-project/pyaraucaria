@@ -1,6 +1,6 @@
 import os
 from collections import OrderedDict
-from typing import List, Dict
+from typing import List, Dict, Union, Optional
 
 from astropy.io import fits
 import numpy as np
@@ -86,7 +86,7 @@ def save_fits_from_array(array,
 
 
 def fits_header(
-    oca_std="1.1.0",
+    oca_std="1.1.2",
     obs="OCA",
     obs_lat='',
     obs_lon='',
@@ -162,9 +162,9 @@ def fits_header(
     _header = OrderedDict({
         "OCASTD": (oca_std, "OCA FITS HDU standard version"),
         "OBSERVAT": (obs, "Observatory name"),
-        "OBSGEO-B": (obs_lat, f"[deg] Observatory longitude"),
-        "OBSGEO-L": (obs_lon, f"[deg] Observatory latitude"),
-        "OBSGEO-H": (obs_elev, f"[m] Observatory elevation"),
+        "OBS-LAT": (obs_lat, f"[deg] Observatory longitude"),
+        "OBS-LONG": (obs_lon, f"[deg] Observatory latitude"),
+        "OBS-ELEV": (obs_elev, f"[m] Observatory elevation"),
         "ORIGIN": (origin, "Institution created this FITS file"),
         "TELESCOP": (tel_id, 'Telescope name'),
         "PI": (pi_name, 'Name of the Principal Investigator'),
@@ -244,7 +244,7 @@ def fits_header(
 
 
 def fits_stat(
-        array: np.ndarray or List, size: int or None = None,
+        array: Union[np.ndarray, List], size: Optional[int] = None,
         min: bool = True, max: bool = True, mean: bool = True, median: bool = True,
         std: bool = True, rms: bool = True , sigma_quantile: bool = True) -> Dict:
     """
@@ -267,7 +267,10 @@ def fits_stat(
         array = np.array(array)
 
     if size is not None:
-        array = array_random_subset_2d(array, size=size)
+        try:
+            array = array_random_subset_2d(array, size=size)
+        except ValueError:
+            pass
 
     if min:
         result['min'] = float(np.amin(array))
