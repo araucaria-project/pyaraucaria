@@ -1,9 +1,12 @@
 import numpy as np
-from scipy.signal import convolve2d
+from scipy.signal import convolve2d, find_peaks
 from scipy.ndimage.filters import maximum_filter
+from scipy.ndimage import convolve
 
 from astropy.stats import mad_std
 
+
+#  pip install -e .
 
 class FFS:
     """
@@ -117,6 +120,7 @@ class FFS:
         maska2 = (data2 == maximum_filter(data2, 3))
         maska = np.logical_and(maska1, maska2)
         coo = np.argwhere(maska)
+        self.stats["stars"] = {}
         if len(coo) > 1:
             self.coo = coo
             x, y = zip(*self.coo)
@@ -205,32 +209,32 @@ class FFS:
 
         self.fwhm_xarr, self.fwhm_yarr = np.array(self.fwhm_xarr), np.array(self.fwhm_yarr)
 
-        maska = self.fwhm_xarr == 0
+        maska1 = self.fwhm_xarr == 0
+        maska2 = self.fwhm_yarr == 0
+        maska = maska1 & maska2
         fwhm_xarr = self.fwhm_xarr[~maska]
-
-        maska = self.fwhm_yarr == 0
         fwhm_yarr = self.fwhm_yarr[~maska]
 
         if len(fwhm_xarr) > 2:
             self.fwhm_x = np.median(fwhm_xarr)
         if len(fwhm_yarr) > 2:
             self.fwhm_y = np.median(fwhm_yarr)
+            if True:
 
-        self.stats["stars"]["fwhm"] = (fwhm_xarr + fwhm_yarr)/2
-        self.stats["stars"]["fwhm_xax"] = fwhm_xarr
-        self.stats["stars"]["fwhm_yax"] = fwhm_yarr
+                self.stats["stars"]["fwhm"] = (fwhm_xarr + fwhm_yarr)/2
+                self.stats["stars"]["fwhm_xax"] = fwhm_xarr
+                self.stats["stars"]["fwhm_yax"] = fwhm_yarr
 
-        self.stats["fwhm"] = (self.fwhm_x + self.fwhm_y)/2.
-        self.stats["fwhm_xax"] = self.fwhm_x
-        self.stats["fwhm_yax"] = self.fwhm_y
-
+                self.stats["fwhm"] = (self.fwhm_x + self.fwhm_y)/2.
+                self.stats["fwhm_xax"] = self.fwhm_x
+                self.stats["fwhm_yax"] = self.fwhm_y
 
         return self.fwhm_x, self.fwhm_y
 
 
     def sky_gradient(self,n_segments=10):
         image = self.image
-        segments = self.make_segments(image, n_segments=n_segments)
+        segments = self.make_segments(image)
 
         x = []
         y = []
@@ -292,8 +296,84 @@ class FFS:
         tmp["surface_y"] = self.sky_surface_y
         self.stats["sky"] = tmp
 
+    def hough_transform(self, maska, th_signal=100, steps=180):
+        ys, xs = np.nonzero(maska)
+        xs = xs.astype(float)
+        ys = ys.astype(float)
+        N = len(xs)
 
-    def make_segments(image, n_segments=10, overlap=0):
+        ny, nx = self.image.shape
+        rh0 = int((ny ** 2 + nx ** 2) ** 0.5)
+
+        theta = np.deg2rad(np.linspace(-90, 90, steps))
+        T = len(theta)
+
+        cos_t = np.cos(theta)
+        sin_t = np.sin(theta)
+
+        rho_mtx = xs[:, None] * cos_t[None, :] + ys[:, None] * sin_t[None, :]
+
+        rh = np.linspace(-rh0, rh0, 2 * rh0)
+        ri = np.round(rho_mtx + rh0).astype(int)
+
+        self.accumulator = np.zeros((len(rh), T))
+        ri_flat = ri.ravel()
+        ti_flat = np.tile(np.arange(T), N)
+        np.add.at(self.accumulator, (ri_flat, ti_flat), 1)
+
+        self.accumulator
+        self.theta = theta
+        self.rh = rh
+
+        accu_max = self.accumulator.max(axis=1)
+        peaks, _ = find_peaks(accu_max, height=th_signal)
+
+        lines_rho = []
+        lines_theta = []
+        lines_val = []
+        for p in peaks:
+            rho = rh[p]
+            ti = np.argmax(self.accumulator[p])
+            t = self.theta[ti]
+            val = self.accumulator[p, ti]
+            lines_rho.append(rho)
+            lines_theta.append(t)
+            lines_val.append(val)
+
+        idx = np.argsort(lines_val)[::-1]  # descending
+        lines_rho = np.array(lines_rho)[idx]
+        lines_theta = np.array(lines_theta)[idx]
+        lines_val = np.array(lines_val)[idx]
+
+        tmp = {}
+        tmp["val"] = lines_val
+        tmp["rho"] = lines_rho
+        tmp["theta"] = lines_theta
+        self.stats["lines"] = tmp
+
+
+        return lines_val, lines_theta, lines_rho
+
+    def line_filter(self,image,kernel1_size=3,kernel2_size=7,th1=3,th2=3):
+        image = image
+
+        kernel_l, kernel_r = self.line_detection_kernel(kernel1_size)  # tu sie zmienia
+        result_l = convolve(image, kernel_l)
+        maska_1l = result_l > np.median(result_l) + th1 * mad_std(result_l)
+        result_r = convolve(image, kernel_r)
+        maska_1r = result_r > np.median(result_r) + th1 * mad_std(result_r)
+
+        kernel_l, kernel_r = self.line_detection_kernel(kernel2_size)  # tu sie zmienia
+        result_l = convolve(image, kernel_l)
+        maska_2l = result_l > np.median(result_l) + th2 * mad_std(result_r)
+        result_r = convolve(image, kernel_r)
+        maska_2r = result_r > np.median(result_r) + th2 * mad_std(result_r)
+
+        maska = (maska_1l & maska_2l) ^ (maska_1r & maska_2r)
+
+        return maska
+
+    def make_segments(self,image, n_segments=10, overlap=0):
         height, width = image.shape
         seg_h = height // n_segments
         seg_w = width // n_segments
@@ -321,10 +401,34 @@ class FFS:
 
         return segments
 
-    def polysurf(x, y, coeff):
+    def polysurf(self,x, y, coeff):
         a0, a1, a2, a3, a4, a5 = coeff
         return a0 + a1 * x + a2 * y + a3 * x ** 2 + a4 * x * y + a5 * y ** 2
 
+    def line_detection_kernel(self,kernel_half_size=5):
+        size = 2 * kernel_half_size + 1
+        center = kernel_half_size
+        y, x = np.ogrid[:size, :size]
+        distance = np.sqrt((x - center) ** 2 + (y - center) ** 2)
+        inner = kernel_half_size - 1 / 2
+        outer = kernel_half_size + 1 / 2
+
+        left = ((x <= center) & (y <= center)) | ((x >= center) & (y >= center))
+        right = ((x < center) & (y > center)) | ((x > center) & (y < center))
+
+        # left
+        mk = ((distance >= inner) & (distance <= outer))
+        kernel_l = mk.astype(float)
+        tmp_mk = ((distance >= inner) & (distance <= outer) & right)
+        kernel_l[tmp_mk] = -1
+
+        # right
+        mk = ((distance >= inner) & (distance <= outer))
+        kernel_r = mk.astype(float)
+        tmp_mk = ((distance >= inner) & (distance <= outer) & left)
+        kernel_r[tmp_mk] = -1
+
+        return kernel_l, kernel_r
 
     def gauss_kernel(self, size, sigma):
         kernel = np.fromfunction(lambda x, y: (1 / (2 * np.pi * sigma ** 2)) * np.exp(
