@@ -1,99 +1,71 @@
 import numpy as np
-from scipy.signal import convolve2d, find_peaks
+from scipy.signal import find_peaks, fftconvolve
 from scipy.ndimage.filters import maximum_filter
 from scipy.ndimage import convolve
+from scipy.ndimage import gaussian_filter
 
 from astropy.stats import mad_std
 
+import time
 
 #  pip install -e .
 
 class FFS:
-    """
-        FFS (Fast Fits Statistics) library for star detection in an image, and basic statistics.
-
-        Args:
-            image (np.ndarray): The input image.
-            gain (float, optional): Detector gain value. Used for noise estimation. Defaults to 1.
-            rn_noise (float, optional): Detector readout noise. Used for noise estimation. Defaults to 0.
-
-        Attributes:
-            all Args
-            min (float): The minimum value of the ADU.
-            max (float): The maximum value of the ADU.
-            mean (float): The mean value of the ADU.
-            median (float): The median value of the ADU.
-            rms (float): The root mean square value of the ADU.
-            sigma_quantile (float): The sigma value calculated as the quantile 0.5 - 0.159 .
-            noise (float): The noise calculated as the Poisson noise accounting gain and readout noise.
-
-        Methods:
-            find_stars(self,threshold=5.,method="sigma quantile",kernel_size=9,fwhm=2): Finds the stars in the image with specified noise calulation method.
-
-              Args:
-                  threshold (float, optional): The threshold value for star detection. Defaults to 5.
-                  method (str, optional): The method used for determining the sigma value. Can be 'rms Poisson','rms','sigma quantile'. Defaults to "sigma quantile".
-                  kernel_size (int, optional): The size of the Gaussian kernel. Defaults to 9.
-                  fwhm (float, optional): FWHM value. Defaults to 2.
-
-              Returns:
-                  coo (np.ndarray): An sorted array of coordinates representing the positions of stars.
-                  adu (np.ndarray): An sorted array of ADU values corresponding to the detected stars.
-
-            fwhm(self,saturation=65000,radius=10,all_stars=False): Calculates the average fwhm for stars in the X and Y axis.
-
-              Args:
-                saturation (float): Saturation level above fwhm calculation will be ignored for a star. Defaults to 65000
-                radius (int): Radius in which fwhm will be calculated. Defaults to 10
-                all_stars (bool): If True, fwhm will be calculated for all stars.
-                                  If False, only for 100 non saturated brightests. Defaults to False
-
-              Returns:
-                fwhm_x,fwhm_y (float,float): Median of fwhm for X and Y axis, respectively
-
-              Attributes:
-                fwhm_xarr (np.ndarray): array of fwhm in X axis for stars, ordered accordingly to star ADU
-                fwhm_yarr (np.ndarray): array of fwhm in Y axis for stars, ordered accordingly to star ADU
-
-        Example usage:
-            stats = FFS(data,threshold=5,kernel_size=9,fwhm=6)
-            sigma = stats.sigma_quantile
-            p_noise = stats.noise
-            coo,adu = stats.find_stars()
-            fwhm_x,fwhm_u = stats.fwhm(saturation=50000,all_stars=True)
-            fwhm_xarr = stats.fwhm_xarr
-            fwhm_yarr = stats.fwhm_yarr
-        """
 
     def __init__(self, image, gain=1., rn_noise=0.):
         self.image = np.transpose(image)
         self.gain = float(gain)
         self.rn_noise = float(rn_noise)
+        self.saturation = 65000
         self.stats = {}
 
+
     def mk_stats(self):
-        self.min = np.min(self.image)
-        self.max = np.max(self.image)
-        self.mean = np.mean(self.image)
-        self.median = np.median(self.image)
-        self.rms = np.std(self.image)
-        self.sigma_quantile = np.median(self.image) - np.quantile(self.image, 0.159)
+        img = self.image.ravel()
 
-        self.q_sigma_lower = np.median(self.image) - np.quantile(self.image, 0.159)
-        self.q_sigma_upper = np.quantile(self.image, 0.841) - np.median(self.image)
-        self.q_sigma = (np.quantile(self.image, 0.841) - np.quantile(self.image, 0.159)) / 2.
+        self.min = img.min()
+        self.max = img.max()
+        self.mean = img.mean()
+        self.rms = img.std()
 
-        self.noise = (self.median / self.gain + self.rn_noise) ** 0.5
+        s = np.sort(img)
+        n = s.size
+        q16 = s[int(0.159 * n)]
+        q50 = s[n // 2]
+        q84 = s[int(0.841 * n)]
 
-        self.stats["min"] = self.min
-        self.stats["max"] = self.max
-        self.stats["mean"] = self.mean
-        self.stats["median"] = self.median
-        self.stats["rms"] = self.rms
-        self.stats["q_sigma_lower"] = self.q_sigma_lower
-        self.stats["q_sigma_upper"] = self.q_sigma_upper
-        self.stats["q_sigma"] = self.q_sigma
+        self.median = q50
+        self.q_sigma_lower = q50 - q16
+        self.q_sigma_upper = q84 - q50
+        self.q_sigma = (q84 - q16) / 2.0
 
+        self.sigma_quantile = self.q_sigma
+
+        self.noise = np.sqrt(self.median / self.gain + self.rn_noise)
+
+        self.stats = {
+            "min": self.min,
+            "max": self.max,
+            "mean": self.mean,
+            "median": self.median,
+            "rms": self.rms,
+            "q_sigma_lower": self.q_sigma_lower,
+            "q_sigma_upper": self.q_sigma_upper,
+            "q_sigma": self.q_sigma,
+            "noise": self.noise,
+        }
+
+        self.stats_description = {
+            "min": "Minimal pixel value in the image",
+            "max": "Maximum pixel value in the image",
+            "mean": "Mean pixel value (arithmetic average)",
+            "median": "Median pixel value (robust background estimator)",
+            "rms": "Standard deviation of pixel values",
+            "q_sigma_lower": "Lower 1-sigma estimate from 15.9% quantile",
+            "q_sigma_upper": "Upper 1-sigma estimate from 84.1% quantile",
+            "q_sigma": "Robust sigma estimated from 15.9–84.1% quantiles",
+            "noise": "Expected total noise (Poisson + read noise)",
+        }
 
     def find_stars(self, threshold=5, method="sigma quantile", kernel_size=30, fwhm=10):
 
@@ -104,39 +76,46 @@ class FFS:
         self.fwhm_adopted = float(fwhm)
         self.kernel_size = int(kernel_size)
         self.kernel_sigma = float(fwhm) / 2.355
-        self.kernel = self.gauss_kernel(self.kernel_size, self.kernel_sigma)
 
         if self.method == "rms Poisson":
             self.sigma = self.noise
         elif self.method == "rms":
             self.sigma = self.rms
         elif self.method == "sigma quantile":
-            self.sigma = self.sigma_quantile
+            self.sigma = self.q_sigma
         else:
             raise ValueError(f"Invalid method type {self.method}")
 
-        maska1 = self.image > self.median + self.threshold * self.sigma
-        data2 = convolve2d(self.image, self.kernel, mode='same')
-        maska2 = (data2 == maximum_filter(data2, 3))
-        maska = np.logical_and(maska1, maska2)
-        coo = np.argwhere(maska)
+        mask1 = self.image > self.median + self.threshold * self.sigma
+        data2 = gaussian_filter(self.image, sigma=self.kernel_sigma)
+        mask2 = data2 == maximum_filter(data2, size=3)
+        mask = mask1 & mask2
+
+        coo = np.column_stack(np.nonzero(mask))
+        val = self.image[mask]
+
         self.stats["stars"] = {}
         if len(coo) > 1:
-            self.coo = coo
-            x, y = zip(*self.coo)
-            val = self.image[x, y]
-            sorted_i = np.argsort(val.astype(float))[::-1]
-            sorted_coo = self.coo[sorted_i]
-            sorted_val = val[sorted_i]
-            self.coo = sorted_coo
-            self.adu = sorted_val
+            sorted_i = np.argsort(val)[::-1]
+            self.coo = coo[sorted_i]
+            self.adu = val[sorted_i]
 
-            tmp = {"x": self.coo[:,0], "y": self.coo[:,1],"max_adu":self.adu}
-            self.stats["stars"] = tmp
+            self.stats["stars"] = {
+                "x": self.coo[:, 0],
+                "y": self.coo[:, 1],
+                "max_adu": self.adu
+            }
 
+            self.stats_description["stars"] = {
+            "x": "X coordinates of detected stars (pixel indices, 0-based)",
+            "y": "Y coordinates of detected stars (pixel indices, 0-based)",
+            "max_adu": "Peak ADU (brightness) of each detected star"
+            }
         return self.coo, self.adu
 
-    def fwhm(self, saturation=65000, radius=10, all_stars=True):
+
+
+    def fwhm(self, radius=10, all_stars=True):
         radius = int(radius)
         self.fwhm_xarr = []
         self.fwhm_yarr = []
@@ -148,7 +127,7 @@ class FFS:
             else:
                 i_max = 100
             d1 = d2 = d3 = d4 = None
-            if self.adu[i] < int(saturation) and i < i_max:
+            if self.adu[i] < int(self.saturation) and i < i_max:
                 x, y = self.coo[i]
                 max_adu = self.adu[i]
                 half_adu = (max_adu - self.median) / 2.
@@ -231,10 +210,45 @@ class FFS:
 
         return self.fwhm_x, self.fwhm_y
 
+    def star_info(self,box=10):
+
+        self.ellipticity = []
+        self.theta = []
+        self.fw = []
+        self.fw_x = []
+        self.fw_y = []
+
+        for x, y in self.coo[:50]:
+            e = np.nan
+            t = np.nan
+            f = np.nan
+            fx = np.nan
+            fy = np.nan
+
+            cut = self.image[x - box:x + box, y - box:y + box]
+
+            if cut.shape[0] > box-1 and cut.shape[1] > box-1:
+
+                cut = cut - np.median(cut[0, :])
+                _, e, t = ffs_pca(cut)
+
+                cut = cut - 0.5 * np.max(cut)
+                f, _, _ = ffs_pca(cut)
+
+                fx, fy = ffs_fwhm(cut)
+
+            self.ellipticity.append(e)
+            self.theta.append(t)
+            self.fw.append(f)
+            self.fw_x.append(fx)
+            self.fw_y.append(fy)
+
+        return self.ellipticity, self.theta, self.fw, self.fw_x, self.fw_y
+
 
     def sky_gradient(self,n_segments=10):
         image = self.image
-        segments = self.make_segments(image)
+        segments = ffs_make_segments(image)
 
         x = []
         y = []
@@ -268,11 +282,11 @@ class FFS:
         bk = []
 
         for xi, yi in zip(x, y):
-            bk.append(self.polysurf(xi, yi, coeff))
-            le.append(self.polysurf(x0, yi, coeff))
-            re.append(self.polysurf(xk, yi, coeff))
-            ue.append(self.polysurf(xi, yk, coeff))
-            de.append(self.polysurf(xi, y0, coeff))
+            bk.append(ffs_polysurf(xi, yi, coeff))
+            le.append(ffs_polysurf(x0, yi, coeff))
+            re.append(ffs_polysurf(xk, yi, coeff))
+            ue.append(ffs_polysurf(xi, yk, coeff))
+            de.append(ffs_polysurf(xi, y0, coeff))
 
         max_amplitude = max(bk) - min(bk)
         max(le) - min(re)
@@ -354,83 +368,128 @@ class FFS:
 
         return lines_val, lines_theta, lines_rho
 
-    def line_filter(self,image,kernel1_size=3,kernel2_size=7,th1=3,th2=3):
-        image = image
+def ffs_pca(image_cut):
+    e = np.nan
+    t = np.nan
+    f = np.nan
+    lx, ly = image_cut.shape
+    nx, ny = np.mgrid[0:lx, 0:ly]
+    image_cut = image_cut.clip(min=0)
+    I = image_cut.clip(min=0)
+    It = I.sum()
+    if It > 0:
+        dx = nx - int(lx/2)
+        dy = ny - int(ly/2)
 
-        kernel_l, kernel_r = self.line_detection_kernel(kernel1_size)  # tu sie zmienia
-        result_l = convolve(image, kernel_l)
-        maska_1l = result_l > np.median(result_l) + th1 * mad_std(result_l)
-        result_r = convolve(image, kernel_r)
-        maska_1r = result_r > np.median(result_r) + th1 * mad_std(result_r)
+        Mxx = np.sum(I * dx * dx) / It
+        Myy = np.sum(I * dy * dy) / It
+        Mxy = np.sum(I * dx * dy) / It
 
-        kernel_l, kernel_r = self.line_detection_kernel(kernel2_size)  # tu sie zmienia
-        result_l = convolve(image, kernel_l)
-        maska_2l = result_l > np.median(result_l) + th2 * mad_std(result_r)
-        result_r = convolve(image, kernel_r)
-        maska_2r = result_r > np.median(result_r) + th2 * mad_std(result_r)
+        cov = np.array([[Mxx, Mxy], [Mxy, Myy]])
+        eigvals, eigvecs = np.linalg.eigh(cov)
+        b2, a2 = eigvals
 
-        maska = (maska_1l & maska_2l) ^ (maska_1r & maska_2r)
+        if a2 > 0 and b2 > 0:
 
-        return maska
+            f1 = 2.355 * np.sqrt(a2)
+            f2 = 2.355 * np.sqrt(b2)
+            f = (f1 + f2)/2
 
-    def make_segments(self,image, n_segments=10, overlap=0):
-        height, width = image.shape
-        seg_h = height // n_segments
-        seg_w = width // n_segments
+            e = 1.0 - np.sqrt(b2 / a2)
+            vx, vy = eigvecs[:, 1]
+            t = np.arctan2(vy, vx)
+    return f,e,t
 
-        segments = []
+def ffs_fwhm(image_cut):
+    cx = int(image_cut.shape[0]/2)
+    cy = int(image_cut.shape[1]/2)
+    line_x = image_cut[cx, :]
+    line_y = image_cut[:, cy]
+    mk1 = line_x > 0
+    mk2 = line_y > 0
+    fwhm_x = len(line_x[mk1])
+    fwhm_y = len(line_y[mk2])
+    return fwhm_x,fwhm_y
 
-        for i in range(n_segments):
-            for j in range(n_segments):
-                result = {}
 
-                y_start = (i * seg_h) - overlap
-                if y_start < 0: y_start = 0
-                x_start = (j * seg_w) - overlap
-                if x_start < 0: x_start = 0
-                y_end = ((i + 1) * seg_h) + overlap if i < n_segments - 1 else height
-                x_end = ((j + 1) * seg_w) + overlap if j < n_segments - 1 else width
 
-                subframe = image[y_start:y_end, x_start:x_end]
+def ffs_make_segments(image, n_segments=10, overlap=0):
+    height, width = image.shape
+    seg_h = height // n_segments
+    seg_w = width // n_segments
 
-                result = {}
-                result["x"] = [x_start, x_end]
-                result["y"] = [y_start, y_end]
-                result["subframe"] = subframe
-                segments.append(result)
+    segments = []
 
-        return segments
+    for i in range(n_segments):
+        for j in range(n_segments):
+            result = {}
 
-    def polysurf(self,x, y, coeff):
-        a0, a1, a2, a3, a4, a5 = coeff
-        return a0 + a1 * x + a2 * y + a3 * x ** 2 + a4 * x * y + a5 * y ** 2
+            y_start = (i * seg_h) - overlap
+            if y_start < 0: y_start = 0
+            x_start = (j * seg_w) - overlap
+            if x_start < 0: x_start = 0
+            y_end = ((i + 1) * seg_h) + overlap if i < n_segments - 1 else height
+            x_end = ((j + 1) * seg_w) + overlap if j < n_segments - 1 else width
 
-    def line_detection_kernel(self,kernel_half_size=5):
-        size = 2 * kernel_half_size + 1
-        center = kernel_half_size
-        y, x = np.ogrid[:size, :size]
-        distance = np.sqrt((x - center) ** 2 + (y - center) ** 2)
-        inner = kernel_half_size - 1 / 2
-        outer = kernel_half_size + 1 / 2
+            subframe = image[y_start:y_end, x_start:x_end]
 
-        left = ((x <= center) & (y <= center)) | ((x >= center) & (y >= center))
-        right = ((x < center) & (y > center)) | ((x > center) & (y < center))
+            result = {}
+            result["x"] = [x_start, x_end]
+            result["y"] = [y_start, y_end]
+            result["subframe"] = subframe
+            segments.append(result)
 
-        # left
-        mk = ((distance >= inner) & (distance <= outer))
-        kernel_l = mk.astype(float)
-        tmp_mk = ((distance >= inner) & (distance <= outer) & right)
-        kernel_l[tmp_mk] = -1
+    return segments
 
-        # right
-        mk = ((distance >= inner) & (distance <= outer))
-        kernel_r = mk.astype(float)
-        tmp_mk = ((distance >= inner) & (distance <= outer) & left)
-        kernel_r[tmp_mk] = -1
+def ffs_polysurf(x, y, coeff):
+    a0, a1, a2, a3, a4, a5 = coeff
+    return a0 + a1 * x + a2 * y + a3 * x ** 2 + a4 * x * y + a5 * y ** 2
 
-        return kernel_l, kernel_r
+def ffs_line_filter(image,kernel1_size=3,kernel2_size=7,th1=3,th2=3):
+    image = image
 
-    def gauss_kernel(self, size, sigma):
-        kernel = np.fromfunction(lambda x, y: (1 / (2 * np.pi * sigma ** 2)) * np.exp(
-            -((x - (size - 1) / 2) ** 2 + (y - (size - 1) / 2) ** 2) / (2 * sigma ** 2)), (size, size))
-        return kernel / np.sum(kernel)
+    kernel_l, kernel_r = ffs_line_detection_kernel(kernel1_size)  # tu sie zmienia
+    result_l = convolve(image, kernel_l)
+    maska_1l = result_l > np.median(result_l) + th1 * mad_std(result_l)
+    result_r = convolve(image, kernel_r)
+    maska_1r = result_r > np.median(result_r) + th1 * mad_std(result_r)
+
+    kernel_l, kernel_r = ffs_line_detection_kernel(kernel2_size)  # tu sie zmienia
+    result_l = convolve(image, kernel_l)
+    maska_2l = result_l > np.median(result_l) + th2 * mad_std(result_r)
+    result_r = convolve(image, kernel_r)
+    maska_2r = result_r > np.median(result_r) + th2 * mad_std(result_r)
+
+    maska = (maska_1l & maska_2l) ^ (maska_1r & maska_2r)
+
+    return maska
+
+def ffs_line_detection_kernel(kernel_half_size=5):
+    size = 2 * kernel_half_size + 1
+    center = kernel_half_size
+    y, x = np.ogrid[:size, :size]
+    distance = np.sqrt((x - center) ** 2 + (y - center) ** 2)
+    inner = kernel_half_size - 1 / 2
+    outer = kernel_half_size + 1 / 2
+
+    left = ((x <= center) & (y <= center)) | ((x >= center) & (y >= center))
+    right = ((x < center) & (y > center)) | ((x > center) & (y < center))
+
+    # left
+    mk = ((distance >= inner) & (distance <= outer))
+    kernel_l = mk.astype(float)
+    tmp_mk = ((distance >= inner) & (distance <= outer) & right)
+    kernel_l[tmp_mk] = -1
+
+    # right
+    mk = ((distance >= inner) & (distance <= outer))
+    kernel_r = mk.astype(float)
+    tmp_mk = ((distance >= inner) & (distance <= outer) & left)
+    kernel_r[tmp_mk] = -1
+
+    return kernel_l, kernel_r
+
+def ffs_gauss2d_kernel(size, sigma):
+    kernel = np.fromfunction(lambda x, y: (1 / (2 * np.pi * sigma ** 2)) * np.exp(
+        -((x - (size - 1) / 2) ** 2 + (y - (size - 1) / 2) ** 2) / (2 * sigma ** 2)), (size, size))
+    return kernel / np.sum(kernel)
