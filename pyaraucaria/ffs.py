@@ -405,11 +405,44 @@ def ffs_fwhm(image_cut):
     cy = int(image_cut.shape[1]/2)
     line_x = image_cut[cx, :]
     line_y = image_cut[:, cy]
-    mk1 = line_x > 0
-    mk2 = line_y > 0
-    fwhm_x = len(line_x[mk1])
-    fwhm_y = len(line_y[mk2])
+
+    fwhm_x = ffs_fwhm_1d(line_x)
+    fwhm_y = ffs_fwhm_1d(line_y)
+
+    # mk1 = line_x > 0
+    # mk2 = line_y > 0
+    # fwhm_x = len(line_x[mk1])
+    # fwhm_y = len(line_y[mk2])
     return fwhm_x,fwhm_y
+
+
+
+def ffs_fwhm_1d(line):
+
+    idx = np.where(line > 0)[0]
+    if len(idx) < 2:
+        return np.nan
+
+    i1 = idx[0]
+    i2 = idx[-1]
+
+    # interpolacja lewego brzegu
+    if i1 > 0:
+        x1, x2 = i1-1, i1
+        y1, y2 = line[x1], line[x2]
+        xl = x1 + (0 - y1) / (y2 - y1)
+    else:
+        xl = i1
+
+    # interpolacja prawego brzegu
+    if i2 < len(line)-1:
+        x1, x2 = i2, i2+1
+        y1, y2 = line[x1], line[x2]
+        xr = x1 + (0 - y1) / (y2 - y1)
+    else:
+        xr = i2
+
+    return xr - xl
 
 
 
