@@ -210,20 +210,25 @@ class FFS:
 
         return self.fwhm_x, self.fwhm_y
 
-    def star_info(self,box=10):
+    def star_info(self,box=10,N_stars=None):
 
         self.ellipticity = []
         self.theta = []
         self.fw = []
         self.fw_x = []
         self.fw_y = []
+        self.cpe = []
 
-        for x, y in self.coo[:50]:
+        if N_stars == None:
+            N_stars = len(self.coo)
+
+        for x, y in self.coo[:N_stars]:
             e = np.nan
             t = np.nan
             f = np.nan
             fx = np.nan
             fy = np.nan
+            cpe = np.nan
 
             cut = self.image[x - box:x + box, y - box:y + box]
 
@@ -243,7 +248,53 @@ class FFS:
             self.fw_x.append(fx)
             self.fw_y.append(fy)
 
-        return self.ellipticity, self.theta, self.fw, self.fw_x, self.fw_y
+
+            if fx is not np.nan and fy is not np.nan:
+                r = int((fx+fy)/2.)
+                cut = self.image[x - r:x + r, y - r:y + r]
+                cpe = ffs_cpe(cut)
+            self.cpe.append(cpe)
+
+        self.stats["stars"]["fwhm_x"] = self.fw_x
+        self.stats["stars"]["fwhm_y"] = self.fw_y
+        self.stats["stars"]["ellipticity"] = self.ellipticity
+        self.stats["stars"]["theta"] = self.theta
+        self.stats["stars"]["cpe"] = self.cpe
+
+        self.stats_description["stars"].update({
+
+            "fwhm_x": (
+                "Full Width at Half Maximum (FWHM) of each detected star measured "
+                "along the semi-major axis of the fitted profile (in pixels)"
+            ),
+
+            "fwhm_y": (
+                "Full Width at Half Maximum (FWHM) of each detected star measured "
+                "along the semi-minor axis of the fitted profile (in pixels)"
+            ),
+
+            "ellipticity": (
+                "Ellipticity of each detected star, defined as "
+                "1 − (FWHM_minor / FWHM_major); "
+                "values close to 0 indicate round stars, "
+                "higher values indicate elongated profiles"
+            ),
+
+            "theta": (
+                "Position angle of the semi-major axis of each detected star, "
+                "measured counter-clockwise from the X axis of the detector "
+                "(in radians)"
+            ),
+
+            "cpe": (
+                "Central Pixel Excess (CPE) of each detected star, defined as "
+                "the contrast of the peak pixel relative to the local background "
+                "and background noise; higher values indicate sharper, more "
+                "centrally concentrated profiles"
+            ),
+        })
+
+        return self.fw_x, self.fw_y, self.ellipticity, self.theta, self.cpe
 
 
     def sky_gradient(self,n_segments=10):
@@ -310,6 +361,41 @@ class FFS:
         tmp["surface_y"] = self.sky_surface_y
         self.stats["sky"] = tmp
 
+        self.stats_description.update({
+
+            "bkg_max_amplitude": (
+                "Maximum amplitude of the background signal across the image, "
+                "representing the highest estimated background level (in ADU)"
+            ),
+
+            "bkg_frame_gradient": (
+                "Global background gradient across the image frame, describing "
+                "large-scale background variation (e.g. due to sky brightness "
+                "gradient, moonlight, or scattered light)"
+            ),
+
+            "sky_surface_coeff": (
+                "Coefficients of the fitted background surface model describing "
+                "the large-scale sky background variation across the image"
+            ),
+
+            "sky": {
+                "surface_bkg": (
+                    "Estimated sky background surface evaluated over the image grid, "
+                    "representing the modeled large-scale background (in ADU)"
+                ),
+                "surface_x": (
+                    "X-coordinate grid used for evaluating the sky background surface "
+                    "(pixel indices, 0-based)"
+                ),
+                "surface_y": (
+                    "Y-coordinate grid used for evaluating the sky background surface "
+                    "(pixel indices, 0-based)"
+                ),
+            },
+        })
+
+
     def hough_transform(self, maska, th_signal=100, steps=180):
         ys, xs = np.nonzero(maska)
         xs = xs.astype(float)
@@ -365,8 +451,28 @@ class FFS:
         tmp["theta"] = lines_theta
         self.stats["lines"] = tmp
 
+        self.stats_description["lines"] = {
+
+            "val": (
+                "Detection strength or significance of each detected line, "
+                "representing the response value of the line detection algorithm "
+                "(higher values indicate more prominent linear features)"
+            ),
+
+            "rho": (
+                "Perpendicular distance (ρ) of each detected line from the origin "
+                "of the image coordinate system, as defined in the Hough transform "
+                "parameter space (in pixels)"
+            ),
+
+            "theta": (
+                "Orientation angle (θ) of each detected line, measured relative to "
+                "the X axis of the image coordinate system (in radians)"
+            ),
+        }
 
         return lines_val, lines_theta, lines_rho
+
 
 def ffs_pca(image_cut):
     e = np.nan
@@ -400,6 +506,28 @@ def ffs_pca(image_cut):
             t = np.arctan2(vy, vx)
     return f,e,t
 
+def ffs_cpe(image_cut):
+    # central pixel excess
+    cx = int(image_cut.shape[0]/2)
+    cy = int(image_cut.shape[1]/2)
+
+    x_max, y_max = np.unravel_index(np.argmax(image_cut), image_cut.shape)
+    I_max = image_cut[x_max, y_max]
+
+    bck = image_cut.copy().astype(float)
+    bck[x_max,y_max] = np.nan
+
+    I_bck = np.nanmean(image_cut)
+    I_std = np.nanstd(image_cut)
+
+    # Zabezpieczenie przed dzieleniem przez zero
+    if I_std == 0 or np.isnan(I_std):
+        return np.nan
+
+    cpe = (I_max - I_bck) / I_std
+
+    return cpe
+
 def ffs_fwhm(image_cut):
     cx = int(image_cut.shape[0]/2)
     cy = int(image_cut.shape[1]/2)
@@ -409,10 +537,6 @@ def ffs_fwhm(image_cut):
     fwhm_x = ffs_fwhm_1d(line_x)
     fwhm_y = ffs_fwhm_1d(line_y)
 
-    # mk1 = line_x > 0
-    # mk2 = line_y > 0
-    # fwhm_x = len(line_x[mk1])
-    # fwhm_y = len(line_y[mk2])
     return fwhm_x,fwhm_y
 
 
