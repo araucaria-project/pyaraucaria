@@ -13,7 +13,8 @@ Licence: MIT
 
 import logging
 import re
-import datetime as _dtt
+import datetime
+from typing import Union
 
 import numpy as np
 
@@ -87,7 +88,7 @@ def tuple_to_iso(Y, M, D, h, m, s,
 
 
 def datetime_to_julian(date):
-    # type: (Union(str, datetime.datetime)) -> float
+    # type: (Union[str, datetime.datetime]) -> float
     """ Parse date (with optional time and/or timezone) string to julian date
 
     If timezone is specified (e.g. +02:00) correction is applied in order to return julian date in UT
@@ -110,7 +111,7 @@ def datetime_to_julian(date):
     return tuple_to_julian(*dtuple)
 
 def datetime_to_julian_old(date):
-    # type: (Union(str, datetime.datetime)) -> float
+    # type: (Union[str, datetime.datetime]) -> float
     """ Parse date (with optional time and/or timezone) string to julian date
 
     If timezone is specified (e.g. +02:00) correction is applied in order to return julian date in UT
@@ -221,7 +222,7 @@ def datetime_to_tuple(date):
     >>> datetime_to_tuple('19990812')
     (1999, 8, 12, 0, 0, 0.0, 0, 0, 0)
     """
-    if isinstance(date, _dtt.datetime):
+    if isinstance(date, datetime.datetime):
         return date.year, date.month, date.day, date.hour, date.minute, date.second + date.microsecond / 1000000.0
     for regexp in _datetime_regexps:
         try:
@@ -274,7 +275,7 @@ def correct_year(year):
     return year if year > 100 else (year + 1900 if year > 40 else year + 2000)
 
 
-def get_oca_jd(jd: float or np.ndarray) -> float or np.ndarray:
+def get_oca_jd(jd: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
     """
     Func. calculate oca julian date
     @param jd: Input julian date

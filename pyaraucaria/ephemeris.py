@@ -5,7 +5,7 @@ import datetime
 from astropy.coordinates import SkyCoord, FK5, get_body
 
 
-def calculate_sun_rise_set(date: datetime, horiz_height: float, sunrise: bool,
+def calculate_sun_rise_set(date: datetime.datetime, horiz_height: float, sunrise: bool,
                            latitude: float, longitude: float, elevation: float):
     """
     Calculate next sunrise or sunset at horizon height
@@ -40,7 +40,7 @@ def moon_separation(ra: float, dec: float, utc_time: Time):
     return float(moon.separation(obj_coo).to(u.deg).deg)
 
 
-def moon_phase(date_utc: datetime, latitude: float, longitude: float, elevation: float):
+def moon_phase(date_utc: datetime.datetime, latitude: float, longitude: float, elevation: float):
     """
     Func. returns moon phase (illumination).
     :param date_utc: calculating utc date
