@@ -2,34 +2,31 @@
 
 This library is intended to group various common routines and commandline tools used in Araucaria Project and OCA observatory software.
 
-Routines of this library should contain external dependencies as limited as possible and be compatible with Python 3.6+.
-
-The compatibility with Python 2.7 is also valuable.
+Routines of this library should contain external dependencies as limited as possible. Requires Python 3.10+.
 
 ## Installation
 
 #### Basic install:
 
 ```bash
-    $ pip install git+https://github.com/araucaria-project/pyaraucaria.git
-```
-or, [more modern and safer](https://adamj.eu/tech/2020/02/25/use-python-m-pip-everywhere/)
-```bash
-    $ python -m pip install git+https://github.com/araucaria-project/pyaraucaria.git
+pip install git+https://github.com/araucaria-project/pyaraucaria.git
 ```
 
 #### Developer install
-For those who want to contribute
+
 ```bash
-    $ git clone https://github.com/araucaria-project/pyaraucaria.git
-    $ cd pyaraucaria
-    $ pip install -e ./
+git clone https://github.com/araucaria-project/pyaraucaria.git
+cd pyaraucaria
+uv sync --all-extras
 ```
 
 #### Usage in your project
-Add the following line to your `requirements.txt` file (and/or to `install_requires` section of your `setup.py` if you use one):
-```requirements.txt
-git+https://github.com/araucaria-project/pyaraucaria.git
+
+Add to your `pyproject.toml` dependencies:
+```toml
+dependencies = [
+    "pyaraucaria @ git+https://github.com/araucaria-project/pyaraucaria.git",
+]
 ```
 
 ## Routines
