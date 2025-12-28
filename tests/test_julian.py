@@ -35,12 +35,24 @@ class TestJulian(unittest.TestCase):
         self.assertEqual(julian_to_iso(  55471.685593298), "2010-10-02T04:27:15.261")
         self.assertEqual(julian_to_iso(   5471.685593298), "2010-10-02T04:27:15.261")
 
-    @unittest.skip("Not implemented")
-    def test_hjd(self):
-        jd = datetime_to_julian("2010-10-02T04:27:15.261")
-        ra, dec = "", ""
-        hcor = helio_corr(jd, ra, dec)
-        hjd = jd + hcor
+    def test_helio_corr_example(self):
+        """Test based on the docstring example."""
+        jd = 2455471.685593298
+        ra_str = "05:05:37.37"
+        dec_str = "-65:17:13.4"
 
+        # Calculate
+        corr = helio_corr(jd, ra_str, dec_str)
+
+        # Check type
+        self.assertIsInstance(corr, float)
+
+        # Check magnitude
+        # The Earth-Sun distance is ~8.3 light minutes (~0.0058 days).
+        # The correction should never exceed +/- 8.4 minutes.
+        self.assertLess(abs(corr), 0.006)
+
+        print(f"Correction (days): {corr}")
+        print(f"HJD: {jd + corr}")
 if __name__ == '__main__':
     unittest.main()

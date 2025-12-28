@@ -217,6 +217,34 @@ class Moon(CelestialBody):
             })
         return data
 
+    def get_phase(self, times: Union[List[Time], List[datetime], Time, datetime]) -> List[Dict]:
+        """
+        Optimized method to calculate ONLY Moon phase (illumination fraction).
+        Significantly faster than get_ephemeris as it skips coordinate transformations.
+
+        :return: List of dicts [{'time_utc': ..., 'phase': 0.0-1.0, 'body': 'Moon'}]
+        """
+        # 1. Standardize Input (Same logic as other methods)
+        t = Time(times)
+        is_scalar = t.isscalar
+        if is_scalar:
+            t = Time([t])
+
+        # 2. Fast Calculation
+        # moon_illumination uses Geocentric coordinates, skipping the heavy
+        # Topocentric (AltAz) transformation matrix.
+        phases = moon_illumination(t)
+
+        # 3. Format Output
+        data = []
+        for i in range(len(t)):
+            data.append({
+                'time_utc': t[i].to_datetime(timezone.utc),
+                'phase': phases[i],
+                'body': 'Moon'
+            })
+        return data
+
 
 class Star(CelestialBody):
     """
@@ -378,7 +406,7 @@ class Stars(CelestialBody):
 # ==========================================
 
 
-def calculate_sun_rise_set(date: datetime.datetime, horiz_height: float, sunrise: bool,
+def calculate_sun_rise_set(date: datetime, horiz_height: float, sunrise: bool,
                            latitude: float, longitude: float, elevation: float):
     """
     Calculate next sunrise or sunset at horizon height
@@ -413,7 +441,7 @@ def moon_separation(ra: float, dec: float, utc_time: Time):
     return float(moon.separation(obj_coo).to(u.deg).deg)
 
 
-def moon_phase(date_utc: datetime.datetime, latitude: float, longitude: float, elevation: float):
+def moon_phase(date_utc: datetime, latitude: float, longitude: float, elevation: float):
     """
     Func. returns moon phase (illumination).
     :param date_utc: calculating utc date
