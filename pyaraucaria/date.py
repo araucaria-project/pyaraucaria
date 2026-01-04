@@ -279,7 +279,14 @@ def get_oca_jd(jd: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
     """
     Func. calculate oca julian date
     @param jd: Input julian date
-    @return: Oca jd date
+    @return: Oca jd
     """
     return jd - 2460000
 
+def get_jd_from_oca_jd(oca_jd: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+    """
+    Func. calculate julian date from oca jd
+    @param oca_jd: Oca jd
+    @return: Julian date
+    """
+    return oca_jd + 2460000
