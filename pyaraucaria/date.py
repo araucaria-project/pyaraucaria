@@ -17,7 +17,9 @@ import datetime
 from typing import Union
 
 import numpy as np
-
+from astropy.coordinates import SkyCoord, EarthLocation
+from astropy.time import Time
+import astropy.units as u
 from pyaraucaria.erfa import eraCal2jd
 
 logger = logging.getLogger('dates')
@@ -247,28 +249,51 @@ def datetime_to_tuple(date):
     raise ValueError('Could no parse this datetime: %s', date)
 
 
-def helio_corr(jd, ra, dec):
-    # type (float, Union(float, str), Union(float, str)) -> float
-    """Calculates heliocentric correction for a given julian day for object at specific coordinates
-
-    Typical usage:
-    >>> jd = 2455471.685593298
-    >>> hjd = jd + helio_corr(jd, "05:05:37.37", "-65:17:13.4")
+def helio_corr(jd, ra, dec, longitude=None, latitude=None, elevation=None):
+    # type: (float, Union[float, str], Union[float, str], Union[float, None], Union[float, None], Union[float, None]) -> float
+    """Calculates heliocentric correction for a given julian day for object at specific coordinates.
+    Calculated from the Earth's Geocenter or, if longitude, latitude and elevation are provided, from that location on Earth.
 
     Parameters
     ----------
     jd : float
         julian day
-    ra, dec : float or str, float or str
-        coordinates of event
+    ra, dec : float or str
+        coordinates of event. If str: "HH:MM:SS", "DD:MM:SS".
+        If float: RA is assumed to be in Hours, Dec in Degrees.
+    longitude, latitude, elevation : float, optional
+        Observer's longitude and latitude in degrees, elevation in meters.
+        If not provided, Earth's Geocenter is used - consistent with HJD definition.
 
     Returns
     -------
     float
-        heliocentric julian date (day) of event
+        Correction in days (add this to JD to get HJD)
     """
-    raise NotImplementedError('Not implemented yet')
 
+    if longitude is not None and latitude is not None and elevation is not None:
+        # Define Observer at specified location
+        geocenter = EarthLocation(lat=latitude * u.deg,
+                                  lon=longitude * u.deg,
+                                  height=elevation * u.m)
+    else:
+        # 1. Define Observer at Earth's Geocenter (0, 0, 0)
+        # This creates a location at the center of the Earth - consistent with HJD definition.
+        geocenter = EarthLocation.from_geocentric(0, 0, 0, unit=u.m)
+
+    # 2. Create Time object with location attached
+    t = Time(jd, format='jd', scale='utc', location=geocenter)
+
+    # 3. Create Target Coordinate
+    # units=(u.hourangle, u.deg) handles both string parsing ("05:05:37")
+    # and floats (assumed hours for RA, degrees for Dec) correctly.
+    target = SkyCoord(ra, dec, unit=(u.hourangle, u.deg), frame='icrs')
+
+    # 4. Calculate Light Travel Time
+    # Astropy calculates vector: Sun -> Earth_Center
+    ltt = t.light_travel_time(target, kind='heliocentric')
+
+    return ltt.to_value('day')
 
 def correct_year(year):
     # type: (int) -> int
