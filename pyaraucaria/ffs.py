@@ -95,7 +95,7 @@ class FFS:
         val = self.image[mask]
 
         self.stats["stars"] = {}
-        if len(coo) > 1:
+        if len(coo) > 0:
             sorted_i = np.argsort(val)[::-1]
             self.coo = coo[sorted_i]
             self.adu = val[sorted_i]
@@ -105,12 +105,17 @@ class FFS:
                 "y": self.coo[:, 1],
                 "max_adu": self.adu
             }
+        else:
+            self.stats["stars"] = {
+                "x": [],
+                "y": [],
+                "max_adu": []}
 
-            self.stats_description["stars"] = {
-            "x": "X coordinates of detected stars (pixel indices, 0-based)",
-            "y": "Y coordinates of detected stars (pixel indices, 0-based)",
-            "max_adu": "Peak ADU (brightness) of each detected star"
-            }
+        self.stats_description["stars"] = {
+        "x": "X coordinates of detected stars (pixel indices, 0-based)",
+        "y": "Y coordinates of detected stars (pixel indices, 0-based)",
+        "max_adu": "Peak ADU (brightness) of each detected star"
+        }
         return self.coo, self.adu
 
 
@@ -507,24 +512,26 @@ def ffs_pca(image_cut):
     return f,e,t
 
 def ffs_cpe(image_cut):
+    cpe = np.nan
     # central pixel excess
     cx = int(image_cut.shape[0]/2)
     cy = int(image_cut.shape[1]/2)
 
-    x_max, y_max = np.unravel_index(np.argmax(image_cut), image_cut.shape)
-    I_max = image_cut[x_max, y_max]
+    if cx > 1 and cy > 1:
+        x_max, y_max = np.unravel_index(np.argmax(image_cut), image_cut.shape)
+        I_max = image_cut[x_max, y_max]
 
-    bck = image_cut.copy().astype(float)
-    bck[x_max,y_max] = np.nan
+        bck = image_cut.copy().astype(float)
+        bck[x_max,y_max] = np.nan
 
-    I_bck = np.nanmean(image_cut)
-    I_std = np.nanstd(image_cut)
+        I_bck = np.nanmean(image_cut)
+        I_std = np.nanstd(image_cut)
 
-    # Zabezpieczenie przed dzieleniem przez zero
-    if I_std == 0 or np.isnan(I_std):
-        return np.nan
+        # Zabezpieczenie przed dzieleniem przez zero
+        if I_std == 0 or np.isnan(I_std):
+            return np.nan
 
-    cpe = (I_max - I_bck) / I_std
+        cpe = (I_max - I_bck) / I_std
 
     return cpe
 
