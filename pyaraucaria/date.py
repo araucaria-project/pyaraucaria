@@ -13,10 +13,13 @@ Licence: MIT
 
 import logging
 import re
-import datetime as _dtt
+import datetime
+from typing import Union
 
 import numpy as np
-
+from astropy.coordinates import SkyCoord, EarthLocation
+from astropy.time import Time
+import astropy.units as u
 from pyaraucaria.erfa import eraCal2jd
 
 logger = logging.getLogger('dates')
@@ -87,7 +90,7 @@ def tuple_to_iso(Y, M, D, h, m, s,
 
 
 def datetime_to_julian(date):
-    # type: (Union(str, datetime.datetime)) -> float
+    # type: (Union[str, datetime.datetime]) -> float
     """ Parse date (with optional time and/or timezone) string to julian date
 
     If timezone is specified (e.g. +02:00) correction is applied in order to return julian date in UT
@@ -110,7 +113,7 @@ def datetime_to_julian(date):
     return tuple_to_julian(*dtuple)
 
 def datetime_to_julian_old(date):
-    # type: (Union(str, datetime.datetime)) -> float
+    # type: (Union[str, datetime.datetime]) -> float
     """ Parse date (with optional time and/or timezone) string to julian date
 
     If timezone is specified (e.g. +02:00) correction is applied in order to return julian date in UT
@@ -221,7 +224,7 @@ def datetime_to_tuple(date):
     >>> datetime_to_tuple('19990812')
     (1999, 8, 12, 0, 0, 0.0, 0, 0, 0)
     """
-    if isinstance(date, _dtt.datetime):
+    if isinstance(date, datetime.datetime):
         return date.year, date.month, date.day, date.hour, date.minute, date.second + date.microsecond / 1000000.0
     for regexp in _datetime_regexps:
         try:
@@ -246,39 +249,69 @@ def datetime_to_tuple(date):
     raise ValueError('Could no parse this datetime: %s', date)
 
 
-def helio_corr(jd, ra, dec):
-    # type (float, Union(float, str), Union(float, str)) -> float
-    """Calculates heliocentric correction for a given julian day for object at specific coordinates
-
-    Typical usage:
-    >>> jd = 2455471.685593298
-    >>> hjd = jd + helio_corr(jd, "05:05:37.37", "-65:17:13.4")
+def helio_corr(jd, ra, dec, longitude=None, latitude=None, elevation=None):
+    # type: (float, Union[float, str], Union[float, str], Union[float, None], Union[float, None], Union[float, None]) -> float
+    """Calculates heliocentric correction for a given julian day for object at specific coordinates.
+    Calculated from the Earth's Geocenter or, if longitude, latitude and elevation are provided, from that location on Earth.
 
     Parameters
     ----------
     jd : float
         julian day
-    ra, dec : float or str, float or str
-        coordinates of event
+    ra, dec : float or str
+        coordinates of event. If str: "HH:MM:SS", "DD:MM:SS".
+        If float: RA is assumed to be in Hours, Dec in Degrees.
+    longitude, latitude, elevation : float, optional
+        Observer's longitude and latitude in degrees, elevation in meters.
+        If not provided, Earth's Geocenter is used - consistent with HJD definition.
 
     Returns
     -------
     float
-        heliocentric julian date (day) of event
+        Correction in days (add this to JD to get HJD)
     """
-    raise NotImplementedError('Not implemented yet')
 
+    if longitude is not None and latitude is not None and elevation is not None:
+        # Define Observer at specified location
+        geocenter = EarthLocation(lat=latitude * u.deg,
+                                  lon=longitude * u.deg,
+                                  height=elevation * u.m)
+    else:
+        # 1. Define Observer at Earth's Geocenter (0, 0, 0)
+        # This creates a location at the center of the Earth - consistent with HJD definition.
+        geocenter = EarthLocation.from_geocentric(0, 0, 0, unit=u.m)
+
+    # 2. Create Time object with location attached
+    t = Time(jd, format='jd', scale='utc', location=geocenter)
+
+    # 3. Create Target Coordinate
+    # units=(u.hourangle, u.deg) handles both string parsing ("05:05:37")
+    # and floats (assumed hours for RA, degrees for Dec) correctly.
+    target = SkyCoord(ra, dec, unit=(u.hourangle, u.deg), frame='icrs')
+
+    # 4. Calculate Light Travel Time
+    # Astropy calculates vector: Sun -> Earth_Center
+    ltt = t.light_travel_time(target, kind='heliocentric')
+
+    return ltt.to_value('day')
 
 def correct_year(year):
     # type: (int) -> int
     return year if year > 100 else (year + 1900 if year > 40 else year + 2000)
 
 
-def get_oca_jd(jd: float or np.ndarray) -> float or np.ndarray:
+def get_oca_jd(jd: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
     """
     Func. calculate oca julian date
     @param jd: Input julian date
-    @return: Oca jd date
+    @return: Oca jd
     """
     return jd - 2460000
 
+def get_jd_from_oca_jd(oca_jd: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+    """
+    Func. calculate julian date from oca jd
+    @param oca_jd: Oca jd
+    @return: Julian date
+    """
+    return oca_jd + 2460000

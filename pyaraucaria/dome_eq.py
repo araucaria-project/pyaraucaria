@@ -67,9 +67,9 @@ def dome_eq_azimuth(ra: float, dec: float, r_dome: float, spx: float, spy: float
     x = math.cos(math.radians(ra_to_sidereal_angle)) * gem
     y = math.sin(math.radians(ra_to_sidereal_angle)) * gem
 
-    # Location in the northern or southern hemisphere
+    # Location in the northern or Southern Hemisphere
     n_s = - (latitude / abs(latitude))
-    vector_gem = [x, n_s * y * math.cos(math.radians(abs(latitude)))]
+    vector_gem = [x, n_s * y * math.cos(math.radians(90 - abs(latitude)))]
     vector_spx_spy = [spx, spy]
 
     # TODO Add vectors
