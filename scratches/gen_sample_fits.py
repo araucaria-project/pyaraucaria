@@ -68,6 +68,28 @@ def generate_one(fname: str, imgsize=(128, 128)):
     header["SUBRASTR"] = ("", "Subraster size")
     header["SCALE"] = (0.5, "[arcsec/pixel] Image scale")
     header["SATURATE"] = ("", "Data value at which saturation occurs")
+
+    # WCS parameters
+    header["WCSAXES"] = (2, "Number of coordinate axes")
+    header["CRPIX1"] = (796.577613831, "Pixel coordinate of reference point")
+    header["CRPIX2"] = (1728.89355469, "Pixel coordinate of reference point")
+    header["PC1_1"] = (2.69285403195e-05, "Coordinate transformation matrix element")
+    header["PC1_2"] = (0.000137333902689, "Coordinate transformation matrix element")
+    header["PC2_1"] = (-0.000137383411552, "Coordinate transformation matrix element")
+    header["PC2_2"] = (2.68694419723e-05, "Coordinate transformation matrix element")
+    header["CDELT1"] = (1.0, "[deg] Coordinate increment at reference point")
+    header["CDELT2"] = (1.0, "[deg] Coordinate increment at reference point")
+    header["CUNIT1"] = ("deg     ", "Units of coordinate increment and value")
+    header["CUNIT2"] = ("deg     ", "Units of coordinate increment and value")
+    header["CTYPE1"] = ("RA---TAN", "TAN (gnomonic) projection + SIP distortions")
+    header["CTYPE2"] = ("DEC--TAN", "TAN (gnomonic) projection + SIP distortions")
+    header["CRVAL1"] = (190.684148716, "[deg] Coordinate value at reference point")
+    header["CRVAL2"] = (-0.489958879133, "[deg] Coordinate value at reference point")
+    header["LONPOLE"] = (180.0, "[deg] Native longitude of celestial pole")
+    header["LATPOLE"] = (-0.489958879133, "[deg] Native latitude of celestial pole")
+    header["MJDREF"] = (0.0, "[d] MJD of fiducial time")
+    header["RADESYS"] = ("FK5     ", "Equatorial coordinate system")
+
     header["BSCALE"] = 1
     header["BZERO"] = 32768
     header["TRACKING"] = (True, "Mount tracking:  T=on F=off")
@@ -94,8 +116,8 @@ def generate_one(fname: str, imgsize=(128, 128)):
 
     # Quick check
     with fits.open(fname) as hdul:
-        _ = WCS(hdul[0].header)
-    print(f"[OK] Generated {fname}")
+        w = WCS(hdul[0].header)
+        print(f"[OK] Generated {fname}. WCS: {w.to_header()[:2]}")
 
 
 def generate_many(n_files: int, outdir="output"):
