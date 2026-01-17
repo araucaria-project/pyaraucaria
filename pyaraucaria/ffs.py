@@ -6,17 +6,13 @@ from scipy.ndimage import gaussian_filter
 
 from astropy.stats import mad_std
 
-import time
-
-#  pip install -e .
-
 class FFS:
 
     def __init__(self, image, gain=1., rn_noise=0.):
         self.image = np.transpose(image)
         self.gain = float(gain)
         self.rn_noise = float(rn_noise)
-        self.saturation = 65000
+        self.saturation = 50000
         self.stats = {}
 
 
@@ -121,6 +117,7 @@ class FFS:
 
 
     def fwhm(self, radius=10, all_stars=True):
+        # deprecated
         radius = int(radius)
         self.fwhm_xarr = []
         self.fwhm_yarr = []
@@ -219,87 +216,96 @@ class FFS:
 
         self.ellipticity = []
         self.theta = []
-        self.fw = []
-        self.fw_x = []
-        self.fw_y = []
+        self.fwhm = []
+        self.fwhm_x = []
+        self.fwhm_y = []
         self.cpe = []
 
         if N_stars == None:
             N_stars = len(self.coo)
 
-        for x, y in self.coo[:N_stars]:
-            e = np.nan
-            t = np.nan
-            f = np.nan
-            fx = np.nan
-            fy = np.nan
-            cpe = np.nan
+        ni = 0
+        for i, (x, y) in enumerate(self.coo):
+            if ni <= N_stars:
 
-            cut = self.image[x - box:x + box, y - box:y + box]
+                e = np.nan
+                t = np.nan
+                f = np.nan
+                fx = np.nan
+                fy = np.nan
+                cpe = np.nan
 
-            if cut.shape[0] > box-1 and cut.shape[1] > box-1:
+                if self.adu[i] < self.saturation:
+                    ni = ni + 1
 
-                cut = cut - np.median(cut[0, :])
-                _, e, t = ffs_pca(cut)
+                    cut = self.image[x - box:x + box, y - box:y + box]
 
-                cut = cut - 0.5 * np.max(cut)
-                f, _, _ = ffs_pca(cut)
+                    if cut.shape[0] > box-1 and cut.shape[1] > box-1:
 
-                fx, fy = ffs_fwhm(cut)
+                        cut = cut - np.median(cut[0, :])
+                        _, e, t = ffs_pca(cut)
 
-            self.ellipticity.append(e)
-            self.theta.append(t)
-            self.fw.append(f)
-            self.fw_x.append(fx)
-            self.fw_y.append(fy)
+                        cut = cut - 0.5 * np.max(cut)
 
+                        fx, fy = ffs_fwhm(cut)
 
-            if fx is not np.nan and fy is not np.nan:
-                r = int((fx+fy)/2.)
-                cut = self.image[x - r:x + r, y - r:y + r]
-                cpe = ffs_cpe(cut)
-            self.cpe.append(cpe)
+                        if fx is not np.nan and fy is not np.nan:
+                            f = (fx+fy)/2.
+                            r = int(f)
+                            cut = self.image[x - r:x + r, y - r:y + r]
+                            cpe = ffs_cpe(cut)
 
-        self.stats["stars"]["fwhm_x"] = self.fw_x
-        self.stats["stars"]["fwhm_y"] = self.fw_y
-        self.stats["stars"]["ellipticity"] = self.ellipticity
-        self.stats["stars"]["theta"] = self.theta
-        self.stats["stars"]["cpe"] = self.cpe
+                self.ellipticity.append(e)
+                self.theta.append(t)
+                self.fwhm.append(f)
+                self.fwhm_x.append(fx)
+                self.fwhm_y.append(fy)
+                self.cpe.append(cpe)
 
-        self.stats_description["stars"].update({
+            self.stats["stars"]["fwhm"] = self.fwhm
+            self.stats["stars"]["fwhm_x"] = self.fwhm_x
+            self.stats["stars"]["fwhm_y"] = self.fwhm_y
+            self.stats["stars"]["ellipticity"] = self.ellipticity
+            self.stats["stars"]["theta"] = self.theta
+            self.stats["stars"]["cpe"] = self.cpe
 
-            "fwhm_x": (
-                "Full Width at Half Maximum (FWHM) of each detected star measured "
-                "along the semi-major axis of the fitted profile (in pixels)"
-            ),
+            self.stats_description["stars"].update({
 
-            "fwhm_y": (
-                "Full Width at Half Maximum (FWHM) of each detected star measured "
-                "along the semi-minor axis of the fitted profile (in pixels)"
-            ),
+                "fwhm": (
+                    "Full Width at Half Maximum (FWHM) of each detected star "
+                ),
 
-            "ellipticity": (
-                "Ellipticity of each detected star, defined as "
-                "1 − (FWHM_minor / FWHM_major); "
-                "values close to 0 indicate round stars, "
-                "higher values indicate elongated profiles"
-            ),
+                "fwhm_x": (
+                    "Full Width at Half Maximum (FWHM) of each detected star measured "
+                    "along the X axis of the fitted profile (in pixels)"
+                ),
 
-            "theta": (
-                "Position angle of the semi-major axis of each detected star, "
-                "measured counter-clockwise from the X axis of the detector "
-                "(in radians)"
-            ),
+                "fwhm_y": (
+                    "Full Width at Half Maximum (FWHM) of each detected star measured "
+                    "along the Y axis of the fitted profile (in pixels)"
+                ),
 
-            "cpe": (
-                "Central Pixel Excess (CPE) of each detected star, defined as "
-                "the contrast of the peak pixel relative to the local background "
-                "and background noise; higher values indicate sharper, more "
-                "centrally concentrated profiles"
-            ),
-        })
+                "ellipticity": (
+                    "Ellipticity of each detected star"
+                    "values close to 0 indicate round stars, "
+                    "higher values indicate elongated profiles"
+                ),
 
-        return self.fw_x, self.fw_y, self.ellipticity, self.theta, self.cpe
+                "theta": (
+                    "Position angle of the semi-major axis of each detected star, "
+                    "measured counter-clockwise from the X axis of the detector "
+                    "(in radians)"
+                ),
+
+                "cpe": (
+                    "Central Pixel Excess (CPE) of each detected star, defined as "
+                    "the contrast of the peak pixel relative to the local background "
+                    "and background noise; higher values indicate sharper, more "
+                    "centrally concentrated profiles"
+                ),
+            })
+
+        return self.fwhm, self.fwhm_x, self.fwhm_y, self.ellipticity, self.theta, self.cpe
 
 
     def sky_gradient(self,n_segments=10):
