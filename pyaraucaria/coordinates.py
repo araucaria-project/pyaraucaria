@@ -344,8 +344,8 @@ def radec_to_j2000(
                 "radec_to_j2000 failed in both Astropy and PyEphem paths: {}".format(e)
             )
 
-ra_j2000, dec_j2000 = radec_to_j2000(
-    ra_deg=10.684708, dec_deg=41.26875, epoch="J2015.5"
-)
-print("RA J2000:", ra_j2000)
-print("Dec J2000:", dec_j2000)
+# ra_j2000, dec_j2000 = radec_to_j2000(
+#     ra_deg=10.684708, dec_deg=41.26875, epoch="J2015.5"
+# )
+# print("RA J2000:", ra_j2000)
+# print("Dec J2000:", dec_j2000)
