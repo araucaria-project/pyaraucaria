@@ -9,12 +9,44 @@ from astropy.stats import mad_std
 class FFS:
 
     def __init__(self, image, gain=1., rn_noise=0.):
-        self.image = np.transpose(image)
+        self.image = np.transpose(image) # tutej jednak to nie robic bo czas zajmuje no i wogole
         self.gain = float(gain)
         self.rn_noise = float(rn_noise)
         self.saturation = 50000
         self.stats = {}
 
+        self.min = None
+        self.max = None
+        self.mean = None
+        self.rms = None
+        self.median = None
+        self.q_sigma = None
+        self.q_sigma_lower = None
+        self.q_sigma_upper = None
+        self.sigma_quantile = None
+        self.noise = None
+
+        self.coo = None
+        self.adu = None
+
+        self.ellipticity = None
+        self.theta = None
+        self.fwhm = None
+        self.fwhm_x = None
+        self.fwhm_y = None
+        self.cpe = None
+
+        self.max_amplitude = None
+        self.frame_gradient = None
+        self.sky_surface_coeff = None
+
+        self.sky_surface_bkg = None
+        self.sky_surface_x = None
+        self.sky_surface_y = None
+
+        self.lines_val = None
+        self.lines_theta = None
+        self.lines_rho = None
 
     def mk_stats(self):
         img = self.image.ravel()
@@ -57,8 +89,8 @@ class FFS:
             "mean": "Mean pixel value (arithmetic average)",
             "median": "Median pixel value (robust background estimator)",
             "rms": "Standard deviation of pixel values",
-            "q_sigma_lower": "Lower 1-sigma estimate from 15.9% quantile",
-            "q_sigma_upper": "Upper 1-sigma estimate from 84.1% quantile",
+            "q_sigma_lower": "Lower 1-sigma estimate from 50% - 15.9% quantile",
+            "q_sigma_upper": "Upper 1-sigma estimate from 84.1% - 50% quantile",
             "q_sigma": "Robust sigma estimated from 15.9–84.1% quantiles",
             "noise": "Expected total noise (Poisson + read noise)",
         }
@@ -112,7 +144,7 @@ class FFS:
         "y": "Y coordinates of detected stars (pixel indices, 0-based)",
         "max_adu": "Peak ADU (brightness) of each detected star"
         }
-        return self.coo, self.adu
+
 
 
 
@@ -243,17 +275,17 @@ class FFS:
                     if cut.shape[0] > box-1 and cut.shape[1] > box-1:
 
                         cut = cut - np.median(cut[0, :])
-                        _, e, t = ffs_pca(cut)
+                        _, e, t = FFS.pca(cut)
 
                         cut = cut - 0.5 * np.max(cut)
 
-                        fx, fy = ffs_fwhm(cut)
+                        fx, fy = FFS.fwhm(cut)
 
                         if fx is not np.nan and fy is not np.nan:
                             f = (fx+fy)/2.
                             r = int(f)
                             cut = self.image[x - r:x + r, y - r:y + r]
-                            cpe = ffs_cpe(cut)
+                            cpe = FFS.cpe(cut)
 
                 self.ellipticity.append(e)
                 self.theta.append(t)
@@ -305,12 +337,9 @@ class FFS:
                 ),
             })
 
-        return self.fwhm, self.fwhm_x, self.fwhm_y, self.ellipticity, self.theta, self.cpe
-
-
     def sky_gradient(self,n_segments=10):
         image = self.image
-        segments = ffs_make_segments(image)
+        segments = FFS.make_segments(image)
 
         x = []
         y = []
@@ -344,11 +373,11 @@ class FFS:
         bk = []
 
         for xi, yi in zip(x, y):
-            bk.append(ffs_polysurf(xi, yi, coeff))
-            le.append(ffs_polysurf(x0, yi, coeff))
-            re.append(ffs_polysurf(xk, yi, coeff))
-            ue.append(ffs_polysurf(xi, yk, coeff))
-            de.append(ffs_polysurf(xi, y0, coeff))
+            bk.append(FFS.polysurf(xi, yi, coeff))
+            le.append(FFS.polysurf(x0, yi, coeff))
+            re.append(FFS.polysurf(xk, yi, coeff))
+            ue.append(FFS.polysurf(xi, yk, coeff))
+            de.append(FFS.polysurf(xi, y0, coeff))
 
         max_amplitude = max(bk) - min(bk)
         max(le) - min(re)
@@ -375,25 +404,21 @@ class FFS:
         self.stats_description.update({
 
             "bkg_max_amplitude": (
-                "Maximum amplitude of the background signal across the image, "
-                "representing the highest estimated background level (in ADU)"
+                "Maximum amplitude of the background signal across the image (in ADU)"
             ),
 
             "bkg_frame_gradient": (
-                "Global background gradient across the image frame, describing "
-                "large-scale background variation (e.g. due to sky brightness "
-                "gradient, moonlight, or scattered light)"
+                "Background gradient across the image frame (in ADU)"
             ),
 
             "sky_surface_coeff": (
-                "Coefficients of the fitted background surface model describing "
-                "the large-scale sky background variation across the image"
+                "Coefficients of the fitted sky model describing "
+                "the sky background variation across the image"
             ),
 
             "sky": {
                 "surface_bkg": (
                     "Estimated sky background surface evaluated over the image grid, "
-                    "representing the modeled large-scale background (in ADU)"
                 ),
                 "surface_x": (
                     "X-coordinate grid used for evaluating the sky background surface "
@@ -452,21 +477,20 @@ class FFS:
             lines_val.append(val)
 
         idx = np.argsort(lines_val)[::-1]  # descending
-        lines_rho = np.array(lines_rho)[idx]
-        lines_theta = np.array(lines_theta)[idx]
-        lines_val = np.array(lines_val)[idx]
+        self.lines_rho = np.array(lines_rho)[idx]
+        self.lines_theta = np.array(lines_theta)[idx]
+        self.lines_val = np.array(lines_val)[idx]
 
         tmp = {}
-        tmp["val"] = lines_val
-        tmp["rho"] = lines_rho
-        tmp["theta"] = lines_theta
+        tmp["val"] =self. lines_val
+        tmp["rho"] = self.lines_rho
+        tmp["theta"] = self.lines_theta
         self.stats["lines"] = tmp
 
         self.stats_description["lines"] = {
 
             "val": (
-                "Detection strength or significance of each detected line, "
-                "representing the response value of the line detection algorithm "
+                "Detection strength (number of pixels in line), "
                 "(higher values indicate more prominent linear features)"
             ),
 
@@ -482,184 +506,188 @@ class FFS:
             ),
         }
 
-        return lines_val, lines_theta, lines_rho
+    @staticmethod
+    def pca(image_cut):
+        e = np.nan
+        t = np.nan
+        f = np.nan
+        lx, ly = image_cut.shape
+        nx, ny = np.mgrid[0:lx, 0:ly]
+        image_cut = image_cut.clip(min=0)
+        I = image_cut.clip(min=0)
+        It = I.sum()
+        if It > 0:
+            dx = nx - int(lx/2)
+            dy = ny - int(ly/2)
+
+            Mxx = np.sum(I * dx * dx) / It
+            Myy = np.sum(I * dy * dy) / It
+            Mxy = np.sum(I * dx * dy) / It
+
+            cov = np.array([[Mxx, Mxy], [Mxy, Myy]])
+            eigvals, eigvecs = np.linalg.eigh(cov)
+            b2, a2 = eigvals
+
+            if a2 > 0 and b2 > 0:
+
+                f1 = 2.355 * np.sqrt(a2)
+                f2 = 2.355 * np.sqrt(b2)
+                f = (f1 + f2)/2
+
+                e = 1.0 - np.sqrt(b2 / a2)
+                vx, vy = eigvecs[:, 1]
+                t = np.arctan2(vy, vx)
+        return f,e,t
+
+    @staticmethod
+    def cpe(image_cut):
+        cpe = np.nan
+        # central pixel excess
+        cx = int(image_cut.shape[0]/2)
+        cy = int(image_cut.shape[1]/2)
+
+        if cx > 1 and cy > 1:
+            x_max, y_max = np.unravel_index(np.argmax(image_cut), image_cut.shape)
+            I_max = image_cut[x_max, y_max]
+
+            bck = image_cut.copy().astype(float)
+            bck[x_max,y_max] = np.nan
+
+            I_bck = np.nanmean(image_cut)
+            I_std = np.nanstd(image_cut)
+
+            # Zabezpieczenie przed dzieleniem przez zero
+            if I_std == 0 or np.isnan(I_std):
+                return np.nan
+
+            cpe = (I_max - I_bck) / I_std
+
+        return cpe
+
+    @staticmethod
+    def fwhm(image_cut):
+        cx = int(image_cut.shape[0]/2)
+        cy = int(image_cut.shape[1]/2)
+        line_x = image_cut[cx, :]
+        line_y = image_cut[:, cy]
+
+        fwhm_x = FFS.fwhm_1d(line_x)
+        fwhm_y = FFS.fwhm_1d(line_y)
+
+        return fwhm_x,fwhm_y
 
 
-def ffs_pca(image_cut):
-    e = np.nan
-    t = np.nan
-    f = np.nan
-    lx, ly = image_cut.shape
-    nx, ny = np.mgrid[0:lx, 0:ly]
-    image_cut = image_cut.clip(min=0)
-    I = image_cut.clip(min=0)
-    It = I.sum()
-    if It > 0:
-        dx = nx - int(lx/2)
-        dy = ny - int(ly/2)
+    @staticmethod
+    def fwhm_1d(line):
 
-        Mxx = np.sum(I * dx * dx) / It
-        Myy = np.sum(I * dy * dy) / It
-        Mxy = np.sum(I * dx * dy) / It
-
-        cov = np.array([[Mxx, Mxy], [Mxy, Myy]])
-        eigvals, eigvecs = np.linalg.eigh(cov)
-        b2, a2 = eigvals
-
-        if a2 > 0 and b2 > 0:
-
-            f1 = 2.355 * np.sqrt(a2)
-            f2 = 2.355 * np.sqrt(b2)
-            f = (f1 + f2)/2
-
-            e = 1.0 - np.sqrt(b2 / a2)
-            vx, vy = eigvecs[:, 1]
-            t = np.arctan2(vy, vx)
-    return f,e,t
-
-def ffs_cpe(image_cut):
-    cpe = np.nan
-    # central pixel excess
-    cx = int(image_cut.shape[0]/2)
-    cy = int(image_cut.shape[1]/2)
-
-    if cx > 1 and cy > 1:
-        x_max, y_max = np.unravel_index(np.argmax(image_cut), image_cut.shape)
-        I_max = image_cut[x_max, y_max]
-
-        bck = image_cut.copy().astype(float)
-        bck[x_max,y_max] = np.nan
-
-        I_bck = np.nanmean(image_cut)
-        I_std = np.nanstd(image_cut)
-
-        # Zabezpieczenie przed dzieleniem przez zero
-        if I_std == 0 or np.isnan(I_std):
+        idx = np.where(line > 0)[0]
+        if len(idx) < 2:
             return np.nan
 
-        cpe = (I_max - I_bck) / I_std
+        i1 = idx[0]
+        i2 = idx[-1]
 
-    return cpe
+        # interpolacja lewego brzegu
+        if i1 > 0:
+            x1, x2 = i1-1, i1
+            y1, y2 = line[x1], line[x2]
+            xl = x1 + (0 - y1) / (y2 - y1)
+        else:
+            xl = i1
 
-def ffs_fwhm(image_cut):
-    cx = int(image_cut.shape[0]/2)
-    cy = int(image_cut.shape[1]/2)
-    line_x = image_cut[cx, :]
-    line_y = image_cut[:, cy]
+        # interpolacja prawego brzegu
+        if i2 < len(line)-1:
+            x1, x2 = i2, i2+1
+            y1, y2 = line[x1], line[x2]
+            xr = x1 + (0 - y1) / (y2 - y1)
+        else:
+            xr = i2
 
-    fwhm_x = ffs_fwhm_1d(line_x)
-    fwhm_y = ffs_fwhm_1d(line_y)
-
-    return fwhm_x,fwhm_y
-
-
-
-def ffs_fwhm_1d(line):
-
-    idx = np.where(line > 0)[0]
-    if len(idx) < 2:
-        return np.nan
-
-    i1 = idx[0]
-    i2 = idx[-1]
-
-    # interpolacja lewego brzegu
-    if i1 > 0:
-        x1, x2 = i1-1, i1
-        y1, y2 = line[x1], line[x2]
-        xl = x1 + (0 - y1) / (y2 - y1)
-    else:
-        xl = i1
-
-    # interpolacja prawego brzegu
-    if i2 < len(line)-1:
-        x1, x2 = i2, i2+1
-        y1, y2 = line[x1], line[x2]
-        xr = x1 + (0 - y1) / (y2 - y1)
-    else:
-        xr = i2
-
-    return xr - xl
+        return xr - xl
 
 
+    @staticmethod
+    def make_segments(image, n_segments=10, overlap=0):
+        height, width = image.shape
+        seg_h = height // n_segments
+        seg_w = width // n_segments
 
-def ffs_make_segments(image, n_segments=10, overlap=0):
-    height, width = image.shape
-    seg_h = height // n_segments
-    seg_w = width // n_segments
+        segments = []
 
-    segments = []
+        for i in range(n_segments):
+            for j in range(n_segments):
+                result = {}
 
-    for i in range(n_segments):
-        for j in range(n_segments):
-            result = {}
+                y_start = (i * seg_h) - overlap
+                if y_start < 0: y_start = 0
+                x_start = (j * seg_w) - overlap
+                if x_start < 0: x_start = 0
+                y_end = ((i + 1) * seg_h) + overlap if i < n_segments - 1 else height
+                x_end = ((j + 1) * seg_w) + overlap if j < n_segments - 1 else width
 
-            y_start = (i * seg_h) - overlap
-            if y_start < 0: y_start = 0
-            x_start = (j * seg_w) - overlap
-            if x_start < 0: x_start = 0
-            y_end = ((i + 1) * seg_h) + overlap if i < n_segments - 1 else height
-            x_end = ((j + 1) * seg_w) + overlap if j < n_segments - 1 else width
+                subframe = image[y_start:y_end, x_start:x_end]
 
-            subframe = image[y_start:y_end, x_start:x_end]
+                result = {}
+                result["x"] = [x_start, x_end]
+                result["y"] = [y_start, y_end]
+                result["subframe"] = subframe
+                segments.append(result)
 
-            result = {}
-            result["x"] = [x_start, x_end]
-            result["y"] = [y_start, y_end]
-            result["subframe"] = subframe
-            segments.append(result)
+        return segments
 
-    return segments
+    @staticmethod
+    def polysurf(x, y, coeff):
+        a0, a1, a2, a3, a4, a5 = coeff
+        return a0 + a1 * x + a2 * y + a3 * x ** 2 + a4 * x * y + a5 * y ** 2
 
-def ffs_polysurf(x, y, coeff):
-    a0, a1, a2, a3, a4, a5 = coeff
-    return a0 + a1 * x + a2 * y + a3 * x ** 2 + a4 * x * y + a5 * y ** 2
+    @staticmethod
+    def line_filter(image,kernel1_size=3,kernel2_size=7,th1=3,th2=3):
+        image = image
 
-def ffs_line_filter(image,kernel1_size=3,kernel2_size=7,th1=3,th2=3):
-    image = image
+        kernel_l, kernel_r = FFS.line_detection_kernel(kernel1_size)  # tu sie zmienia
+        result_l = convolve(image, kernel_l)
+        maska_1l = result_l > np.median(result_l) + th1 * mad_std(result_l)
+        result_r = convolve(image, kernel_r)
+        maska_1r = result_r > np.median(result_r) + th1 * mad_std(result_r)
 
-    kernel_l, kernel_r = ffs_line_detection_kernel(kernel1_size)  # tu sie zmienia
-    result_l = convolve(image, kernel_l)
-    maska_1l = result_l > np.median(result_l) + th1 * mad_std(result_l)
-    result_r = convolve(image, kernel_r)
-    maska_1r = result_r > np.median(result_r) + th1 * mad_std(result_r)
+        kernel_l, kernel_r = FFS.line_detection_kernel(kernel2_size)  # tu sie zmienia
+        result_l = convolve(image, kernel_l)
+        maska_2l = result_l > np.median(result_l) + th2 * mad_std(result_r)
+        result_r = convolve(image, kernel_r)
+        maska_2r = result_r > np.median(result_r) + th2 * mad_std(result_r)
 
-    kernel_l, kernel_r = ffs_line_detection_kernel(kernel2_size)  # tu sie zmienia
-    result_l = convolve(image, kernel_l)
-    maska_2l = result_l > np.median(result_l) + th2 * mad_std(result_r)
-    result_r = convolve(image, kernel_r)
-    maska_2r = result_r > np.median(result_r) + th2 * mad_std(result_r)
+        maska = (maska_1l & maska_2l) ^ (maska_1r & maska_2r)
 
-    maska = (maska_1l & maska_2l) ^ (maska_1r & maska_2r)
+        return maska
 
-    return maska
+    @staticmethod
+    def line_detection_kernel(kernel_half_size=5):
+        size = 2 * kernel_half_size + 1
+        center = kernel_half_size
+        y, x = np.ogrid[:size, :size]
+        distance = np.sqrt((x - center) ** 2 + (y - center) ** 2)
+        inner = kernel_half_size - 1 / 2
+        outer = kernel_half_size + 1 / 2
 
-def ffs_line_detection_kernel(kernel_half_size=5):
-    size = 2 * kernel_half_size + 1
-    center = kernel_half_size
-    y, x = np.ogrid[:size, :size]
-    distance = np.sqrt((x - center) ** 2 + (y - center) ** 2)
-    inner = kernel_half_size - 1 / 2
-    outer = kernel_half_size + 1 / 2
+        left = ((x <= center) & (y <= center)) | ((x >= center) & (y >= center))
+        right = ((x < center) & (y > center)) | ((x > center) & (y < center))
 
-    left = ((x <= center) & (y <= center)) | ((x >= center) & (y >= center))
-    right = ((x < center) & (y > center)) | ((x > center) & (y < center))
+        # left
+        mk = ((distance >= inner) & (distance <= outer))
+        kernel_l = mk.astype(float)
+        tmp_mk = ((distance >= inner) & (distance <= outer) & right)
+        kernel_l[tmp_mk] = -1
 
-    # left
-    mk = ((distance >= inner) & (distance <= outer))
-    kernel_l = mk.astype(float)
-    tmp_mk = ((distance >= inner) & (distance <= outer) & right)
-    kernel_l[tmp_mk] = -1
+        # right
+        mk = ((distance >= inner) & (distance <= outer))
+        kernel_r = mk.astype(float)
+        tmp_mk = ((distance >= inner) & (distance <= outer) & left)
+        kernel_r[tmp_mk] = -1
 
-    # right
-    mk = ((distance >= inner) & (distance <= outer))
-    kernel_r = mk.astype(float)
-    tmp_mk = ((distance >= inner) & (distance <= outer) & left)
-    kernel_r[tmp_mk] = -1
+        return kernel_l, kernel_r
 
-    return kernel_l, kernel_r
-
-def ffs_gauss2d_kernel(size, sigma):
-    kernel = np.fromfunction(lambda x, y: (1 / (2 * np.pi * sigma ** 2)) * np.exp(
-        -((x - (size - 1) / 2) ** 2 + (y - (size - 1) / 2) ** 2) / (2 * sigma ** 2)), (size, size))
-    return kernel / np.sum(kernel)
+    @staticmethod
+    def gauss2d_kernel(size, sigma):
+        kernel = np.fromfunction(lambda x, y: (1 / (2 * np.pi * sigma ** 2)) * np.exp(
+            -((x - (size - 1) / 2) ** 2 + (y - (size - 1) / 2) ** 2) / (2 * sigma ** 2)), (size, size))
+        return kernel / np.sum(kernel)
