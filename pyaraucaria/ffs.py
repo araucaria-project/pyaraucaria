@@ -246,12 +246,12 @@ class FFS:
 
     def star_info(self,box=10,N_stars=None):
 
-        self.ellipticity = []
-        self.theta = []
-        self.fwhm = []
-        self.fwhm_x = []
-        self.fwhm_y = []
-        self.cpe = []
+        self.ellipticity = np.full(len(self.coo), np.nan)
+        self.theta = np.full(len(self.coo), np.nan)
+        self.fwhm = np.full(len(self.coo), np.nan)
+        self.fwhm_x = np.full(len(self.coo), np.nan)
+        self.fwhm_y = np.full(len(self.coo), np.nan)
+        self.cpe = np.full(len(self.coo), np.nan)
 
         if N_stars == None:
             N_stars = len(self.coo)
@@ -287,12 +287,12 @@ class FFS:
                             cut = self.image[x - r:x + r, y - r:y + r]
                             cpe = FFS.cpe(cut)
 
-                self.ellipticity.append(e)
-                self.theta.append(t)
-                self.fwhm.append(f)
-                self.fwhm_x.append(fx)
-                self.fwhm_y.append(fy)
-                self.cpe.append(cpe)
+                self.ellipticity[i] = e
+                self.theta[i] = t
+                self.fwhm[i] = f
+                self.fwhm_x[i] = fx
+                self.fwhm_y[i] = fy
+                self.cpe[i] = cpe
 
             self.stats["stars"]["fwhm"] = self.fwhm
             self.stats["stars"]["fwhm_x"] = self.fwhm_x
