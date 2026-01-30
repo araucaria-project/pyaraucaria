@@ -9,11 +9,11 @@ from astropy.stats import mad_std
 class FFS:
 
     def __init__(self, image, gain=1., rn_noise=0.):
-        self.image = np.transpose(image) # tutej jednak to nie robic bo czas zajmuje no i wogole
+        self.not_transposed = True
+        self.image = image
         self.gain = float(gain)
         self.rn_noise = float(rn_noise)
         self.saturation = 50000
-        self.stats = {}
 
         self.min = None
         self.max = None
@@ -28,6 +28,11 @@ class FFS:
 
         self.coo = None
         self.adu = None
+
+        self.fs_threshold = None
+        self.fs_method = None
+        self.fs_fwhm_adopted = None
+        self.fs_kernel_sigma = None
 
         self.ellipticity = None
         self.theta = None
@@ -48,7 +53,22 @@ class FFS:
         self.lines_theta = None
         self.lines_rho = None
 
+        self.frame_fwhm = None
+        self.frame_fwhm_x = None
+        self.frame_fwhm_y = None
+        self.frame_ellipticity = None
+        self.frame_theta_spread = None
+        self.frame_cpe = None
+
+        self.rh = None
+        self.maska  = None
+        self.stats = None
+        self.stats_description = None
+
     def mk_stats(self):
+        if self.not_transposed:
+            self.image = np.transpose(self.image)
+            self.not_transposed = False
         img = self.image.ravel()
 
         self.min = img.min()
@@ -70,6 +90,8 @@ class FFS:
         self.sigma_quantile = self.q_sigma
 
         self.noise = np.sqrt(self.median / self.gain + self.rn_noise)
+
+        self.maska = self.image > np.median(self.image)  + 3 * self.q_sigma
 
         self.stats = {
             "min": self.min,
@@ -95,27 +117,26 @@ class FFS:
             "noise": "Expected total noise (Poisson + read noise)",
         }
 
-    def find_stars(self, threshold=5, method="sigma quantile", kernel_size=30, fwhm=10):
+    def find_stars(self, threshold=5, method="sigma quantile", fwhm=10):
 
         self.coo = []
         self.adu = []
-        self.threshold = float(threshold) # inna nazwa zwiazana z instancja
-        self.method = method
-        self.fwhm_adopted = float(fwhm)
-        self.kernel_size = int(kernel_size)
-        self.kernel_sigma = float(fwhm) / 2.355
+        self.fs_threshold = float(threshold) # inna nazwa zwiazana z instancja
+        self.fs_method = method
+        self.fs_fwhm_adopted = float(fwhm)
+        self.fs_kernel_sigma = float(fwhm) / 2.355
 
-        if self.method == "rms Poisson":
-            self.sigma = self.noise
-        elif self.method == "rms":
-            self.sigma = self.rms
-        elif self.method == "sigma quantile":
-            self.sigma = self.q_sigma
+        if self.fs_method == "rms Poisson":
+            self.fs_sigma = self.noise
+        elif self.fs_method == "rms":
+            self.fs_sigma = self.rms
+        elif self.fs_method == "sigma quantile":
+            self.fs_sigma = self.q_sigma
         else:
             raise ValueError(f"Invalid method type {self.method}")
 
-        mask1 = self.image > self.median + self.threshold * self.sigma
-        data2 = gaussian_filter(self.image, sigma=self.kernel_sigma)
+        mask1 = self.image > self.median + self.fs_threshold * self.fs_sigma
+        data2 = gaussian_filter(self.image, sigma=self.fs_kernel_sigma)
         mask2 = data2 == maximum_filter(data2, size=3)
         mask = mask1 & mask2
 
@@ -145,10 +166,36 @@ class FFS:
         "max_adu": "Peak ADU (brightness) of each detected star"
         }
 
+    def calc_frame_fwhm(self,threshold=5, fwhm=10, box=10, N_stars=20):
+        self.mk_stats()
+        self.find_stars(threshold=threshold, fwhm=fwhm)
+        self.star_info(box=box,N_stars=N_stars)
+        self.calc_star_stats()
 
-    def fwhm_frame(self):
-        ...
 
+    def calc_star_stats(self):
+        self.frame_fwhm = np.nanmedian(self.fwhm)
+        self.frame_fwhm_x = np.nanmedian(self.fwhm_x)
+        self.frame_fwhm_y = np.nanmedian(self.fwhm_y)
+        self.frame_ellipticity = np.nanmedian(self.ellipticity)
+        self.frame_theta_spread = np.nanstd(self.theta)
+        self.frame_cpe = np.nanmedian(self.cpe)
+
+        self.stats["frame_fwhm"] = self.frame_fwhm
+        self.stats["frame_fwhm_x"] = self.frame_fwhm_x
+        self.stats["frame_fwhm_y"] = self.frame_fwhm_y
+        self.stats["frame_ellipticity"] = self.frame_ellipticity
+        self.stats["frame_theta_spread"] = self.frame_theta_spread
+        self.stats["frame_cpe"] = self.frame_cpe
+
+        self.stats_description.update({
+            "frame_fwhm": "Median of the full width at half maximum (FWHM) of the brightest sources in the frame",
+            "frame_fwhm_x": "Median FWHM measured along the X axis",
+            "frame_fwhm_y": "Median FWHM measured along the Y axis",
+            "frame_ellipticity": "Median source ellipticity (1 − b/a), describing PSF elongation",
+            "frame_theta_spread": "Angular spread (dispersion) of source position angles in the frame. Low spread with hight ellipticity means something",
+            "frame_cpe": "Median central pixel excess (CPE) of detected sources; higher values indicate sharper, more centrally concentrated profiles",
+        })
 
     def fwhm_deprecated(self, radius=10, all_stars=True):
         # deprecated
@@ -245,11 +292,6 @@ class FFS:
                 self.stats["fwhm_yax"] = self.fwhm_y
 
         return self.fwhm_x, self.fwhm_y
-
-    def fwhm(self):
-        self.mkstats()
-        self.find_stars(there....)
-        self.stars_info()
 
     def star_info(self,box=10,N_stars=None):
 
@@ -438,9 +480,11 @@ class FFS:
             },
         })
 
+    def find_lines(self):
+        self.hough_transform()
 
-    def hough_transform(self, maska, th_signal=100, steps=180):
-        ys, xs = np.nonzero(maska)
+    def hough_transform(self, th_signal=100, steps=180):
+        ys, xs = np.nonzero(self.maska)
         xs = xs.astype(float)
         ys = ys.astype(float)
         N = len(xs)
@@ -464,7 +508,7 @@ class FFS:
         ti_flat = np.tile(np.arange(T), N)
         np.add.at(self.accumulator, (ri_flat, ti_flat), 1)
 
-        self.accumulator
+        #self.accumulator
         self.theta = theta
         self.rh = rh
 
@@ -489,7 +533,7 @@ class FFS:
         self.lines_val = np.array(lines_val)[idx]
 
         tmp = {}
-        tmp["val"] =self. lines_val
+        tmp["val"] =self.lines_val
         tmp["rho"] = self.lines_rho
         tmp["theta"] = self.lines_theta
         self.stats["lines"] = tmp
