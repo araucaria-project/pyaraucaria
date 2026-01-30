@@ -18,6 +18,7 @@ import ephem
 import math
 import datetime
 from astropy.coordinates import SkyCoord, EarthLocation, FK5
+from astropy.time import Time
 import astropy.units as u
 
 
@@ -253,3 +254,98 @@ def az_alt_2_ra_dec_astropy(az, alt, longitude, latitude, elevation, epoch, calc
     radec_equinox = radec.transform_to(FK5(equinox=epoch))
 
     return radec_equinox.ra.deg, radec_equinox.dec.deg
+
+def _parse_epoch_to_astropy(epoch):
+    # str 'J2000', 'J2015.5', '2000', '2015-07-01', float 2015.5, astropy Time
+    if isinstance(epoch, Time):
+        return epoch
+    if isinstance(epoch, (int, float)):
+        return Time(float(epoch), format="jyear")
+    s = str(epoch).strip().upper()
+    try:
+        if s.startswith(("J", "B")):
+            return Time(s)  # 'J2000', 'B1950'
+        # próba jako liczba roku juliańskiego
+        return Time(float(s), format="jyear")
+    except Exception:
+        # próba ISO-daty
+        return Time(s)
+
+
+def radec_to_j2000(
+    ra_deg,
+    dec_deg,
+    epoch,
+    pm_ra_cosdec=None,
+    pm_dec=None,
+    parallax=None,
+    radial_velocity=None,
+    obstime=None,
+):
+    # type: (float, float, Any, Optional[u.Quantity], Optional[u.Quantity], Optional[u.Quantity], Optional[u.Quantity], Optional[Any]) -> (float, float)
+    """
+    Konwersja RA/Dec podanych na równonoc/epoce `epoch` do równonocy J2000 (FK5/J2000).
+    Jeśli podasz kinematykę (µα*, µδ, paralaksa, RV + obstime), wynik uwzględni ruch własny, paralaksę i RV.
+
+    Parametry:
+      ra_deg, dec_deg  — w stopniach.
+      epoch            — np. 'J2015.5', 2015.5, '2000', '2016-07-01'.
+      pm_ra_cosdec     — np.  mas/yr (astropy units), komponent µα*cosδ.
+      pm_dec           — np.  mas/yr.
+      parallax         — np.  mas.
+      radial_velocity  — np.  km/s.
+      obstime          — czas obowiązywania pozycji wejściowej, np. '2016-07-01'.
+
+    Zwraca:
+      (ra_j2000_deg, dec_j2000_deg)
+    """
+    # Najpierw spróbuj Astropy (dokładniejsze, spójne z waszym alt/az wariantem)
+    try:
+        eq_in = _parse_epoch_to_astropy(epoch)
+        fk5_in = FK5(equinox=eq_in)
+
+        kwargs = {}
+        if pm_ra_cosdec is not None:
+            kwargs["pm_ra_cosdec"] = pm_ra_cosdec
+        if pm_dec is not None:
+            kwargs["pm_dec"] = pm_dec
+        if parallax is not None:
+            kwargs["distance"] = parallax.to(u.parsec, equivalencies=u.parallax())
+        if radial_velocity is not None:
+            kwargs["radial_velocity"] = radial_velocity
+        if obstime is not None:
+            kwargs["obstime"] = _parse_epoch_to_astropy(obstime)
+
+        c = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame=fk5_in, **kwargs)
+        c_j2000 = c.transform_to(FK5(equinox=Time("J2000")))
+        return c_j2000.ra.deg, c_j2000.dec.deg
+    except Exception:
+        # Fallback: PyEphem precesja do J2000 bez kinematyki
+        try:
+            # ustaw wejściową epokę
+            if isinstance(epoch, (int, float)) or (
+                isinstance(epoch, str) and epoch.strip().isdigit()
+            ):
+                e_in = ephem.Date(str(epoch))  # '2015' -> ephem.Date
+            else:
+                e_in = (
+                    ephem.Date(str(epoch))
+                    if str(epoch).upper() != "J2000"
+                    else ephem.J2000
+                )
+
+            eq_in = ephem.Equatorial(
+                math.radians(ra_deg), math.radians(dec_deg), epoch=e_in
+            )
+            eq_j2000 = ephem.Equatorial(eq_in, epoch=ephem.J2000)
+            return math.degrees(eq_j2000.ra), math.degrees(eq_j2000.dec)
+        except Exception as e:
+            raise RuntimeError(
+                "radec_to_j2000 failed in both Astropy and PyEphem paths: {}".format(e)
+            )
+
+# ra_j2000, dec_j2000 = radec_to_j2000(
+#     ra_deg=10.684708, dec_deg=41.26875, epoch="J2015.5"
+# )
+# print("RA J2000:", ra_j2000)
+# print("Dec J2000:", dec_j2000)

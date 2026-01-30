@@ -240,49 +240,53 @@ class ObjectList():
     
     def parse_data(self, dataline, line_number):
         """ Convert string data line into a dictionary of keyword:value pairs. """
-        
-        if '"' in dataline:
-            dataline = self.conv_spaces(dataline)
-            
-        items = dataline.split()
-        
-        assert len(items)>0, "object line should consist of at least ID field"
-        
-        # ID is necessary
-        oid = items[0]
-        items = items[1:]
-        nitems = len(items)
-        odata = {}
 
-#DEV        print "def:", self.defaults
-        
-        # data in predefined columns (only values there)
-        if 'columns' in self.defaults:
-            def_columns = self.defaults['columns']
-            col_items = min(nitems, len(def_columns))
-            key_col = 0
-            for i_col in range(col_items):
-                col_id = def_columns[i_col]
-                item = items[i_col]
-                if '=' not in item:
-#                    print col_id, item,
-                    odata[col_id] = item
-                    key_col += 1
-                else:
-                    break
-            keyitems = items[key_col:]
-        else:
-            keyitems = items
+        try:
+            if '"' in dataline:
+                dataline = self.conv_spaces(dataline)
 
-        # read data set by keyword=value pairs
-        for keyitem in keyitems:
-            keyval = keyitem.split('=')
-            if len(keyval) == 2:
-                key, val = keyval
-                odata[key] = val
-#                print "*"+key, val,
+            items = dataline.split()
+
+            assert len(items)>0, "object line should consist of at least ID field"
+
+            # ID is necessary
+            oid = items[0]
+            items = items[1:]
+            nitems = len(items)
+            odata = {}
+
+    #DEV        print "def:", self.defaults
+
+            # data in predefined columns (only values there)
+            if 'columns' in self.defaults:
+                def_columns = self.defaults['columns']
+                col_items = min([nitems, len(def_columns)])
+                key_col = 0
+                for i_col in range(col_items):
+                    col_id = def_columns[i_col]
+                    item = items[i_col]
+                    if '=' not in item:
+    #                    print col_id, item,
+                        odata[col_id] = item
+                        key_col += 1
+                    else:
+                        break
+                keyitems = items[key_col:]
             else:
-                raise ConfigurationSyntaxError("error in data, line: %d"%line_number)
+                keyitems = items
+
+            # read data set by keyword=value pairs
+            for keyitem in keyitems:
+                keyval = keyitem.split('=')
+                if len(keyval) == 2:
+                    key, val = keyval
+                    odata[key] = val
+    #                print "*"+key, val,
+                else:
+                    raise ConfigurationSyntaxError("error in data, line: %d"%line_number)
+        except Exception:
+            log.critical("Error parsing data line %d: %s", line_number, dataline)
+            raise
 
 #        print
 
