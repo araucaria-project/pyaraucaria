@@ -99,7 +99,7 @@ class FFS:
 
         self.coo = []
         self.adu = []
-        self.threshold = float(threshold)
+        self.threshold = float(threshold) # inna nazwa zwiazana z instancja
         self.method = method
         self.fwhm_adopted = float(fwhm)
         self.kernel_size = int(kernel_size)
@@ -146,9 +146,11 @@ class FFS:
         }
 
 
+    def fwhm_frame(self):
+        ...
 
 
-    def fwhm(self, radius=10, all_stars=True):
+    def fwhm_deprecated(self, radius=10, all_stars=True):
         # deprecated
         radius = int(radius)
         self.fwhm_xarr = []
@@ -243,6 +245,11 @@ class FFS:
                 self.stats["fwhm_yax"] = self.fwhm_y
 
         return self.fwhm_x, self.fwhm_y
+
+    def fwhm(self):
+        self.mkstats()
+        self.find_stars(there....)
+        self.stars_info()
 
     def star_info(self,box=10,N_stars=None):
 
