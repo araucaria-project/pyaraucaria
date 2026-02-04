@@ -91,7 +91,7 @@ class FFS:
 
         self.noise = np.sqrt(self.median / self.gain + self.rn_noise)
 
-        self.maska = self.image > np.median(self.image)  + 3 * self.q_sigma
+        self.maska = self.image > np.median(self.image) + 3 * self.q_sigma
 
         self.stats = {
             "min": self.min,
