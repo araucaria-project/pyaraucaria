@@ -281,15 +281,14 @@ class FFS:
             self.fwhm_x = np.median(fwhm_xarr)
         if len(fwhm_yarr) > 2:
             self.fwhm_y = np.median(fwhm_yarr)
-            if True:
 
-                self.stats["stars"]["fwhm"] = (fwhm_xarr + fwhm_yarr)/2
-                self.stats["stars"]["fwhm_xax"] = fwhm_xarr
-                self.stats["stars"]["fwhm_yax"] = fwhm_yarr
+            self.stats["stars"]["fwhm"] = (fwhm_xarr + fwhm_yarr)/2
+            self.stats["stars"]["fwhm_xax"] = fwhm_xarr
+            self.stats["stars"]["fwhm_yax"] = fwhm_yarr
 
-                self.stats["fwhm"] = (self.fwhm_x + self.fwhm_y)/2.
-                self.stats["fwhm_xax"] = self.fwhm_x
-                self.stats["fwhm_yax"] = self.fwhm_y
+            self.stats["fwhm"] = (self.fwhm_x + self.fwhm_y)/2.
+            self.stats["fwhm_xax"] = self.fwhm_x
+            self.stats["fwhm_yax"] = self.fwhm_y
 
         return self.fwhm_x, self.fwhm_y
 
