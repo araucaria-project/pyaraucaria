@@ -366,7 +366,7 @@ class FFS:
                 ),
 
                 "ellipticity": (
-                    "Ellipticity of each detected star"
+                    "Ellipticity of each detected star, "
                     "values close to 0 indicate round stars, "
                     "higher values indicate elongated profiles"
                 ),
