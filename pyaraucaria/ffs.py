@@ -483,6 +483,13 @@ class FFS:
         self.hough_transform()
 
     def hough_transform(self, th_signal=100, steps=180):
+        # Ensure that the mask has been computed or set before use
+        if not hasattr(self, "maska") or self.maska is None:
+            raise RuntimeError(
+                "Attribute 'maska' is not initialized. Call 'mk_stats()' first "
+                "or set 'self.maska' to a boolean mask array before calling "
+                "'hough_transform()'."
+            )
         ys, xs = np.nonzero(self.maska)
         xs = xs.astype(float)
         ys = ys.astype(float)
