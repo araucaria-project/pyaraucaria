@@ -699,7 +699,6 @@ class FFS:
 
     @staticmethod
     def line_filter(image,kernel1_size=3,kernel2_size=7,th1=3,th2=3):
-        image = image
 
         kernel_l, kernel_r = FFS.line_detection_kernel(kernel1_size)  # tu sie zmienia
         result_l = convolve(image, kernel_l)
