@@ -302,7 +302,7 @@ class FFS:
         self.fwhm_y = np.full(len(self.coo), np.nan)
         self.cpe = np.full(len(self.coo), np.nan)
 
-        if N_stars == None:
+        if N_stars is None:
             N_stars = len(self.coo)
 
         ni = 0
