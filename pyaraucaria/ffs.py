@@ -532,7 +532,7 @@ class FFS:
         self.lines_val = np.array(lines_val)[idx]
 
         tmp = {}
-        tmp["val"] =self.lines_val
+        tmp["val"] = self.lines_val
         tmp["rho"] = self.lines_rho
         tmp["theta"] = self.lines_theta
         self.stats["lines"] = tmp
