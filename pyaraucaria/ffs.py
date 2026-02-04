@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.signal import find_peaks, fftconvolve
+from scipy.signal import find_peaks
 from scipy.ndimage.filters import maximum_filter
 from scipy.ndimage import convolve
 from scipy.ndimage import gaussian_filter
