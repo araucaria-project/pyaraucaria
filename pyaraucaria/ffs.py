@@ -9,7 +9,6 @@ from astropy.stats import mad_std
 class FFS:
 
     def __init__(self, image, gain=1., rn_noise=0.):
-        self.not_transposed = True
         self.image = image
         self.gain = float(gain)
         self.rn_noise = float(rn_noise)
@@ -66,9 +65,6 @@ class FFS:
         self.stats_description = None
 
     def mk_stats(self):
-        if self.not_transposed:
-            self.image = np.transpose(self.image)
-            self.not_transposed = False
         img = self.image.ravel()
 
         self.min = img.min()
