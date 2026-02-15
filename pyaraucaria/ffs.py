@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.signal import find_peaks, fftconvolve
+from scipy.signal import find_peaks
 from scipy.ndimage.filters import maximum_filter
 from scipy.ndimage import convolve
 from scipy.ndimage import gaussian_filter
@@ -9,7 +9,6 @@ from astropy.stats import mad_std
 class FFS:
 
     def __init__(self, image, gain=1., rn_noise=0.):
-        self.not_transposed = True
         self.image = image
         self.gain = float(gain)
         self.rn_noise = float(rn_noise)
@@ -67,9 +66,6 @@ class FFS:
         self.stats_description = None
 
     def mk_stats(self):
-        if self.not_transposed:
-            self.image = np.transpose(self.image)
-            self.not_transposed = False
         img = self.image.ravel()
 
         self.min = img.min()
@@ -92,7 +88,7 @@ class FFS:
 
         self.noise = np.sqrt(self.median / self.gain + self.rn_noise)
 
-        self.maska = self.image > np.median(self.image)  + 3 * self.q_sigma
+        self.maska = self.image > np.median(self.image) + 3 * self.q_sigma
 
         self.stats = {
             "min": self.min,
@@ -282,15 +278,14 @@ class FFS:
             self.fwhm_x = np.median(fwhm_xarr)
         if len(fwhm_yarr) > 2:
             self.fwhm_y = np.median(fwhm_yarr)
-            if True:
 
-                self.stats["stars"]["fwhm"] = (fwhm_xarr + fwhm_yarr)/2
-                self.stats["stars"]["fwhm_xax"] = fwhm_xarr
-                self.stats["stars"]["fwhm_yax"] = fwhm_yarr
+            self.stats["stars"]["fwhm"] = (fwhm_xarr + fwhm_yarr)/2
+            self.stats["stars"]["fwhm_xax"] = fwhm_xarr
+            self.stats["stars"]["fwhm_yax"] = fwhm_yarr
 
-                self.stats["fwhm"] = (self.fwhm_x + self.fwhm_y)/2.
-                self.stats["fwhm_xax"] = self.fwhm_x
-                self.stats["fwhm_yax"] = self.fwhm_y
+            self.stats["fwhm"] = (self.fwhm_x + self.fwhm_y)/2.
+            self.stats["fwhm_xax"] = self.fwhm_x
+            self.stats["fwhm_yax"] = self.fwhm_y
 
         return self.fwhm_x, self.fwhm_y
 
@@ -304,7 +299,7 @@ class FFS:
         self.fwhm_y = np.full(len(self.coo), np.nan)
         self.cpe = np.full(len(self.coo), np.nan)
 
-        if N_stars == None:
+        if N_stars is None:
             N_stars = len(self.coo)
 
         ni = 0
@@ -380,7 +375,7 @@ class FFS:
                 ),
 
                 "ellipticity": (
-                    "Ellipticity of each detected star"
+                    "Ellipticity of each detected star, "
                     "values close to 0 indicate round stars, "
                     "higher values indicate elongated profiles"
                 ),
@@ -497,6 +492,13 @@ class FFS:
         self.hough_transform()
 
     def hough_transform(self, th_signal=100, steps=180):
+        # Ensure that the mask has been computed or set before use
+        if not hasattr(self, "maska") or self.maska is None:
+            raise RuntimeError(
+                "Attribute 'maska' is not initialized. Call 'mk_stats()' first "
+                "or set 'self.maska' to a boolean mask array before calling "
+                "'hough_transform()'."
+            )
         ys, xs = np.nonzero(self.maska)
         xs = xs.astype(float)
         ys = ys.astype(float)
@@ -546,7 +548,7 @@ class FFS:
         self.lines_val = np.array(lines_val)[idx]
 
         tmp = {}
-        tmp["val"] =self.lines_val
+        tmp["val"] = self.lines_val
         tmp["rho"] = self.lines_rho
         tmp["theta"] = self.lines_theta
         self.stats["lines"] = tmp
@@ -706,7 +708,6 @@ class FFS:
 
     @staticmethod
     def line_filter(image,kernel1_size=3,kernel2_size=7,th1=3,th2=3):
-        image = image
 
         kernel_l, kernel_r = FFS.line_detection_kernel(kernel1_size)  # tu sie zmienia
         result_l = convolve(image, kernel_l)
