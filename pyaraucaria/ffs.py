@@ -34,6 +34,7 @@ class FFS:
         self.fs_fwhm_adopted = None
         self.fs_kernel_sigma = None
 
+        self.box_mag = None
         self.ellipticity = None
         self.theta = None
         self.fwhm = None
@@ -295,6 +296,7 @@ class FFS:
 
     def star_info(self,box=10,N_stars=None):
 
+        self.box_mag = np.full(len(self.coo), np.nan)
         self.ellipticity = np.full(len(self.coo), np.nan)
         self.theta = np.full(len(self.coo), np.nan)
         self.fwhm = np.full(len(self.coo), np.nan)
@@ -309,6 +311,7 @@ class FFS:
         for i, (x, y) in enumerate(self.coo):
             if ni <= N_stars:
 
+                m = np.nan
                 e = np.nan
                 t = np.nan
                 f = np.nan
@@ -323,7 +326,11 @@ class FFS:
 
                     if cut.shape[0] > box-1 and cut.shape[1] > box-1:
 
+                        # tu poprawic liczenie tla
                         cut = cut - np.median(cut[0, :])
+
+                        m = -2.5 * np.log10(np.sum(cut)) + 25
+
                         _, e, t = FFS.pca(cut)
 
                         cut = cut - 0.5 * np.max(cut)
@@ -336,6 +343,7 @@ class FFS:
                             cut = self.image[x - r:x + r, y - r:y + r]
                             cpe = FFS.cpe(cut)
 
+                self.box_mag[i] = m
                 self.ellipticity[i] = e
                 self.theta[i] = t
                 self.fwhm[i] = f
@@ -343,6 +351,7 @@ class FFS:
                 self.fwhm_y[i] = fy
                 self.cpe[i] = cpe
 
+            self.stats["stars"]["box_mag"] = self.box_mag
             self.stats["stars"]["fwhm"] = self.fwhm
             self.stats["stars"]["fwhm_x"] = self.fwhm_x
             self.stats["stars"]["fwhm_y"] = self.fwhm_y
@@ -351,6 +360,10 @@ class FFS:
             self.stats["stars"]["cpe"] = self.cpe
 
             self.stats_description["stars"].update({
+
+                "box_mag": (
+                    "magnitude of star computed as the sum in the box - background "
+                ),
 
                 "fwhm": (
                     "Full Width at Half Maximum (FWHM) of each detected star "
