@@ -5,6 +5,8 @@ from scipy.ndimage import convolve
 from scipy.ndimage import gaussian_filter
 
 from astropy.stats import mad_std
+from astropy.table import Table
+
 
 class FFS:
 
@@ -25,6 +27,7 @@ class FFS:
         self.sigma_quantile = None
         self.noise = None
 
+        self.stars = None
         self.coo = None
         self.adu = None
 
@@ -48,6 +51,7 @@ class FFS:
         self.sky_surface_bkg = None
         self.sky_surface_x = None
         self.sky_surface_y = None
+        self.sky = None
 
         self.lines_val = None
         self.lines_theta = None
@@ -162,6 +166,8 @@ class FFS:
         "y": "Y coordinates of detected stars (pixel indices, 0-based)",
         "max_adu": "Peak ADU (brightness) of each detected star"
         }
+
+        self.stars = Table(self.stats["stars"])
 
     def calc_frame_fwhm(self,threshold=5, fwhm=10, box=10, N_stars=20):
         self.mk_stats()
@@ -354,6 +360,8 @@ class FFS:
             self.stats["stars"]["theta"] = self.theta
             self.stats["stars"]["cpe"] = self.cpe
 
+            self.stars = Table(self.stats["stars"])
+
             self.stats_description["stars"].update({
 
                 "box_mag": (
@@ -457,6 +465,9 @@ class FFS:
         tmp["surface_x"] = self.sky_surface_x
         tmp["surface_y"] = self.sky_surface_y
         self.stats["sky"] = tmp
+
+        self.sky = Table([self.sky_surface_x,self.sky_surface_y,self.sky_surface_bkg], names=["sky_surface_x","sky_surface_y","sky_surface_bkg"])
+
 
         self.stats_description.update({
 
