@@ -717,6 +717,26 @@ class FFS:
         a0, a1, a2, a3, a4, a5 = coeff
         return a0 + a1 * x + a2 * y + a3 * x ** 2 + a4 * x * y + a5 * y ** 2
 
+    # @staticmethod
+    # def hough_to_xy(rho, theta, image_shape):
+    #
+    #     ny, nx = image_shape
+    #
+    #     cos_t = np.cos(theta)
+    #     sin_t = np.sin(theta)
+    #
+    #     # if line is not vertical
+    #     if abs(sin_t) > 1e-8:
+    #         x_vals = np.linspace(0, nx, nx)
+    #         #x_vals = np.array([0, nx - 1])
+    #         y_vals = (rho - x_vals * cos_t) / sin_t
+    #     else:
+    #         # vertical line
+    #         x_vals = np.full(2, rho / cos_t)
+    #         y_vals = np.array([0, ny - 1])
+    #
+    #     return (x_vals[0], y_vals[0]), (x_vals[1], y_vals[1])
+
     @staticmethod
     def line_filter(image,kernel1_size=3,kernel2_size=7,th1=3,th2=3):
 
