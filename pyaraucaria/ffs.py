@@ -37,6 +37,7 @@ class FFS:
         self.fs_kernel_sigma = None
 
         self.box_mag = None
+        self.bkg = None
         self.ellipticity = None
         self.theta = None
         self.fwhm = None
@@ -285,7 +286,7 @@ class FFS:
         if len(fwhm_yarr) > 2:
             self.fwhm_y = np.median(fwhm_yarr)
 
-            self.stats["stars"]["fwhm"] = (fwhm_xarr + fwhm_yarr)/2
+            self.stats["stars"]["fwhm"] = (fwhm_xarr + fwhm_yarr)/2.
             self.stats["stars"]["fwhm_xax"] = fwhm_xarr
             self.stats["stars"]["fwhm_yax"] = fwhm_yarr
 
@@ -295,112 +296,130 @@ class FFS:
 
         return self.fwhm_x, self.fwhm_y
 
-    def star_info(self,box=10,N_stars=None):
 
-        self.box_mag = np.full(len(self.coo), np.nan)
-        self.ellipticity = np.full(len(self.coo), np.nan)
-        self.theta = np.full(len(self.coo), np.nan)
-        self.fwhm = np.full(len(self.coo), np.nan)
-        self.fwhm_x = np.full(len(self.coo), np.nan)
-        self.fwhm_y = np.full(len(self.coo), np.nan)
-        self.cpe = np.full(len(self.coo), np.nan)
+    def star_info(self, box=10, N_stars=None):
+
+        n = len(self.coo)
+
+        self.box_mag = np.full(n, np.nan)
+        self.bkg = np.full(n, np.nan)
+        self.ellipticity = np.full(n, np.nan)
+        self.theta = np.full(n, np.nan)
+        self.fwhm = np.full(n, np.nan)
+        self.fwhm_x = np.full(n, np.nan)
+        self.fwhm_y = np.full(n, np.nan)
+        self.cpe = np.full(n, np.nan)
 
         if N_stars is None:
-            N_stars = len(self.coo)
+            N_stars = n
 
         ni = 0
+
         for i, (x, y) in enumerate(self.coo):
-            if ni <= N_stars:
 
-                m = np.nan
-                e = np.nan
-                t = np.nan
-                f = np.nan
-                fx = np.nan
-                fy = np.nan
-                cpe = np.nan
+            if self.adu[i] >= self.saturation:
+                continue
 
-                if self.adu[i] < self.saturation:
-                    ni = ni + 1
+            if ni >= N_stars:
+                break
 
-                    cut = self.image[x - box:x + box, y - box:y + box]
+            ni += 1
 
-                    if cut.shape[0] > box-1 and cut.shape[1] > box-1:
+            x0 = max(0, x - box)
+            x1 = min(self.image.shape[0], x + box)
+            y0 = max(0, y - box)
+            y1 = min(self.image.shape[1], y + box)
 
-                        # tu poprawic liczenie tla
-                        cut = cut - np.median(cut[0, :])
+            cut = self.image[x0:x1, y0:y1]
 
-                        m = -2.5 * np.log10(np.sum(cut)) + 25
+            if cut.size == 0:
+                continue
 
-                        _, e, t = FFS.pca(cut)
+            top = cut[:1, :]
+            bottom = cut[-1:, :]
+            left = cut[:, :1]
+            right = cut[:, -1:]
 
-                        cut = cut - 0.5 * np.max(cut)
+            bkg_pixels = np.concatenate([top.ravel(),bottom.ravel(),left.ravel(),right.ravel()])
 
-                        fx, fy = FFS.fwhm(cut)
+            bkg = np.median(bkg_pixels)
+            self.bkg[i] = bkg
+            cut = cut - bkg
 
-                        if fx is not np.nan and fy is not np.nan:
-                            f = (fx+fy)/2.
-                            r = int(f)
-                            cut = self.image[x - r:x + r, y - r:y + r]
-                            cpe = FFS.cpe(cut)
+            flux = np.sum(cut)
+            if flux <= 0:
+                continue
 
-                self.box_mag[i] = m
-                self.ellipticity[i] = e
-                self.theta[i] = t
-                self.fwhm[i] = f
+            self.box_mag[i] = -2.5 * np.log10(flux) + 25
+
+            _, e, t = FFS.pca(cut)
+            self.ellipticity[i] = e
+            self.theta[i] = t
+
+            cut_half = cut - 0.5 * np.max(cut)
+            fx, fy = FFS.fwhm(cut_half)
+
+            if not np.isnan(fx) and not np.isnan(fy):
                 self.fwhm_x[i] = fx
                 self.fwhm_y[i] = fy
-                self.cpe[i] = cpe
+                self.fwhm[i] = (fx + fy) / 2
 
-            self.stats["stars"]["box_mag"] = self.box_mag
-            self.stats["stars"]["fwhm"] = self.fwhm
-            self.stats["stars"]["fwhm_x"] = self.fwhm_x
-            self.stats["stars"]["fwhm_y"] = self.fwhm_y
-            self.stats["stars"]["ellipticity"] = self.ellipticity
-            self.stats["stars"]["theta"] = self.theta
-            self.stats["stars"]["cpe"] = self.cpe
+        self.stats["stars"]["box_mag"] = self.box_mag
+        self.stats["stars"]["bkg"] = self.bkg
+        self.stats["stars"]["fwhm"] = self.fwhm
+        self.stats["stars"]["fwhm_x"] = self.fwhm_x
+        self.stats["stars"]["fwhm_y"] = self.fwhm_y
+        self.stats["stars"]["ellipticity"] = self.ellipticity
+        self.stats["stars"]["theta"] = self.theta
+        self.stats["stars"]["cpe"] = self.cpe
 
-            self.stars = Table(self.stats["stars"])
+        self.stars = Table(self.stats["stars"])
 
-            self.stats_description["stars"].update({
+        self.stats_description["stars"].update({
 
-                "box_mag": (
-                    "magnitude of star computed as the sum in the box - background "
-                ),
+            "box_mag": (
+                "magnitude of star computed as the sum in the box - background "
+            ),
 
-                "fwhm": (
-                    "Full Width at Half Maximum (FWHM) of each detected star "
-                ),
+            "bkg": (
+                "Local sky background value estimated from the border pixels "
+                "of the analysis box (in ADU); calculated as the median of "
+                "all edge pixels to minimize stellar flux contamination"
+            ),
 
-                "fwhm_x": (
-                    "Full Width at Half Maximum (FWHM) of each detected star measured "
-                    "along the X axis of the fitted profile (in pixels)"
-                ),
+            "fwhm": (
+                "Full Width at Half Maximum (FWHM) of each detected star "
+            ),
 
-                "fwhm_y": (
-                    "Full Width at Half Maximum (FWHM) of each detected star measured "
-                    "along the Y axis of the fitted profile (in pixels)"
-                ),
+            "fwhm_x": (
+                "Full Width at Half Maximum (FWHM) of each detected star measured "
+                "along the X axis of the fitted profile (in pixels)"
+            ),
 
-                "ellipticity": (
-                    "Ellipticity of each detected star, "
-                    "values close to 0 indicate round stars, "
-                    "higher values indicate elongated profiles"
-                ),
+            "fwhm_y": (
+                "Full Width at Half Maximum (FWHM) of each detected star measured "
+                "along the Y axis of the fitted profile (in pixels)"
+            ),
 
-                "theta": (
-                    "Position angle of the semi-major axis of each detected star, "
-                    "measured counter-clockwise from the X axis of the detector "
-                    "(in radians)"
-                ),
+            "ellipticity": (
+                "Ellipticity of each detected star, "
+                "values close to 0 indicate round stars, "
+                "higher values indicate elongated profiles"
+            ),
 
-                "cpe": (
-                    "Central Pixel Excess (CPE) of each detected star, defined as "
-                    "the contrast of the peak pixel relative to the local background "
-                    "and background noise; higher values indicate sharper, more "
-                    "centrally concentrated profiles"
-                ),
-            })
+            "theta": (
+                "Position angle of the semi-major axis of each detected star, "
+                "measured counter-clockwise from the X axis of the detector "
+                "(in radians)"
+            ),
+
+            "cpe": (
+                "Central Pixel Excess (CPE) of each detected star, defined as "
+                "the contrast of the peak pixel relative to the local background "
+                "and background noise; higher values indicate sharper, more "
+                "centrally concentrated profiles"
+            ),
+        })
 
     def sky_gradient(self,n_segments=10):
         image = self.image
@@ -653,32 +672,40 @@ class FFS:
 
         return fwhm_x,fwhm_y
 
-
     @staticmethod
     def fwhm_1d(line):
 
-        idx = np.where(line > 0)[0]
-        if len(idx) < 2:
+        if np.all(line <= 0):
             return np.nan
 
-        i1 = idx[0]
-        i2 = idx[-1]
+        imax = np.argmax(line)
 
-        # interpolacja lewego brzegu
-        if i1 > 0:
-            x1, x2 = i1-1, i1
-            y1, y2 = line[x1], line[x2]
-            xl = x1 + (0 - y1) / (y2 - y1)
-        else:
-            xl = i1
+        # idziemy w lewo od maksimum
+        left = imax
+        while left > 0 and line[left] > 0:
+            left -= 1
 
-        # interpolacja prawego brzegu
-        if i2 < len(line)-1:
-            x1, x2 = i2, i2+1
-            y1, y2 = line[x1], line[x2]
-            xr = x1 + (0 - y1) / (y2 - y1)
+        # idziemy w prawo
+        right = imax
+        while right < len(line) - 1 and line[right] > 0:
+            right += 1
+
+        if right - left < 2:
+            return np.nan
+
+        # interpolacja lewego
+        y1, y2 = line[left], line[left + 1]
+        if y2 != y1:
+            xl = left + (0 - y1) / (y2 - y1)
         else:
-            xr = i2
+            xl = left
+
+        # interpolacja prawego
+        y1, y2 = line[right - 1], line[right]
+        if y2 != y1:
+            xr = right - 1 + (0 - y1) / (y2 - y1)
+        else:
+            xr = right
 
         return xr - xl
 
@@ -781,6 +808,11 @@ class FFS:
         kernel_r[tmp_mk] = -1
 
         return kernel_l, kernel_r
+
+    @staticmethod
+    def gauss2d_kernel(size, sigma):
+        kernel = []
+        return kernel
 
     @staticmethod
     def gauss2d_kernel(size, sigma):
