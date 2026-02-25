@@ -810,8 +810,8 @@ class FFS:
         return kernel_l, kernel_r
 
     @staticmethod
-    def gauss2d_kernel(size, sigma):
-        kernel = []
+    def laplace_kernel(size, sigma):
+        kernel = [[0,-1,0],[-1,4,-1],[0,-1,0]]
         return kernel
 
     @staticmethod
