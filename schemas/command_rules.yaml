@@ -1,0 +1,45 @@
+WAIT:
+  required:
+    - command_name
+  allowed:
+    - command_name
+    - sec
+    - ut
+    - sunrise
+    - sunset
+    - observer
+    - uobi
+  one_of_group:
+    - [sec, ut, sunrise, sunset]
+
+ZERO:
+  required:
+    - command_name
+    - seq
+  allowed:
+    - type
+    - seq
+    - observer
+    - uobi
+    - gain
+    - test
+
+OBJECT:
+  required:
+    - command_name
+  allowed:
+    - command_name
+    - name
+    - seq
+    - ra
+    - dec
+    - alt
+    - az
+    - observer
+    - uobi
+    - gain
+    - epoch
+  one_of:
+    - [ra, dec]
+    - [alt, az]
+  additional: false

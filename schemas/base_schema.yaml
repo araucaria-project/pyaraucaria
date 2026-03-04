@@ -1,0 +1,104 @@
+type: object
+additionalProperties: true
+properties:
+  command_name:
+    type: string
+
+  name:
+    type:
+      - string
+      - null
+
+  seq:
+    type: string
+
+  sec:
+    type: number
+    minimum: 0
+
+  ut:
+    type: string
+    pattern: '^\d{1,2}:\d{2}:\d{2}$'
+
+  sunrise:
+    type: number
+
+  sunset:
+    type: number
+
+  ra:
+    type:
+      - string
+      - null
+    pattern: '^(?:[01]?\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?$'
+
+  dec:
+    type:
+      - string
+      - null
+    pattern: '^[\+\-]?(?:[0-8]?\d|90):[0-5]\d:[0-5]\d(?:\.\d+)?$'
+
+  az:
+    type: number
+
+  alt:
+    type: number
+
+  epoch:
+    type: integer
+
+  gain:
+    type: string
+    enum:
+      - low
+      - high
+
+  mirror_cover:
+    type: string
+    enum:
+      - auto
+      - open
+      - close
+
+  auto_focus:
+    type: string
+    enum:
+      - on
+      - off
+
+  tracking:
+    type: string
+    enum:
+      - on
+      - off
+
+  dome_follow:
+    type: string
+    enum:
+      - off
+
+  read_mod:
+    type:
+      - integer
+      - string
+
+  focus_offset:
+    type: number
+
+  test:
+    type: boolean
+
+  observer:
+    type: string
+
+  uobi:
+    type: string
+
+  sciprog:
+    type: string
+
+  pi:
+    type: string
+
+
+
