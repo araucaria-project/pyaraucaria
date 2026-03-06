@@ -11,9 +11,9 @@ class ObsValidator:
         self.base_schema = base_schema
         self.command_rules = command_rules
 
+    # converts to standard flat dictionary - I need this for purposes
     @staticmethod
     def convert_to_obdict(ob: dict) -> dict:
-        """Konwertuje obiekt po parsowaniu na standardowy słownik."""
         result = {"name": None, "ra": None, "dec": None, "command_name": None}
 
         subcommands = ob.get("subcommands", [])
@@ -28,6 +28,9 @@ class ObsValidator:
             if "args" in sub and isinstance(sub["args"], list):
                 if len(sub["args"]) == 1:
                     result["name"] = sub["args"][0]
+                elif len(sub["args"]) == 2:
+                    result["ra"] = sub["args"][0]
+                    result["dec"] = sub["args"][1]
                 elif len(sub["args"]) == 3:
                     result["name"] = sub["args"][0]
                     result["ra"] = sub["args"][1]
@@ -35,28 +38,27 @@ class ObsValidator:
 
         return result
 
-    @staticmethod
-    def clean_none(obs: dict) -> dict:
-        """Usuwa pola o wartości None."""
-        return {k: v for k, v in obs.items() if v is not None}
 
     @staticmethod
+    def clean_none(obs: dict) -> dict:
+        return {k: v for k, v in obs.items() if v is not None}
+
+    # loading schema as dictionary
+    @staticmethod
     def load_schema(name: str) -> dict:
-        """Wczytuje schemat YAML z katalogu schemas."""
         lib_dir = os.path.dirname(__file__)
         schemas_dir = os.path.join(lib_dir, "..", "schemas")
         if ".yaml" not in name:
             name += ".yaml"
         file_path = os.path.join(schemas_dir, name)
         if not os.path.exists(file_path):
-            raise FileNotFoundError(f"Nie znaleziono schematu: {file_path}")
+            raise FileNotFoundError(f"Schema not found: {file_path}")
         with open(file_path, "r") as f:
             return yaml.safe_load(f)
 
-
+    # converts types to declared in schema
     @staticmethod
     def convert_types(obs: dict, schema: dict) -> dict:
-        """Konwertuje typy wartości w obs według schematu."""
         properties = schema.get("properties", {})
         converted = {}
 
@@ -116,9 +118,9 @@ class ObsValidator:
 
         return converted
 
+    # walidacja rules
     @staticmethod
     def validate_rules(obs: dict, rules: dict) -> dict:
-        """Walidacja required, one_of i one_of_group."""
         result = {}
 
         # required
@@ -126,7 +128,7 @@ class ObsValidator:
             if key not in obs:
                 result[key] = None
 
-        # one_of
+        # one_of - dziwne, ale dziala
         for subschema in rules.get("one_of", []):
             if not any(k not in obs for k in subschema):
                 continue
@@ -144,9 +146,9 @@ class ObsValidator:
 
         return result
 
+    # walidacja seq
     @staticmethod
     def validate_seq(obs: dict, allowed_filters=None) -> dict:
-        """Walidacja pola 'seq'."""
         result = {}
         allowed_filters = allowed_filters or []
         seq_str = obs.get("seq")
@@ -184,22 +186,26 @@ class ObsValidator:
         return result
 
     def validate_ob(self, obs: dict, overrides: dict = None, allowed_filters=None) -> dict:
-        """Pełna walidacja obserwacji z dodatkowymi informacjami o polach."""
+
+        # czysczenie None
         obs_clean = self.clean_none(obs)
         schema = deepcopy(self.base_schema)
 
-        # zastosowanie overrides
+        # dopisanie i nadpisanie warunkow intrumentalnych
         if overrides:
             for k, v in overrides.items():
                 properties = schema.setdefault("properties", {})
                 if k in properties:
-                    properties[k].update(v)  # istniejące pole → aktualizacja
+                    properties[k].update(v)
                 else:
                     properties[k] = v
 
         properties = schema.get("properties", {})
 
-        # walidacja typów
+        # proba konwersji typow
+        obs_clean = self.convert_types(obs_clean, schema)
+
+        # walidacja typow
         validator = Draft7Validator(schema)
         result = {key: True for key in obs_clean}
         for error in validator.iter_errors(obs_clean):
@@ -210,7 +216,7 @@ class ObsValidator:
                 if key in result:
                     result[key] = False
 
-        # walidacja reguł komend
+        # walidacja regul
         cmd_type = obs_clean.get("command_name")
         if cmd_type in self.command_rules:
             result.update(self.validate_rules(obs_clean, self.command_rules[cmd_type]))
@@ -220,17 +226,7 @@ class ObsValidator:
         # walidacja seq
         result.update(self.validate_seq(obs_clean, allowed_filters=allowed_filters))
 
-        # info o polach
-        fields_info = {}
-        for key in obs_clean:
-            prop = properties.get(key, {})
-            fields_info[key] = {
-                "description": prop.get("description"),
-                "type": prop.get("type"),
-                "enum": prop.get("enum")
-            }
-
-        # wymagane i allowed pola wg reguł komendy
+        # dodatkowe zwracanie dla umilenia pracy
         required_fields = []
         allowed_fields = list(properties.keys())
         if cmd_type in self.command_rules:
@@ -243,7 +239,6 @@ class ObsValidator:
             "valid": valid,
             "result": result,
             "data": obs_clean,
-            "fields": fields_info,
             "required": required_fields,
             "allowed": allowed_fields
         }

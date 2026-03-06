@@ -15,12 +15,12 @@ properties:
   cycle:
     type: number
     minimum: 0
-    description: "Days since last observation (can be fractional of day for hours)"
+    description: "Days between planned and last observation (can be fractional of day for hours)"
 
   ph_mk:
     type: string
     pattern: '^\d+/\w+/\d+(\.\d+)?$'
-    description: "Phase masking parameters: no_of_obs/band_light_curve/phase_bin"
+    description: "Phase masking parameters: no_of_obs/band/phase_bin"
 
   obs_data:
     type: string
@@ -33,19 +33,19 @@ properties:
 
   ph_star:
     type: number
-    description: "Phase to start observing"
+    description: "Min phase for observing"
 
   ph_end:
     type: number
-    description: "Phase to end observing"
+    description: "Max phase observing"
 
   P:
     type: number
-    description: "Period of the cycle"
+    description: "Period for phase masking"
 
   hjd0:
     type: number
-    description: "Reference HJD zero point for phase calculations"
+    description: "Reference HJD zero point for phase masking"
 
   h_min:
     type: number
@@ -71,3 +71,14 @@ properties:
     type: string
     description: "Path to macro file to include in the plan"
 
+  status:
+    type: string
+    description: "observing status. Not yet implemented"
+
+  fwhm_min:
+    type: number
+    description: "Min fwhm for object allocation. Not yet implemented"
+
+  fwhm_max:
+    type: number
+    description: "Max fwhm for object allocation. Not yet implemented"
