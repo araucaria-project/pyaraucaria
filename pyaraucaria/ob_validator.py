@@ -152,6 +152,7 @@ class ObsValidator:
         result = {}
         allowed_filters = allowed_filters or []
         seq_str = obs.get("seq")
+        cmd = obs.get("command_name")
         if seq_str is None:
             return result
 
@@ -173,8 +174,17 @@ class ObsValidator:
                 try:
                     n_repeat = int(parts[0])
                     filt = parts[1]
-                    exp_time = float(parts[2].replace(",", "."))
-                    if n_repeat < 1 or exp_time < 0:
+                    exp_time_str = parts[2].replace(",", ".")
+
+                    # dla FOCUS mozliwe exp_time = "a"
+                    if cmd == "FOCUS" and exp_time_str.lower() == "a":
+                        exp_time = 0  #  placeholder
+                    else:
+                        exp_time = float(exp_time_str)
+                        if exp_time < 0:
+                            return False
+
+                    if n_repeat < 1:
                         return False
                     if allowed_filters and filt not in allowed_filters:
                         return False
