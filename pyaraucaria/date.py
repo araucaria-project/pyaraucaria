@@ -20,7 +20,7 @@ import numpy as np
 from astropy.coordinates import SkyCoord, EarthLocation
 from astropy.time import Time
 import astropy.units as u
-from pyaraucaria.erfa import eraCal2jd
+from pyaraucaria.erfa_era import eraCal2jd
 
 logger = logging.getLogger('dates')
 
