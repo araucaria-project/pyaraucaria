@@ -11,6 +11,37 @@ class ObsValidator:
         self.base_schema = base_schema
         self.command_rules = command_rules
 
+    @staticmethod
+    def convert_from_obdict(ob: dict) -> str | None:
+        if not isinstance(ob, dict):
+            return None
+
+        cmd = ob.get("command_name")
+        if not cmd:
+            return None
+
+        parts = [cmd]
+
+        # args
+        name = ob.get("name")
+        ra = ob.get("ra")
+        dec = ob.get("dec")
+
+        if name and not (ra or dec):
+            parts.append(str(name))
+        elif ra and dec and not name:
+            parts.extend([str(ra), str(dec)])
+        elif name and ra and dec:
+            parts.extend([str(name), str(ra), str(dec)])
+
+        # kwargs
+        skip = {"command_name", "name", "ra", "dec"}
+        for k, v in ob.items():
+            if k not in skip:
+                parts.append(f"{k}={v}")
+
+        return " ".join(parts)
+
     # converts to standard flat dictionary - I need this for purposes
     @staticmethod
     def convert_to_obdict(ob: dict) -> dict | None:
@@ -48,10 +79,6 @@ class ObsValidator:
             return result
         else:
             return None
-
-
-
-
 
     @staticmethod
     def clean_none(obs: dict) -> dict:
