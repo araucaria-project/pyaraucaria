@@ -24,10 +24,10 @@ uv sync --all-extras
 
 Add to your `pyproject.toml` dependencies:
 ```toml
-dependencies = [
-    "pyaraucaria @ git+https://github.com/araucaria-project/pyaraucaria.git",
-]
+pyaraucaria = { git = "https://github.com/araucaria-project/pyaraucaria.git"}
 ```
+**Warning** If your project uses `poetry` the installed versions of poetry have to be `>=2.0.0` for git depenndency to `pyaraucaria`.
+
 Or directly form PyPi, after checking versions (PyPi releases may lag behind GitHub):
 ```toml
 dependencies = [
