@@ -36,6 +36,14 @@ properties:
     pattern: '^(\d{4}/\d{2}/\d{2}(T\d{2}:\d{2}(:\d{2})?)?|\d{2}:\d{2}(:\d{2})?)$'
     description: "Start time/date: YYYY/MM/DD, YYYY/MM/DDTHH:MM[:SS] or HH:MM[:SS]"
 
+  sunset_dt:
+    type: number
+    description: "Hours since sunset for observing"
+
+  sunrise_dt:
+    type: number
+    description: "Hours before sunrise for observing"
+
   ph_star:
     type: number
     description: "Min phase for observing"
