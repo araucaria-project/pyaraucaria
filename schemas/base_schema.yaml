@@ -5,6 +5,7 @@ properties:
     type: string
     enum:
       - STOP
+      - BELL
       - WAIT
       - ZERO
       - DARK
