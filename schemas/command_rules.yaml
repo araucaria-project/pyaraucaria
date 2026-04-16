@@ -8,6 +8,16 @@ STOP:
     - comment
   additional: false
 
+BELL:
+  required:
+    - command_name
+  allowed:
+    - command_name
+    - observer
+    - uobi
+    - comment
+  additional: false
+
 
 WAIT:
   required:

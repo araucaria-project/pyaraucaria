@@ -46,8 +46,6 @@ class ObsValidator:
     @staticmethod
     def convert_to_obdict(ob: dict) -> dict | None:
         result = {}
-        check1 = False
-        check2 = False
 
         subcommands = ob.get("subcommands", [])
         if isinstance(subcommands, dict):
@@ -56,7 +54,6 @@ class ObsValidator:
         for sub in subcommands:
             if "command_name" in sub:
                 result["command_name"] = sub["command_name"]
-                check1 = True
 
             if "kwargs" in sub and isinstance(sub["kwargs"], dict):
                 result.update(sub["kwargs"])
@@ -64,21 +61,16 @@ class ObsValidator:
             if "args" in sub and isinstance(sub["args"], list):
                 if len(sub["args"]) == 1:
                     result["name"] = sub["args"][0]
-                    check2 = True
                 elif len(sub["args"]) == 2:
                     result["ra"] = sub["args"][0]
                     result["dec"] = sub["args"][1]
-                    check2 = True
                 elif len(sub["args"]) == 3:
                     result["name"] = sub["args"][0]
                     result["ra"] = sub["args"][1]
                     result["dec"] = sub["args"][2]
-                    check2 = True
 
-        if check1 and check2:
-            return result
-        else:
-            return None
+        return result
+
 
     @staticmethod
     def clean_none(obs: dict) -> dict:
