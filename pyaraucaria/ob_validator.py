@@ -80,7 +80,7 @@ class ObsValidator:
     @staticmethod
     def load_schema(name: str) -> dict:
         lib_dir = os.path.dirname(__file__)
-        schemas_dir = os.path.join(lib_dir, "..", "schemas")
+        schemas_dir = os.path.join(lib_dir, "schemas")
         if ".yaml" not in name:
             name += ".yaml"
         file_path = os.path.join(schemas_dir, name)

@@ -1,0 +1,221 @@
+type: object
+additionalProperties: true
+properties:
+  command_name:
+    type: string
+    enum:
+      - STOP
+      - BELL
+      - WAIT
+      - ZERO
+      - DARK
+      - FLAT
+      - OBJECT
+      - DOMEFLAT
+      - SKYFLAT
+      - SNAP
+      - FOCUS
+    description: "Name of the command to execute in the observation plan."
+
+
+  name:
+    type:
+      - string
+      - null
+    description: "Identifier of the observed object. Stored in FITS header."
+    examples:
+      - FF_Aql
+      - HD193901
+      - NGC300_field1
+
+  seq:
+    type: string
+    description: "
+      Exposure sequence definition. Format:
+      number/filter/exposure_time separated by commas.
+      Exposure time is given in seconds.
+      For SKYFLAT command exposure time can be 'a' for auto exposure.
+      Multipliers are also allowed using syntax Nx(...)."
+    examples:
+      - "5/Ic/60"
+      - "5/Ic/60,5/V/70"
+      - "10/r/a,10/V/a"
+      - "2x(1/V/1,1/r/1)"
+
+  sec:
+    type: number
+    minimum: 0
+    description: Number of seconds to wait (WAIT command).
+    examples:
+      - 60
+
+  ut:
+    type: string
+    pattern: '^\d{1,2}:\d{2}:\d{2}$'
+    description: Universal Time to wait for (WAIT command).
+    examples:
+      - "23:02:23"
+      - "05:30:00"
+
+  sunrise:
+    type: number
+    description: Wait until Sun reaches given altitude during sunrise (degrees).
+    examples:
+      - -12
+      - -8
+
+  sunset:
+    type: number
+    description: Wait until Sun reaches given altitude during sunset (degrees).
+    examples:
+      - -18
+      - -12
+
+
+  ra:
+    type:
+      - string
+      - null
+    pattern: '^(?:[01]?\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?$'
+    description: Right Ascension coordinate in hour angle format (HH:MM:SS.s).
+    examples:
+      - "18:58:14.75"
+      - "20:23:35.8"
+
+  dec:
+    type:
+      - string
+      - null
+    pattern: '^[\+\-]?(?:[0-8]?\d|90):[0-5]\d:[0-5]\d(?:\.\d+)?$'
+    description: Declination coordinate in degrees (sexagesimal format).
+    examples:
+      - "-17:21:39.29"
+      - "+20:20:20"
+
+  az:
+    type: number
+    minimum: 0
+    maximum: 360
+    description: Telescope azimuth in degrees.
+    examples:
+      - 182.3
+      - 270
+
+  alt:
+    type: number
+    minimum: 0
+    maximum: 90
+    description: Telescope altitude in degrees.
+    examples:
+      - 60
+      - 75.5
+
+  epoch:
+    type: integer
+    description: Epoch of RA/DEC coordinates.
+    examples:
+      - 2000
+      - 2025
+
+  mirror_cover:
+    type: string
+    enum:
+      - auto
+      - open
+      - close
+    description: Control mirror cover state.
+    examples:
+      - auto
+      - open
+      - close
+
+  auto_focus:
+    type: string
+    enum:
+      - on
+      - off
+    description: Enable or disable automatic focusing procedure.
+    examples:
+      - on
+      - off
+
+
+  tracking:
+    type: string
+    enum:
+      - on
+      - off
+    description: Enable or disable telescope tracking.
+    examples:
+      - on
+      - off
+
+
+  dome_follow:
+    type: string
+    enum:
+      - off
+    description: Disable dome following telescope movement.
+    examples:
+      - off
+
+  gain:
+    type: string
+    enum:
+      - low
+      - high
+    description: Camera gain mode.
+    examples:
+      - x2
+      - 1
+
+  read_mod:
+    type:
+      - integer
+      - string
+    description: Camera readout mode.
+    examples:
+      - 0
+      - 1
+      - 2
+
+  focus_offset:
+    type: number
+    description: Additional focus offset applied during observation.
+    examples:
+      - 0
+      - 25
+
+  test:
+    type: boolean
+    description: Marks exposure as test (not processed by pipeline).
+    examples:
+      - true
+      - false
+
+  observer:
+    type: string
+    description: Observer name stored in FITS header. Spaces are not allowed.
+    examples:
+      - TyrRex
+      - Kajko,Kokosz
+
+  uobi:
+    type: string
+    description: Unique observation identifier used by observatory software.
+
+
+  sciprog:
+    type: string
+    description: Science program identifier.
+    examples:
+      - ocm
+
+  pi:
+    type: string
+    description: PI for the object.
+    examples:
+      - trex
+      - kajko
+
+
