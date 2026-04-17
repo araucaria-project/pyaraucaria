@@ -155,6 +155,7 @@ OBJECT:
   one_of:
     - [ra, dec]
     - [alt, az]
+    - []
   additional: false
 
 
