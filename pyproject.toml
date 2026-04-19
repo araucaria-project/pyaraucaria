@@ -53,6 +53,7 @@ packages = ["pyaraucaria"]
 include = [
     "pyaraucaria/**",
     "tests/**",
+    "pyaraucaria/schemas/**",
     "README.md",
 ]
 

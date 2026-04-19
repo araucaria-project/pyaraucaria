@@ -33,6 +33,9 @@ class ObsPlanParser:
         %ignore "#" /[^\n]/*
         """
 
+    _parser = None  # cached Lark instance; built on first parse
+
+
     @staticmethod
     def _build_kwargs(tree: Tree):
 
@@ -129,18 +132,35 @@ class ObsPlanParser:
         except AttributeError:
             log.error(f'Text cannot be parsed, please check string')
 
+    @classmethod
+    def _get_parser(cls) -> Lark:
+        if cls._parser is None:
+            cls._parser = Lark(cls.LINE_GRAMMAR)
+        return cls._parser
+
     @staticmethod
     def _parse_text(text: str) -> Tree:
-
-        line_parser = Lark(ObsPlanParser.LINE_GRAMMAR)
-        parse = line_parser.parse
         try:
-            parsed = parse(ObsPlanParser._prepare_text(text))
-            return parsed
+            return ObsPlanParser._get_parser().parse(
+                ObsPlanParser._prepare_text(text)
+            )
         except AttributeError:
-            log.error(f'Text cannot be parsed, please check string')
+            log.error('Text cannot be parsed, please check string')
         except UnexpectedCharacters:
-            log.error(f'No terminal matches in the current parser context')
+            log.error('No terminal matches in the current parser context')
+
+    # @staticmethod
+    # def _parse_text(text: str) -> Tree:
+    #
+    #     line_parser = Lark(ObsPlanParser.LINE_GRAMMAR)
+    #     parse = line_parser.parse
+    #     try:
+    #         parsed = parse(ObsPlanParser._prepare_text(text))
+    #         return parsed
+    #     except AttributeError:
+    #         log.error(f'Text cannot be parsed, please check string')
+    #     except UnexpectedCharacters:
+    #         log.error(f'No terminal matches in the current parser context')
 
     @staticmethod
     def _prepare_text(text: str) -> str:
