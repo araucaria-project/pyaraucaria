@@ -2,6 +2,7 @@ $id: "https://araucaria-project.github.io/schemas/commands/DOMEFLAT.yaml"
 $schema: "https://json-schema.org/draft/2020-12/schema"
 title: "DOMEFLAT command"
 description: "Dome flat field exposures."
+positional: [name]
 type: object
 required: [command_name, seq]
 properties:

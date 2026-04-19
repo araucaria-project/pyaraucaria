@@ -4,6 +4,7 @@ title: "OBJECT command"
 description: |
   Science observation. Coordinates may be ra/dec, alt/az, or neither (use current
   telescope pointing).
+positional: [name, ra, dec]
 type: object
 required: [command_name]
 properties:

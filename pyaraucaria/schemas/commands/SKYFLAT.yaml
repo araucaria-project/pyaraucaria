@@ -4,6 +4,7 @@ title: "SKYFLAT command"
 description: |
   Twilight sky-flat exposures. Either ra/dec OR alt/az may be supplied, but not both.
   Auto-exposure ('a') is allowed in `seq`.
+positional: [name, ra, dec]
 type: object
 required: [command_name, seq]
 properties:
