@@ -2,6 +2,7 @@ $id: "https://araucaria-project.github.io/schemas/commands/FOCUS.yaml"
 $schema: "https://json-schema.org/draft/2020-12/schema"
 title: "FOCUS command"
 description: "Focusing routine; may include a focuser-position sweep (`pos=target/step`)."
+positional: [name, ra, dec]
 type: object
 required: [command_name, seq]
 properties:
