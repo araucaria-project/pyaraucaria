@@ -22,7 +22,8 @@ class ObsPlanParser:
         !begin_sequence : "BEGINSEQUENCE"
         !end_sequence   : "ENDSEQUENCE"
         separator       : end_line+
-        word            : /[^{BEGINSEQUENCE}{ }][A-Z]+/
+        word            : COMMAND_WORD
+        COMMAND_WORD.-1 : /[A-Z]+/
         comment         : /#.*/
         end_line        : /\n/
         !kw             : string_simple
@@ -72,12 +73,6 @@ class ObsPlanParser:
         for child in tree.children:
             if child.data == 'command_name':
                 com_name = ObsPlanParser._build_command_name(child)
-                if com_name == 'sKYFLAT':
-                    com_name = 'SKYFLAT'
-                if com_name == 'sTOP':
-                    com_name = 'STOP'
-                if com_name == 'sNAP':
-                    com_name = 'SNAP'
                 command_dict['command_name'] = com_name
             if child.data == 'args':
                 if child.children:
@@ -146,18 +141,11 @@ class ObsPlanParser:
     def _prepare_text(text: str) -> str:
         """
         Prepare text to parse. BEGINSEQUENCE and ENDSEQUENCE is added to put all in SEQUENCE.
-        Also solve SKYFLAT lark error and replace for sKYFLAT, later replace back.
         :param text: text to parse
         :return: prepared text to parse
         """
         log.debug(f'preparing text to parse')
         return_text = f"BEGINSEQUENCE \n{text} \nENDSEQUENCE"
-        if return_text.find('SKYFLAT') >= 0:
-            return_text = return_text.replace('SKYFLAT', 'sKYFLAT')
-        if return_text.find('STOP') >= 0:
-            return_text = return_text.replace('STOP', 'sTOP')
-        if return_text.find('SNAP') >= 0:
-            return_text = return_text.replace('SNAP', 'sNAP')
         return_text = return_text.replace('\t', ' ')
         return return_text
 
