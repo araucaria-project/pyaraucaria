@@ -32,6 +32,7 @@ dependencies = [
     "astroplan",
     "matplotlib",
     "jsonschema",
+    "referencing>=0.37.0",
 ]
 
 [project.optional-dependencies]

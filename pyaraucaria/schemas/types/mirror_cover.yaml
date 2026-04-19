@@ -1,0 +1,10 @@
+$id: "https://araucaria-project.github.io/schemas/types/mirror_cover.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "Mirror cover control"
+description: |
+  Mirror cover behaviour.
+    - auto  : open at begin (or close on begin for dark/zero); do not auto-close at end
+    - open  : open at begin
+    - close : close at end (and at begin for dark/zero)
+type: string
+enum: [auto, open, close]

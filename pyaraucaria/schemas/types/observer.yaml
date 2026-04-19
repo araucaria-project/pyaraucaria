@@ -1,0 +1,9 @@
+$id: "https://araucaria-project.github.io/schemas/types/observer.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "Observer name"
+description: "Observer(s) stored in FITS header. No whitespace; comma-separated if multiple."
+type: string
+pattern: '^\S+$'
+examples:
+  - TyrRex
+  - Kajko,Kokosz

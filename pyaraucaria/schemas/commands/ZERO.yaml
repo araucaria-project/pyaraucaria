@@ -1,0 +1,19 @@
+$id: "https://araucaria-project.github.io/schemas/commands/ZERO.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "ZERO command"
+description: "Bias/zero exposures."
+type: object
+required: [command_name, seq]
+properties:
+  command_name: { const: ZERO }
+  name:         { $ref: "../types/name.yaml" }
+  seq:          { $ref: "../types/seq.yaml" }
+  mirror_cover: { $ref: "../types/common_kwargs.yaml#/$defs/mirror_cover" }
+  read_mod:     { $ref: "../types/common_kwargs.yaml#/$defs/read_mod" }
+  focus_offset: { $ref: "../types/common_kwargs.yaml#/$defs/focus_offset" }
+  test:         { $ref: "../types/common_kwargs.yaml#/$defs/test" }
+  observer:     { $ref: "../types/common_kwargs.yaml#/$defs/observer" }
+  uobi:         { $ref: "../types/common_kwargs.yaml#/$defs/uobi" }
+  sciprog:      { $ref: "../types/common_kwargs.yaml#/$defs/sciprog" }
+  pi:           { $ref: "../types/common_kwargs.yaml#/$defs/pi" }
+  comment:      { $ref: "../types/common_kwargs.yaml#/$defs/comment" }

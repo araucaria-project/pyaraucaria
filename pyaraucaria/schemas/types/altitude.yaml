@@ -1,0 +1,7 @@
+$id: "https://araucaria-project.github.io/schemas/types/altitude.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "Altitude (degrees)"
+description: "Altitude angle in degrees, [0, 90]."
+type: number
+minimum: 0
+maximum: 90

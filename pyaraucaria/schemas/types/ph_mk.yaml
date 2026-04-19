@@ -1,0 +1,9 @@
+$id: "https://araucaria-project.github.io/schemas/types/ph_mk.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "Phase masking parameters"
+description: "Phase masking: no_of_obs/band/phase_bin."
+type: string
+pattern: '^\d+/[A-Za-z_][A-Za-z0-9_]*/\d+(?:\.\d+)?$'
+examples:
+  - "2/Ic/0.05"
+  - "1/V/0.01"

@@ -1,0 +1,9 @@
+$id: "https://araucaria-project.github.io/schemas/types/ut.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "Universal Time"
+description: "Universal Time (HH:MM:SS)."
+type: string
+pattern: '^\d{1,2}:\d{2}:\d{2}$'
+examples:
+  - "23:02:23"
+  - "05:30:00"

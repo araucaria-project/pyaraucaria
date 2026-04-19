@@ -1,0 +1,99 @@
+$id: "https://araucaria-project.github.io/schemas/tpg_overlay.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "tpg scheduling overlay"
+description: |
+  Extra properties used by tpg (Telescope Plan Generator) for night scheduling.
+  Compose with `allOf`:
+
+    allOf:
+      - $ref: "./base.yaml"
+      - $ref: "./tpg_overlay.yaml"
+type: object
+properties:
+  priority:
+    type: number
+    minimum: -100
+    description: "Higher = allocated first. Negative = never allocate."
+  tag:
+    type: string
+    description: "Comma-separated allocation tags."
+  cycle:
+    type: number
+    minimum: 0
+    description: "Days between observations (fractional = hours)."
+  ph_mk: { $ref: "./types/ph_mk.yaml" }
+  obs_data:
+    type: string
+    description: "Path to light-curve or data file for cycle / phase masking."
+  t_start: { $ref: "./types/date_or_time.yaml" }
+  t_end:   { $ref: "./types/date_or_time.yaml" }
+  sunset_dt:
+    type: number
+    description: "Hours since sunset."
+  sunrise_dt:
+    type: number
+    description: "Hours before sunrise."
+  ph_start:
+    type: number
+    minimum: 0
+    maximum: 1
+    description: "Start phase for observation window."
+  ph_end:
+    type: number
+    minimum: 0
+    maximum: 1
+    description: "End phase for observation window."
+  P:
+    type: number
+    exclusiveMinimum: 0
+    description: "Period (days) for phase masking."
+  hjd0:
+    type: number
+    description: "Reference HJD zero point for phase masking."
+  h_min:
+    type: number
+    minimum: 0
+    maximum: 90
+    description: "Minimum altitude to observe."
+  h_max:
+    type: number
+    minimum: 0
+    maximum: 90
+    description: "Maximum altitude to observe."
+  min_moon_dist:
+    type: number
+    minimum: 0
+    maximum: 180
+    description: "Minimum distance from the Moon (deg)."
+  max_moon_phase:
+    type: number
+    minimum: 0
+    maximum: 100
+    description: "Maximum Moon phase (%)."
+  ob_time:
+    type: number
+    exclusiveMinimum: 0
+    description: "Slot duration override (minutes)."
+  makro:
+    type: string
+    description: "Path to macro file inserted into the plan in place of this OB."
+  status:
+    type: string
+    description: "Observing status — reserved, not yet implemented."
+  mV:
+    type: number
+    description: "V magnitude."
+  mK:
+    type: number
+    description: "K magnitude."
+  fwhm_min:
+    type: number
+    description: "Min FWHM for allocation — reserved, not yet implemented."
+  fwhm_max:
+    type: number
+    description: "Max FWHM for allocation — reserved, not yet implemented."
+  read_mod:
+    description: "Camera readout mode (overrides base)."
+    oneOf:
+      - type: integer
+      - type: string
