@@ -15,7 +15,7 @@ class TestAzAlt2RaDecAstropy(unittest.TestCase):
         latitude = OCA['latitude']
         longitude = OCA['longitude']
         elevation = OCA['elevation']
-        tim = datetime.fromisoformat('2024-08-11T00:00:00Z')
+        tim = datetime(2024, 8, 11, 0, 0, 0, tzinfo=timezone.utc)
         test_phase = 34.6
         mp = moon_phase(date_utc=tim, latitude=latitude, longitude=longitude, elevation=elevation)
         self.assertAlmostEqual(mp, test_phase, places=1)
