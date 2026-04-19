@@ -1,0 +1,11 @@
+$id: "https://araucaria-project.github.io/schemas/types/phase.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "Phase value"
+description: "Pulsation phase in [0, 1]."
+type: number
+minimum: 0
+maximum: 1
+examples:
+  - 0
+  - 0.25
+  - 0.976

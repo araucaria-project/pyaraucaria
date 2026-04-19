@@ -1,0 +1,30 @@
+$id: "https://araucaria-project.github.io/schemas/commands/WAIT.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "WAIT command"
+description: "Wait until a time event: seconds, UT time, or sun altitude."
+type: object
+required: [command_name]
+properties:
+  command_name: { const: WAIT }
+  sec:
+    type: number
+    minimum: 0
+    description: "Seconds to wait."
+    examples: [60, 600]
+  ut: { $ref: "../types/ut.yaml" }
+  sunrise:
+    type: number
+    description: "Wait until Sun altitude reaches this value while rising."
+    examples: [-12, -8]
+  sunset:
+    type: number
+    description: "Wait until Sun altitude reaches this value while setting."
+    examples: [-18, -12]
+  observer: { $ref: "../types/common_kwargs.yaml#/$defs/observer" }
+  uobi:     { $ref: "../types/common_kwargs.yaml#/$defs/uobi" }
+  comment:  { $ref: "../types/common_kwargs.yaml#/$defs/comment" }
+oneOf:
+  - required: [sec]
+  - required: [ut]
+  - required: [sunrise]
+  - required: [sunset]
