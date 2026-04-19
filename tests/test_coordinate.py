@@ -114,6 +114,7 @@ class TestAzAlt2RaDec(unittest.TestCase):
 
 class TestAzAlt2RaDecAstropy(unittest.TestCase):
 
+    @unittest.skip("Flaky: uses datetime.now() and requires IERS data download unavailable in CI")
     def test_ra_dec_2_az_alt_astropy(self):
         OCA = {'latitude': '-24:35:53', 'longitude': '-70:11:47', 'elevation': '2817'}
         latitude = OCA['latitude']
