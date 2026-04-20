@@ -2,6 +2,7 @@ $id: "https://araucaria-project.github.io/schemas/commands/WAIT.yaml"
 $schema: "https://json-schema.org/draft/2020-12/schema"
 title: "WAIT command"
 description: "Wait until a time event: seconds, UT time, or sun altitude."
+positional: []
 type: object
 required: [command_name]
 properties:

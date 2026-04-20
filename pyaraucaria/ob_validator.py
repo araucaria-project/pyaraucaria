@@ -229,31 +229,26 @@ class ObsValidator:
     def convert_to_obdict(ob: dict) -> dict | None:
         """Flatten parser output (nested sequences with args/kwargs) into a flat dict.
 
-        Positional args are unpacked by arity — see the module docstring for
-        limitations (the stricter PR replaces this with schema-driven unpacking).
-        """
-        result: dict = {}
-        subcommands = ob.get("subcommands", [])
-        if isinstance(subcommands, dict):
-            subcommands = [subcommands]
+        Schema-agnostic entry point. Uses a built-in fallback that mirrors the
+        pre-refactor arity-based mapping (1 arg → name; 2 → ra, dec; 3 → name,
+        ra, dec; >3 → flags `_positional_overflow` so strict validation rejects).
 
-        for sub in subcommands:
-            if "command_name" in sub:
-                result["command_name"] = sub["command_name"]
-            if "kwargs" in sub and isinstance(sub["kwargs"], dict):
-                result.update(sub["kwargs"])
-            if "args" in sub and isinstance(sub["args"], list):
-                args = sub["args"]
-                if len(args) == 1:
-                    result["name"] = args[0]
-                elif len(args) == 2:
-                    result["ra"] = args[0]
-                    result["dec"] = args[1]
-                elif len(args) == 3:
-                    result["name"] = args[0]
-                    result["ra"] = args[1]
-                    result["dec"] = args[2]
-        return result
+        For schema-aware mapping (per-command positional slot lists, strict
+        overflow), use :meth:`ObsValidator.convert_parsed`.
+        """
+        return _convert_to_obdict_impl(ob, schema=None)
+
+    def convert_parsed(self, parsed: dict) -> dict | None:
+        """Schema-aware version of `convert_to_obdict`.
+
+        Uses the validator's own schema to map positional args to the correct
+        named slots per command. >N args (where N is the command's declared
+        positional slot count) leaves a `_positional_overflow` marker so
+        `validate_ob` reports the failure.
+        """
+        if self._mode == "legacy":
+            return _convert_to_obdict_impl(parsed, schema=self._base_schema)
+        return _convert_to_obdict_impl(parsed, schema=self._schema)
 
     @staticmethod
     def clean_none(obs: dict) -> dict:
@@ -335,9 +330,16 @@ class ObsValidator:
         allowed_filters: Iterable[str] | None,
     ) -> dict:
         obs_clean = self.clean_none(obs)
+
+        # Positional overflow check — produced by `convert_parsed` when more
+        # positional args were supplied than the command's schema declares.
+        overflow = obs_clean.pop("_positional_overflow", None)
+
         obs_clean = self.convert_types(obs_clean, self._schema)
 
         result: dict[str, bool] = {key: True for key in obs_clean}
+        if overflow is not None:
+            result["_positional_overflow"] = False
 
         for error in self._validator.iter_errors(obs_clean):
             if error.path:
@@ -556,6 +558,82 @@ def _collect_required(schema: dict, command_name: str | None) -> list[str]:
 
     visit(schema)
     return sorted(required)
+
+
+def _positional_slots_for(schema: dict, command_name: str | None) -> list[str] | None:
+    """Return the per-command `positional` list from the schema, or None if unknown.
+
+    Walks allOf / oneOf / anyOf branches, matching on `properties.command_name.const`.
+    Falls back to the top-level `positional` key if no discriminator matches.
+    """
+    if not command_name:
+        return schema.get("positional")
+
+    def visit(node: Any) -> list[str] | None:
+        if not isinstance(node, dict):
+            return None
+        cn = node.get("properties", {}).get("command_name", {})
+        if isinstance(cn, dict) and cn.get("const") == command_name:
+            if "positional" in node:
+                return list(node["positional"])
+        for keyword in ("allOf", "anyOf", "oneOf"):
+            for sub in node.get(keyword, []):
+                r = visit(sub)
+                if r is not None:
+                    return r
+        return None
+
+    return visit(schema) if isinstance(schema, dict) else None
+
+
+def _convert_to_obdict_impl(ob: dict, schema: dict | None) -> dict | None:
+    """Flatten parser output to a flat obdict.
+
+    If `schema` is given and contains a `positional` slot list for the matched
+    command, the args are assigned to the declared slot names (and overflow
+    becomes a `_positional_overflow` marker). Otherwise falls back to the
+    canonical arity mapping (name / ra+dec / name+ra+dec), with >3 args still
+    flagged as overflow so the strict validator catches it.
+    """
+    result: dict = {}
+    subcommands = ob.get("subcommands", [])
+    if isinstance(subcommands, dict):
+        subcommands = [subcommands]
+
+    for sub in subcommands:
+        cmd = sub.get("command_name")
+        if cmd is not None:
+            result["command_name"] = cmd
+        if "kwargs" in sub and isinstance(sub["kwargs"], dict):
+            result.update(sub["kwargs"])
+        args = sub.get("args")
+        if isinstance(args, list):
+            slots = _positional_slots_for(schema, cmd) if schema else None
+            if slots is None:
+                # Fallback: the canonical legacy mapping plus explicit overflow.
+                if len(args) == 1:
+                    result["name"] = args[0]
+                elif len(args) == 2:
+                    result["ra"] = args[0]
+                    result["dec"] = args[1]
+                elif len(args) == 3:
+                    result["name"] = args[0]
+                    result["ra"] = args[1]
+                    result["dec"] = args[2]
+                elif len(args) > 3:
+                    # Assign the first 3 per canonical; flag the rest as overflow.
+                    result["name"] = args[0]
+                    result["ra"] = args[1]
+                    result["dec"] = args[2]
+                    result["_positional_overflow"] = args[3:]
+            else:
+                # Schema-declared slot names; overflow is anything beyond len(slots).
+                for i, slot in enumerate(slots):
+                    if i < len(args):
+                        result[slot] = args[i]
+                if len(args) > len(slots):
+                    result["_positional_overflow"] = args[len(slots):]
+    return result
 
 
 def _coerce_union(value: Any, prop: dict) -> Any:

@@ -2,6 +2,7 @@ $id: "https://araucaria-project.github.io/schemas/commands/STOP.yaml"
 $schema: "https://json-schema.org/draft/2020-12/schema"
 title: "STOP command"
 description: "Stops execution of the plan."
+positional: []
 type: object
 required: [command_name]
 properties:

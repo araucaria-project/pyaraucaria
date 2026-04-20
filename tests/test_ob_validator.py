@@ -271,5 +271,53 @@ class TestConversionHelpers(unittest.TestCase):
         self.assertIn("seq=1/V/60", line)
 
 
+class TestStrictPositionalValidation(unittest.TestCase):
+    """The stricter `convert_parsed` path (schema-aware positional unpacking)
+    catches lines that the legacy arity-based mapping silently accepted.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.v = ObsValidator.from_default(overlays=["tpg_overlay"])
+
+    def _validate_line(self, line: str) -> dict:
+        parsed = ObsPlanParser.convert_from_string(line)
+        ob = self.v.convert_parsed(parsed)
+        return self.v.validate_ob(ob, allowed_filters=["V", "Ic", "B"])
+
+    def test_canonical_object_valid(self):
+        r = self._validate_line("OBJECT HD1 18:58:14 -21:22:14 seq=1/V/60")
+        self.assertTrue(r["valid"], f"failed: {r['result']}")
+
+    def test_four_args_silently_dropped_no_more(self):
+        """Pre-refactor: 4+ args were silently dropped and the OB was accepted."""
+        r = self._validate_line("OBJECT HD1 18:58:14 -21:22:14 extra seq=1/V/60")
+        self.assertFalse(r["valid"])
+        self.assertFalse(r["result"].get("_positional_overflow", True))
+
+    def test_wait_with_positional_rejected(self):
+        """WAIT has `positional: []` — any positional arg is overflow."""
+        r = self._validate_line("WAIT HD1 ut=16:00:00")
+        self.assertFalse(r["valid"])
+        self.assertFalse(r["result"].get("_positional_overflow", True))
+
+    def test_stop_bare_valid(self):
+        r = self._validate_line("STOP")
+        self.assertTrue(r["valid"])
+
+    def test_unknown_kwarg_strict(self):
+        r = self._validate_line("OBJECT HD1 18:58:14 -21:22:14 seq=1/V/60 junk=42")
+        self.assertFalse(r["valid"])
+
+    def test_legacy_convert_still_available(self):
+        """The static `convert_to_obdict` keeps the legacy shape (no schema)."""
+        parsed = ObsPlanParser.convert_from_string(
+            "OBJECT HD1 18:58:14 -21:22:14 extra seq=1/V/60"
+        )
+        ob = ObsValidator.convert_to_obdict(parsed)
+        # Legacy path still flags overflow (PR2 tightens even the fallback).
+        self.assertIn("_positional_overflow", ob)
+
+
 if __name__ == "__main__":
     unittest.main()

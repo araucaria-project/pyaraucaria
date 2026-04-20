@@ -2,6 +2,7 @@ $id: "https://araucaria-project.github.io/schemas/commands/BELL.yaml"
 $schema: "https://json-schema.org/draft/2020-12/schema"
 title: "BELL command"
 description: "Emits an attention signal to the observer."
+positional: []
 type: object
 required: [command_name]
 properties:

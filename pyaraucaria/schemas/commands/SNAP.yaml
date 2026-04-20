@@ -2,6 +2,7 @@ $id: "https://araucaria-project.github.io/schemas/commands/SNAP.yaml"
 $schema: "https://json-schema.org/draft/2020-12/schema"
 title: "SNAP command"
 description: "Single test exposure (not stored in data archive)."
+positional: [name, ra, dec]
 type: object
 required: [command_name]
 properties:
