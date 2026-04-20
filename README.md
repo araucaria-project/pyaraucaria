@@ -24,10 +24,10 @@ uv sync --all-extras
 
 Add to your `pyproject.toml` dependencies:
 ```toml
-dependencies = [
-    "pyaraucaria @ git+https://github.com/araucaria-project/pyaraucaria.git",
-]
+pyaraucaria = { git = "https://github.com/araucaria-project/pyaraucaria.git"}
 ```
+**Warning** If your project uses `poetry` the installed versions of poetry have to be `>=2.0.0` for git depenndency to `pyaraucaria`.
+
 Or directly form PyPi, after checking versions (PyPi releases may lag behind GitHub):
 ```toml
 dependencies = [
@@ -69,7 +69,66 @@ od.lookup_object('lmc105_8_11987')
 `pyaraucaria.focus` implements various telescope focusing algorithms (RMS, FWHM, Lorentzian, Laplacian).
 
 ### Ephemeris
-`pyaraucaria.ephemeris` offers calculations for moon illumination, object visibility, and other ephemeris-related data using `astropy` and `astroplan`.
+`pyaraucaria.ephemeris` offers calculations for moon illumination, object visibility, and other ephemeris-related data using `astropy`.
+
+`pyaraucaria.ephemeris` exposes a clean, object-oriented API for use in your own Python projects.
+
+#### Initialization
+
+```python
+from astropy.coordinates import EarthLocation
+from astropy.time import Time
+import astropy.units as u
+from ocacal import Sun, Moon, Stars
+
+# Define Observer Location
+loc = EarthLocation(lat=-24.6*u.deg, lon=-70.2*u.deg, height=2400*u.m)
+# Or use a named site
+# loc = EarthLocation.of_site('paranal')
+
+```
+
+#### Calculating Events (Altitude Crossings)
+
+Find precise times when the Sun reaches specific altitudes.
+
+```python
+sun = Sun(loc)
+
+# Check for horizon (0), -6, and -12 degrees
+# Returns a list of event dictionaries sorted by time
+events = sun.get_events_by_altitude([0, -6, -12], start_time=Time.now())
+
+for e in events:
+    print(f"Altitude {e['target_alt']}° at {e['time_utc']} (Az: {e['az']:.1f}°)")
+
+```
+
+#### Batch Star Processing
+
+Efficiently calculate data for multiple stars using vectorization.
+
+```python
+# Define your catalog
+catalog = [
+    {'id': 'Vega', 'ra': 279.23, 'dec': 38.78},
+    {'id': 'Deneb', 'ra': 310.35, 'dec': 45.28}
+]
+
+stars = Stars(loc, catalog)
+
+# Get positions for the next 5 hours in 1-hour steps
+times = Time.now() + [0, 1, 2, 3, 4, 5] * u.hour
+ephemeris = stars.get_ephemeris(times)
+
+# Result is a dictionary keyed by Star ID
+for star_id, data in ephemeris.items():
+    print(f"--- {star_id} ---")
+    for point in data:
+        print(f"Time: {point['time_utc']} | Alt: {point['alt']:.2f}°")
+
+```
+
 
 ### Airmass
 `pyaraucaria.airmass` calculates airmass based on elevation using Kasten and Young's model.
