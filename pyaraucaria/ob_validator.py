@@ -4,6 +4,8 @@ import re
 import os
 import yaml
 
+import ObsPlanParser
+
 
 class ObsValidator:
 
@@ -209,8 +211,8 @@ class ObsValidator:
                     filt = parts[1]
                     exp_time_str = parts[2].replace(",", ".")
 
-                    # dla FOCUS mozliwe exp_time = "a"
-                    if cmd == "FOCUS" and exp_time_str.lower() == "a":
+                    # dla SKYFLAT mozliwe exp_time = "a"
+                    if cmd == "SKYFLAT" and exp_time_str.lower() == "a":
                         exp_time = 0  #  placeholder
                     else:
                         exp_time = float(exp_time_str)
@@ -286,12 +288,32 @@ class ObsValidator:
             "allowed": allowed_fields
         }
 
+    def validate_txt(self, txt: str, overrides: dict = None, allowed_filters=None) -> dict:
+        ob_tmp = ObsPlanParser.convert_from_string(txt)
+
+        if ob_tmp is None:
+            return {
+                "valid": False,
+                "result": {},
+                "data": {},
+                "required": {},
+                "allowed": {}
+            }
+
+        if not isinstance(ob_tmp, dict) or "command_name" not in ob_tmp:
+            return {
+                "valid": False,
+                "result": {},
+                "data": {},
+                "required": {},
+                "allowed": {}
+            }
 
 
+        ob = self.convert_to_obdict(ob_tmp)
+        result = self.validate_ob(ob, allowed_filters=allowed_filters)
 
-
-
-
+        return result
 
 
 

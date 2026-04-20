@@ -128,6 +128,9 @@ SKYFLAT:
   additional: false
 
 
+
+
+
 OBJECT:
   required:
     - command_name
@@ -155,7 +158,6 @@ OBJECT:
   one_of:
     - [ra, dec]
     - [alt, az]
-    - []
   additional: false
 
 

@@ -42,6 +42,13 @@ properties:
       - "10/r/a,10/V/a"
       - "2x(1/V/1,1/r/1)"
 
+  pos:
+    type: string
+    pattern: '^\d+/\d+$'  # Regex dla pos
+    description: "Focusing target and focusing step. Format: focusing_center/focusing_step."
+    examples:
+        - "15700/100"
+
   sec:
     type: number
     minimum: 0
