@@ -1,0 +1,5 @@
+$id: "https://araucaria-project.github.io/schemas/types/on_off.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "On/Off toggle"
+type: string
+enum: ["on", "off"]

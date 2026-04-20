@@ -1,0 +1,34 @@
+$id: "https://araucaria-project.github.io/schemas/base.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "Observing Plan — base schema"
+description: |
+  Discriminated union over the observing-plan commands. Each branch is a
+  self-contained command schema under `commands/`. The discriminator is
+  the `command_name` property (a `const` in every branch).
+
+  ## Strictness contract
+
+  Per-command schemas under `commands/` are intentionally **lenient** —
+  they do not set `additionalProperties: false` or `unevaluatedProperties: false`
+  themselves, so they can be composed cleanly with overlays (e.g. tpg_overlay.yaml).
+
+  Strictness is applied by the caller at the top level, typically:
+
+      { "allOf": [ {"$ref": "./base.yaml"}, {"$ref": "./tpg_overlay.yaml"} ],
+        "unevaluatedProperties": false }
+
+  The `ObsValidator` class applies this wrapping automatically when you pass
+  the base schema. If you build a composite schema yourself, set
+  `unevaluatedProperties: false` at the top.
+
+oneOf:
+  - $ref: "./commands/OBJECT.yaml"
+  - $ref: "./commands/SKYFLAT.yaml"
+  - $ref: "./commands/DOMEFLAT.yaml"
+  - $ref: "./commands/SNAP.yaml"
+  - $ref: "./commands/FOCUS.yaml"
+  - $ref: "./commands/DARK.yaml"
+  - $ref: "./commands/ZERO.yaml"
+  - $ref: "./commands/WAIT.yaml"
+  - $ref: "./commands/STOP.yaml"
+  - $ref: "./commands/BELL.yaml"

@@ -1,0 +1,10 @@
+$id: "https://araucaria-project.github.io/schemas/types/ra.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "Right Ascension"
+description: "Right Ascension in hour-angle sexagesimal (HH:MM:SS[.s])."
+type: string
+pattern: '^(?:[01]?\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?$'
+examples:
+  - "18:58:14.75"
+  - "20:23:35.8"
+  - "00:30:33"

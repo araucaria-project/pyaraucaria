@@ -1,0 +1,43 @@
+$id: "https://araucaria-project.github.io/schemas/types/common_kwargs.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "Properties common to most commands"
+description: |
+  Bag of reusable kwargs referenced from per-command schemas via
+  $ref to a specific property, e.g.:
+    properties:
+      observer: { $ref: "../types/common_kwargs.yaml#/$defs/observer" }
+$defs:
+  observer: { $ref: "./observer.yaml" }
+  uobi:
+    type: string
+    description: "Unique observation identifier used by observatory software."
+  comment:
+    type: string
+    description: "Comment visible to the observer (may contain spaces when quoted)."
+  sciprog:
+    type: string
+    description: "Science program identifier."
+  pi:
+    type: string
+    description: "Principal investigator identifier."
+  test:
+    type: boolean
+    description: "Marks exposure as test (not processed by pipeline)."
+  read_mod:
+    description: "Camera readout mode."
+    oneOf:
+      - type: integer
+      - type: string
+  focus_offset:
+    type: number
+    description: "Additional focus offset applied during observation."
+  epoch:
+    type: integer
+    description: "Epoch of RA/DEC coordinates."
+    examples: [2000, 2025]
+  tracking: { $ref: "./on_off.yaml" }
+  dome_follow:
+    type: string
+    enum: ["off"]
+    description: "Disable dome following telescope movement (only `off` is meaningful as override)."
+  mirror_cover: { $ref: "./mirror_cover.yaml" }

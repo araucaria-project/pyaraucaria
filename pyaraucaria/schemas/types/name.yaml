@@ -1,0 +1,10 @@
+$id: "https://araucaria-project.github.io/schemas/types/name.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "Object identifier"
+description: "Identifier of the observed object. Stored in FITS header. No whitespace."
+type: string
+pattern: '^\S+$'
+examples:
+  - FF_Aql
+  - HD193901
+  - NGC300_field1

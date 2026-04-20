@@ -1,0 +1,20 @@
+$id: "https://araucaria-project.github.io/schemas/types/seq.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "Exposure sequence"
+description: |
+  Sequence of sub-exposures. Grammar (informal):
+    seq      := group(,group)*
+    group    := N/filter/exp | Nx(seq) | INFx(seq)
+    exp      := <float seconds> | "a"   (auto-exposure, SKYFLAT/FOCUS only)
+  The outer `pattern` here is a permissive structural check only — full
+  semantic validation (filter whitelist, exposure-time sign, repeat-count
+  positivity, FOCUS/SKYFLAT-only `a`) lives in
+  `pyaraucaria.obs_plan.seq.validate_seq`, called by the validator.
+type: string
+pattern: '^(?:(?:\d+|INF)x\()?\d+/[A-Za-z_][A-Za-z0-9_]*/(?:\d+(?:\.\d+)?|a)(?:,\d+/[A-Za-z_][A-Za-z0-9_]*/(?:\d+(?:\.\d+)?|a))*\)?$'
+examples:
+  - "5/Ic/60"
+  - "5/Ic/60,5/V/70"
+  - "10/r/a,10/V/a"
+  - "2x(1/V/1,1/r/1)"
+  - "INFx(1/B/60,1/V/30)"

@@ -1,0 +1,7 @@
+$id: "https://araucaria-project.github.io/schemas/types/azimuth.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "Azimuth (degrees)"
+description: "Azimuth angle in degrees, [0, 360]."
+type: number
+minimum: 0
+maximum: 360

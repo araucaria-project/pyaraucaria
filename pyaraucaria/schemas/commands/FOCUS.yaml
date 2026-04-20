@@ -1,0 +1,35 @@
+$id: "https://araucaria-project.github.io/schemas/commands/FOCUS.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "FOCUS command"
+description: "Focusing routine; may include a focuser-position sweep (`pos=target/step`)."
+type: object
+required: [command_name, seq]
+properties:
+  command_name: { const: FOCUS }
+  name:         { $ref: "../types/name.yaml" }
+  ra:           { $ref: "../types/ra.yaml" }
+  dec:          { $ref: "../types/dec.yaml" }
+  alt:          { $ref: "../types/altitude.yaml" }
+  az:           { $ref: "../types/azimuth.yaml" }
+  seq:          { $ref: "../types/seq.yaml" }
+  pos:
+    type: string
+    pattern: '^\d+/\d+$'
+    description: "Focuser sweep `target_steps/step_size`."
+    examples: ["15700/100", "15200/50"]
+  auto_focus:   { $ref: "../types/on_off.yaml" }
+  tracking:     { $ref: "../types/common_kwargs.yaml#/$defs/tracking" }
+  focus_offset: { $ref: "../types/common_kwargs.yaml#/$defs/focus_offset" }
+  dome_follow:  { $ref: "../types/common_kwargs.yaml#/$defs/dome_follow" }
+  mirror_cover: { $ref: "../types/common_kwargs.yaml#/$defs/mirror_cover" }
+  read_mod:     { $ref: "../types/common_kwargs.yaml#/$defs/read_mod" }
+  test:         { $ref: "../types/common_kwargs.yaml#/$defs/test" }
+  epoch:        { $ref: "../types/common_kwargs.yaml#/$defs/epoch" }
+  observer:     { $ref: "../types/common_kwargs.yaml#/$defs/observer" }
+  uobi:         { $ref: "../types/common_kwargs.yaml#/$defs/uobi" }
+  comment:      { $ref: "../types/common_kwargs.yaml#/$defs/comment" }
+oneOf:
+  - required: [ra, dec]
+    not: { anyOf: [{ required: [alt] }, { required: [az] }] }
+  - required: [alt, az]
+    not: { anyOf: [{ required: [ra] }, { required: [dec] }] }

@@ -1,0 +1,40 @@
+$id: "https://araucaria-project.github.io/schemas/commands/SKYFLAT.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "SKYFLAT command"
+description: |
+  Twilight sky-flat exposures. Either ra/dec OR alt/az may be supplied, but not both.
+  Auto-exposure ('a') is allowed in `seq`.
+type: object
+required: [command_name, seq]
+properties:
+  command_name: { const: SKYFLAT }
+  name:         { $ref: "../types/name.yaml" }
+  seq:          { $ref: "../types/seq.yaml" }
+  ra:           { $ref: "../types/ra.yaml" }
+  dec:          { $ref: "../types/dec.yaml" }
+  alt:          { $ref: "../types/altitude.yaml" }
+  az:           { $ref: "../types/azimuth.yaml" }
+  tracking:     { $ref: "../types/common_kwargs.yaml#/$defs/tracking" }
+  dither:
+    description: "Dithering parameters: mode/every-N/max-step-minutes, or 'off'."
+    oneOf:
+      - type: string
+        enum: ["off"]
+      - type: string
+        pattern: '^[A-Za-z_]+/\d+/\d+(?:\.\d+)?$'
+  dome_follow: { $ref: "../types/common_kwargs.yaml#/$defs/dome_follow" }
+  focus_offset: { $ref: "../types/common_kwargs.yaml#/$defs/focus_offset" }
+  mirror_cover: { $ref: "../types/common_kwargs.yaml#/$defs/mirror_cover" }
+  epoch:        { $ref: "../types/common_kwargs.yaml#/$defs/epoch" }
+  read_mod:     { $ref: "../types/common_kwargs.yaml#/$defs/read_mod" }
+  test:         { $ref: "../types/common_kwargs.yaml#/$defs/test" }
+  observer:     { $ref: "../types/common_kwargs.yaml#/$defs/observer" }
+  uobi:         { $ref: "../types/common_kwargs.yaml#/$defs/uobi" }
+  sciprog:      { $ref: "../types/common_kwargs.yaml#/$defs/sciprog" }
+  pi:           { $ref: "../types/common_kwargs.yaml#/$defs/pi" }
+  comment:      { $ref: "../types/common_kwargs.yaml#/$defs/comment" }
+oneOf:
+  - required: [ra, dec]
+    not: { anyOf: [{ required: [alt] }, { required: [az] }] }
+  - required: [alt, az]
+    not: { anyOf: [{ required: [ra] }, { required: [dec] }] }

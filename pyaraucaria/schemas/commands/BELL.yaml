@@ -1,0 +1,11 @@
+$id: "https://araucaria-project.github.io/schemas/commands/BELL.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "BELL command"
+description: "Emits an attention signal to the observer."
+type: object
+required: [command_name]
+properties:
+  command_name: { const: BELL }
+  observer: { $ref: "../types/common_kwargs.yaml#/$defs/observer" }
+  uobi:     { $ref: "../types/common_kwargs.yaml#/$defs/uobi" }
+  comment:  { $ref: "../types/common_kwargs.yaml#/$defs/comment" }

@@ -1,0 +1,15 @@
+$id: "https://araucaria-project.github.io/schemas/types/date_or_time.yaml"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "Date, date+time, or time-of-day"
+description: |
+  One of:
+    - YYYY/MM/DD
+    - YYYY/MM/DDTHH:MM[:SS]
+    - HH:MM[:SS]
+type: string
+pattern: '^(\d{4}/\d{2}/\d{2}(T\d{2}:\d{2}(:\d{2})?)?|\d{2}:\d{2}(:\d{2})?)$'
+examples:
+  - "2025/11/23"
+  - "2025/11/23T08:20:00"
+  - "08:20:00"
+  - "08:20"
