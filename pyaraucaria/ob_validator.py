@@ -4,7 +4,7 @@ import re
 import os
 import yaml
 
-import ObsPlanParser
+from .obs_plan.obs_plan_parser import ObsPlanParser
 
 
 class ObsValidator:
@@ -163,14 +163,31 @@ class ObsValidator:
             if key not in obs:
                 result[key] = None
 
-        # one_of - dziwne, ale dziala
-        for subschema in rules.get("one_of", []):
-            if not any(k not in obs for k in subschema):
-                continue
-            satisfied = any(all(k in obs for k in s) for s in rules.get("one_of", []))
-            if not satisfied:
-                for s in rules.get("one_of", []):
-                    for k in s:
+        # exclusive_properties
+        groups = rules.get("exclusive_properties", [])
+        if groups:
+            complete_groups = []
+
+            for group in groups:
+                present = [k in obs for k in group]
+
+                # nic z tej grupy nie podano -> OK
+                if not any(present):
+                    continue
+
+                # podano część grupy -> błąd
+                if not all(present):
+                    for k in group:
+                        result[k] = False
+                    continue
+
+                # pełna grupa
+                complete_groups.append(group)
+
+            # więcej niż jedna pełna grupa naraz -> błąd
+            if len(complete_groups) > 1:
+                for group in complete_groups:
+                    for k in group:
                         result[k] = False
 
         # one_of_group

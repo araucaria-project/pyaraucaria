@@ -122,7 +122,7 @@ SKYFLAT:
     - sciprog
     - pi
     - comment
-  one_of:
+  exclusive_properties:
     - [ra, dec]
     - [alt, az]
   additional: false
@@ -155,7 +155,7 @@ OBJECT:
     - sciprog
     - pi
     - comment
-  one_of:
+  exclusive_properties:
     - [ra, dec]
     - [alt, az]
   additional: false
@@ -185,7 +185,7 @@ SNAP:
     - sciprog
     - pi
     - comment
-  one_of:
+  exclusive_properties:
     - [ra, dec]
     - [alt, az]
   additional: false
@@ -215,7 +215,7 @@ FOCUS:
     - observer
     - uobi
     - comment
-  one_of:
+  exclusive_properties:
     - [ra, dec]
     - [alt, az]
   additional: false
