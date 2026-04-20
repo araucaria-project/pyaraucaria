@@ -231,5 +231,45 @@ class TestObsPlanParser(unittest.TestCase):
         self.assertEqual(ObsPlanParser.convert_from_string(input), output)
 
 
+    def test_commands_with_blacklisted_first_letters(self):
+        """Commands whose first letter appears in BEGINSEQUENCE (B,C,E,G,I,N,Q,S,U) must parse."""
+        cases = [
+            ("BIAS seq=15/V/0", {'command_name': 'BIAS', 'kwargs': {'seq': '15/V/0'}}),
+            ("CAL target=dome", {'command_name': 'CAL', 'kwargs': {'target': 'dome'}}),
+            ("ENGINEERING mode=test", {'command_name': 'ENGINEERING', 'kwargs': {'mode': 'test'}}),
+            ("GUIDE star=HD1234", {'command_name': 'GUIDE', 'kwargs': {'star': 'HD1234'}}),
+            ("IDLE", {'command_name': 'IDLE'}),
+            ("NOTE observer=someone", {'command_name': 'NOTE', 'kwargs': {'observer': 'someone'}}),
+            ("QUIT", {'command_name': 'QUIT'}),
+            ("SKYFLAT seq=1/V/1", {'command_name': 'SKYFLAT', 'kwargs': {'seq': '1/V/1'}}),
+            ("SNAP seq=1/V/1", {'command_name': 'SNAP', 'kwargs': {'seq': '1/V/1'}}),
+            ("STOP", {'command_name': 'STOP'}),
+            ("UVFILT filter=U", {'command_name': 'UVFILT', 'kwargs': {'filter': 'U'}}),
+        ]
+        for text, expected in cases:
+            with self.subTest(command=text):
+                result = ObsPlanParser.convert_from_string(text)
+                self.assertIsNotNone(result, f"Parsing returned None for: {text!r}")
+                # The top-level wrapper is a SEQUENCE; the command is in subcommands[0]
+                self.assertEqual(result['subcommands'][0], expected)
+
+    def test_quoted_value_containing_snap_not_corrupted(self):
+        """A kwarg value containing SNAP/STOP/SKYFLAT must not be mangled."""
+        text = 'OBJECT HD1 comment="SNAP judgment"'
+        result = ObsPlanParser.convert_from_string(text)
+        self.assertIsNotNone(result)
+        cmd = result['subcommands'][0]
+        self.assertEqual(cmd['command_name'], 'OBJECT')
+        self.assertEqual(cmd['kwargs']['comment'], '"SNAP judgment"')
+
+    def test_no_leading_newline_in_command_name(self):
+        """A blank line before a command must not prepend a newline to the command name."""
+        text = "\nOBJECT HD1 12:00:00 +00:00:00"
+        result = ObsPlanParser.convert_from_string(text)
+        self.assertIsNotNone(result)
+        cmd = result['subcommands'][0]
+        self.assertEqual(cmd['command_name'], 'OBJECT')
+
+
 if __name__ == '__main__':
     unittest.main()
