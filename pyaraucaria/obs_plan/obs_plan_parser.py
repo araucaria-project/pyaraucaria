@@ -22,7 +22,8 @@ class ObsPlanParser:
         !begin_sequence : "BEGINSEQUENCE"
         !end_sequence   : "ENDSEQUENCE"
         separator       : end_line+
-        word            : /[^{BEGINSEQUENCE}{ }][A-Z]+/
+        word            : COMMAND_WORD
+        COMMAND_WORD.-1 : /[A-Z]+/
         comment         : /#.*/
         end_line        : /\n/
         !kw             : string_simple
@@ -32,6 +33,9 @@ class ObsPlanParser:
         %ignore /[ \f]+/
         %ignore "#" /[^\n]/*
         """
+
+    _parser = None  # cached Lark instance; built on first parse
+
 
     @staticmethod
     def _build_kwargs(tree: Tree):
@@ -72,12 +76,6 @@ class ObsPlanParser:
         for child in tree.children:
             if child.data == 'command_name':
                 com_name = ObsPlanParser._build_command_name(child)
-                if com_name == 'sKYFLAT':
-                    com_name = 'SKYFLAT'
-                if com_name == 'sTOP':
-                    com_name = 'STOP'
-                if com_name == 'sNAP':
-                    com_name = 'SNAP'
                 command_dict['command_name'] = com_name
             if child.data == 'args':
                 if child.children:
@@ -129,35 +127,45 @@ class ObsPlanParser:
         except AttributeError:
             log.error(f'Text cannot be parsed, please check string')
 
+    @classmethod
+    def _get_parser(cls) -> Lark:
+        if cls._parser is None:
+            cls._parser = Lark(cls.LINE_GRAMMAR)
+        return cls._parser
+
     @staticmethod
     def _parse_text(text: str) -> Tree:
-
-        line_parser = Lark(ObsPlanParser.LINE_GRAMMAR)
-        parse = line_parser.parse
         try:
-            parsed = parse(ObsPlanParser._prepare_text(text))
-            return parsed
+            return ObsPlanParser._get_parser().parse(
+                ObsPlanParser._prepare_text(text)
+            )
         except AttributeError:
-            log.error(f'Text cannot be parsed, please check string')
+            log.error('Text cannot be parsed, please check string')
         except UnexpectedCharacters:
-            log.error(f'No terminal matches in the current parser context')
+            log.error('No terminal matches in the current parser context')
+
+    # @staticmethod
+    # def _parse_text(text: str) -> Tree:
+    #
+    #     line_parser = Lark(ObsPlanParser.LINE_GRAMMAR)
+    #     parse = line_parser.parse
+    #     try:
+    #         parsed = parse(ObsPlanParser._prepare_text(text))
+    #         return parsed
+    #     except AttributeError:
+    #         log.error(f'Text cannot be parsed, please check string')
+    #     except UnexpectedCharacters:
+    #         log.error(f'No terminal matches in the current parser context')
 
     @staticmethod
     def _prepare_text(text: str) -> str:
         """
         Prepare text to parse. BEGINSEQUENCE and ENDSEQUENCE is added to put all in SEQUENCE.
-        Also solve SKYFLAT lark error and replace for sKYFLAT, later replace back.
         :param text: text to parse
         :return: prepared text to parse
         """
         log.debug(f'preparing text to parse')
         return_text = f"BEGINSEQUENCE \n{text} \nENDSEQUENCE"
-        if return_text.find('SKYFLAT') >= 0:
-            return_text = return_text.replace('SKYFLAT', 'sKYFLAT')
-        if return_text.find('STOP') >= 0:
-            return_text = return_text.replace('STOP', 'sTOP')
-        if return_text.find('SNAP') >= 0:
-            return_text = return_text.replace('SNAP', 'sNAP')
         return_text = return_text.replace('\t', ' ')
         return return_text
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pyaraucaria"
-version = "2.11.5"
+version = "2.12.1"
 description = "Common Routines of OCA Observatory and Araucaria Project"
 readme = "README.md"
 license = "LGPL-3.0-or-later"
@@ -31,6 +31,7 @@ dependencies = [
     "scipy",
     "astroplan",
     "matplotlib",
+    "jsonschema",
 ]
 
 [project.optional-dependencies]
@@ -52,6 +53,7 @@ packages = ["pyaraucaria"]
 include = [
     "pyaraucaria/**",
     "tests/**",
+    "pyaraucaria/schemas/**",
     "README.md",
 ]
 
