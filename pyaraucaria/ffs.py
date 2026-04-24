@@ -152,8 +152,8 @@ class FFS:
             self.adu = val[sorted_i]
 
             self.stats["stars"] = {
-                "x": self.coo[:, 0],
-                "y": self.coo[:, 1],
+                "x": self.coo[:, 1],
+                "y": self.coo[:, 0],
                 "max_adu": self.adu
             }
         else:
@@ -315,7 +315,7 @@ class FFS:
 
         ni = 0
 
-        for i, (x, y) in enumerate(self.coo):
+        for i, (y, x) in enumerate(self.coo):
 
             if self.adu[i] >= self.saturation:
                 continue
@@ -325,12 +325,12 @@ class FFS:
 
             ni += 1
 
-            x0 = max(0, x - box)
-            x1 = min(self.image.shape[0], x + box)
             y0 = max(0, y - box)
-            y1 = min(self.image.shape[1], y + box)
+            y1 = min(self.image.shape[0], y + box)
+            x0 = max(0, x - box)
+            x1 = min(self.image.shape[1], x + box)
 
-            cut = self.image[x0:x1, y0:y1]
+            cut = self.image[y0:y1, x0:x1]
 
             if cut.size == 0:
                 continue
@@ -558,7 +558,7 @@ class FFS:
         np.add.at(self.accumulator, (ri_flat, ti_flat), 1)
 
         #self.accumulator
-        self.theta = theta
+        self.hough_theta = theta
         self.rh = rh
 
         accu_max = self.accumulator.max(axis=1)
@@ -570,7 +570,7 @@ class FFS:
         for p in peaks:
             rho = rh[p]
             ti = np.argmax(self.accumulator[p])
-            t = self.theta[ti]
+            t = self.hough_theta[ti]
             val = self.accumulator[p, ti]
             lines_rho.append(rho)
             lines_theta.append(t)
@@ -660,9 +660,14 @@ class FFS:
             if I_std == 0 or np.isnan(I_std):
                 return np.nan
 
+            I_max = np.max(image_cut)
+            flux =  np.sum(image_cut)
+
             # opcja rekomendowana
-            flux = flux = np.sum(image_cut)
-            cpe = np.max(image_cut) / flux
+            if flux <= 0 or not np.isfinite(flux):
+                return np.nan
+
+            cpe = I_max / flux
 
             # # opcja mozliwa
             # noise = mad_std(image_cut)
