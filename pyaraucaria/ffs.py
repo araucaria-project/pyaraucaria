@@ -69,8 +69,14 @@ class FFS:
 
         self.rh = None
         self.maska  = None
-        self.stats = None
-        self.stats_description = None
+        self.stats = {
+            "frame": {},
+            "stars": {}
+        }
+        self.stats_description = {
+            "frame": {},
+            "stars": {}
+        }
 
     def mk_stats(self):
         img = self.image.ravel()
@@ -97,7 +103,7 @@ class FFS:
 
         self.maska = self.image > np.median(self.image) + 3 * self.q_sigma
 
-        self.stats = {
+        self.stats["frame"] = {
             "min": self.min,
             "max": self.max,
             "mean": self.mean,
@@ -109,7 +115,7 @@ class FFS:
             "noise": self.noise,
         }
 
-        self.stats_description = {
+        self.stats_description["frame"] = {
             "min": "Minimal pixel value in the image",
             "max": "Maximum pixel value in the image",
             "mean": "Mean pixel value (arithmetic average)",
@@ -189,24 +195,27 @@ class FFS:
         self.frame_shape = np.nanmedian(self.shape)
         self.frame_ci = np.nanmedian(self.ci)
 
-        self.stats["frame_fwhm"] = self.frame_fwhm
-        self.stats["frame_fwhm_x"] = self.frame_fwhm_x
-        self.stats["frame_fwhm_y"] = self.frame_fwhm_y
-        self.stats["frame_ellipticity"] = self.frame_ellipticity
-        self.stats["frame_theta_spread"] = self.frame_theta_spread
-        self.stats["frame_cpe"] = self.frame_cpe
-        self.stats["frame_shape"] = self.frame_shape
-        self.stats["frame_ci"] = self.frame_ci
+        self.stats["frame"].update({
+            "fwhm": self.frame_fwhm,
+            "fwhm_x": self.frame_fwhm_x,
+            "fwhm_y": self.frame_fwhm_y,
+            "ellipticity": self.frame_ellipticity,
+            "theta_spread": self.frame_theta_spread,
+            "cpe": self.frame_cpe,
+            "shape": self.frame_shape,
+            "ci": self.frame_ci,
+        })
 
-        self.stats_description.update({
-            "frame_fwhm": "Median of the full width at half maximum (FWHM) of the brightest sources in the frame",
-            "frame_fwhm_x": "Median FWHM measured along the X axis",
-            "frame_fwhm_y": "Median FWHM measured along the Y axis",
-            "frame_ellipticity": "Median source ellipticity (1 − b/a), describing PSF elongation",
-            "frame_theta_spread": "Angular spread (dispersion) of source position angles in the frame. Low spread with hight ellipticity means something",
-            "frame_cpe": "Median central pixel excess (CPE) of detected sources; higher values indicate sharper, more centrally concentrated profiles",
-            "frame_shape": "Median PSF shape parameter defined as CPE × FWHM^2 ",
-            "frame_ci": "Median concentration index (CI) of detected stars in the frame; "
+
+        self.stats_description["frame"].update({
+            "fwhm": "Median of the full width at half maximum (FWHM) of the brightest sources in the frame",
+            "fwhm_x": "Median FWHM measured along the X axis",
+            "fwhm_y": "Median FWHM measured along the Y axis",
+            "ellipticity": "Median source ellipticity (1 − b/a), describing PSF elongation",
+            "theta_spread": "Angular spread (dispersion) of source position angles in the frame. Low spread with hight ellipticity means something",
+            "cpe": "Median central pixel excess (CPE) of detected sources; higher values indicate sharper, more centrally concentrated profiles",
+            "shape": "Median PSF shape parameter defined as CPE × FWHM^2 ",
+            "ci": "Median concentration index (CI) of detected stars in the frame; "
         })
 
     def fwhm_deprecated(self, radius=10, all_stars=True):
@@ -516,20 +525,22 @@ class FFS:
         self.sky_surface_x = x
         self.sky_surface_y = y
 
-        self.stats["bkg_max_amplitude"] = self.max_amplitude
-        self.stats["bkg_frame_gradient"] = self.frame_gradient
-        self.stats["sky_surface_coeff"] = self.sky_surface_coeff
+        self.stats["frame"].update({
+            "bkg_max_amplitude": self.max_amplitude,
+            "bkg_frame_gradient": self.frame_gradient,
+            "sky_surface_coeff": self.sky_surface_coeff,
+        })
 
-        tmp = {}
-        tmp["surface_bkg"] = self.sky_surface_bkg
-        tmp["surface_x"] = self.sky_surface_x
-        tmp["surface_y"] = self.sky_surface_y
-        self.stats["sky"] = tmp
+        self.stats["sky"] = {
+            "surface_bkg": self.sky_surface_bkg,
+            "surface_x": self.sky_surface_x,
+            "surface_y": self.sky_surface_y,
+        }
 
         self.sky = Table([self.sky_surface_x,self.sky_surface_y,self.sky_surface_bkg], names=["sky_surface_x","sky_surface_y","sky_surface_bkg"])
 
 
-        self.stats_description.update({
+        self.stats_description["frame"].update({
 
             "bkg_max_amplitude": (
                 "Maximum amplitude of the background signal across the image (in ADU)"
@@ -543,21 +554,23 @@ class FFS:
                 "Coefficients of the fitted sky model describing "
                 "the sky background variation across the image"
             ),
-
-            "sky": {
-                "surface_bkg": (
-                    "Estimated sky background surface evaluated over the image grid, "
-                ),
-                "surface_x": (
-                    "X-coordinate grid used for evaluating the sky background surface "
-                    "(pixel indices, 0-based)"
-                ),
-                "surface_y": (
-                    "Y-coordinate grid used for evaluating the sky background surface "
-                    "(pixel indices, 0-based)"
-                ),
-            },
         })
+
+        self.stats_description["sky"] = {
+            "surface_bkg": (
+                "Estimated sky background surface evaluated over the image grid, "
+            ),
+            "surface_x": (
+                "X-coordinate grid used for evaluating the sky background surface "
+                "(pixel indices, 0-based)"
+            ),
+            "surface_y": (
+                "Y-coordinate grid used for evaluating the sky background surface "
+                "(pixel indices, 0-based)"
+            )
+        }
+
+
 
     def find_lines(self):
         self.hough_transform()
