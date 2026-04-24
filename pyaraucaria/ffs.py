@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.signal import find_peaks
-from scipy.ndimage.filters import maximum_filter
+from scipy.ndimage import maximum_filter
 from scipy.ndimage import convolve
 from scipy.ndimage import gaussian_filter
 
@@ -91,7 +91,7 @@ class FFS:
 
         self.sigma_quantile = self.q_sigma
 
-        self.noise = np.sqrt(self.median / self.gain + self.rn_noise)
+        self.noise = np.sqrt(self.median / self.gain + self.rn_noise**2)
 
         self.maska = self.image > np.median(self.image) + 3 * self.q_sigma
 
@@ -135,7 +135,7 @@ class FFS:
         elif self.fs_method == "sigma quantile":
             self.fs_sigma = self.q_sigma
         else:
-            raise ValueError(f"Invalid method type {self.method}")
+            raise ValueError(f"Invalid method type {self.fs_method}")
 
         mask1 = self.image > self.median + self.fs_threshold * self.fs_sigma
         data2 = gaussian_filter(self.image, sigma=self.fs_kernel_sigma)
@@ -364,6 +364,9 @@ class FFS:
                 self.fwhm_y[i] = fy
                 self.fwhm[i] = (fx + fy) / 2
 
+            # to jest nowy fragment, tzrba go zabezpieczyc
+            self.cpe[i] = FFS.cpe(cut)
+
         self.stats["stars"]["box_mag"] = self.box_mag
         self.stats["stars"]["bkg"] = self.bkg
         self.stats["stars"]["fwhm"] = self.fwhm
@@ -464,7 +467,8 @@ class FFS:
             de.append(FFS.polysurf(xi, y0, coeff))
 
         max_amplitude = max(bk) - min(bk)
-        max(le) - min(re)
+        # co to po co to
+        # max(le) - min(re)
         frame_gradient = max(max((max(le) - min(re)), (max(re) - min(le))),
                              max((max(ue) - min(de)), (max(de) - min(ue))))
 
@@ -656,7 +660,19 @@ class FFS:
             if I_std == 0 or np.isnan(I_std):
                 return np.nan
 
-            cpe = (I_max - I_bck) / I_std
+            # opcja rekomendowana
+            flux = flux = np.sum(image_cut)
+            cpe = np.max(image_cut) / flux
+
+            # # opcja mozliwa
+            # noise = mad_std(image_cut)
+            # cpe2 = I_max / (I_bck + noise)
+            #
+            # # opcja bledna
+            # cpe3 = (I_max - I_bck) / I_std
+
+            # DUPA
+            #print(cpe,cpe2,cpe3)
 
         return cpe
 
@@ -775,7 +791,7 @@ class FFS:
 
         kernel_l, kernel_r = FFS.line_detection_kernel(kernel2_size)  # tu sie zmienia
         result_l = convolve(image, kernel_l)
-        maska_2l = result_l > np.median(result_l) + th2 * mad_std(result_r)
+        maska_2l = result_l > np.median(result_l) + th2 * mad_std(result_r) # to nie blad, chcemy miec ta sama skalef
         result_r = convolve(image, kernel_r)
         maska_2r = result_r > np.median(result_r) + th2 * mad_std(result_r)
 
