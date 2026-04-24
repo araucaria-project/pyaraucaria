@@ -64,6 +64,8 @@ class FFS:
         self.frame_ellipticity = None
         self.frame_theta_spread = None
         self.frame_cpe = None
+        self.frame_shape = None
+        self.frame_ci = None
 
         self.rh = None
         self.maska  = None
@@ -184,6 +186,8 @@ class FFS:
         self.frame_ellipticity = np.nanmedian(self.ellipticity)
         self.frame_theta_spread = np.nanstd(self.theta)
         self.frame_cpe = np.nanmedian(self.cpe)
+        self.frame_shape = np.nanmedian(self.shape)
+        self.frame_ci = np.nanmedian(self.ci)
 
         self.stats["frame_fwhm"] = self.frame_fwhm
         self.stats["frame_fwhm_x"] = self.frame_fwhm_x
@@ -191,6 +195,8 @@ class FFS:
         self.stats["frame_ellipticity"] = self.frame_ellipticity
         self.stats["frame_theta_spread"] = self.frame_theta_spread
         self.stats["frame_cpe"] = self.frame_cpe
+        self.stats["frame_shape"] = self.frame_shape
+        self.stats["frame_ci"] = self.frame_ci
 
         self.stats_description.update({
             "frame_fwhm": "Median of the full width at half maximum (FWHM) of the brightest sources in the frame",
@@ -199,6 +205,8 @@ class FFS:
             "frame_ellipticity": "Median source ellipticity (1 − b/a), describing PSF elongation",
             "frame_theta_spread": "Angular spread (dispersion) of source position angles in the frame. Low spread with hight ellipticity means something",
             "frame_cpe": "Median central pixel excess (CPE) of detected sources; higher values indicate sharper, more centrally concentrated profiles",
+            "frame_shape": "Median PSF shape parameter defined as CPE × FWHM^2 ",
+            "frame_ci": "Median concentration index (CI) of detected stars in the frame; "
         })
 
     def fwhm_deprecated(self, radius=10, all_stars=True):
@@ -309,6 +317,8 @@ class FFS:
         self.fwhm_x = np.full(n, np.nan)
         self.fwhm_y = np.full(n, np.nan)
         self.cpe = np.full(n, np.nan)
+        self.shape = np.full(n, np.nan)
+        self.ci = np.full(n, np.nan)
 
         if N_stars is None:
             N_stars = n
@@ -367,6 +377,18 @@ class FFS:
             # to jest nowy fragment, tzrba go zabezpieczyc
             self.cpe[i] = FFS.cpe(cut)
 
+            self.shape[i] = self.cpe[i] * self.fwhm[i]**2
+
+            if self.frame_fwhm:
+                r1 = 1.0 * self.frame_fwhm
+                r2 = 2.0 * self.frame_fwhm
+            else:
+                r1 = 2.0
+                r2 = 4.0
+
+            self.ci[i] = FFS.concentration_index(cut,r1,r2)
+
+
         self.stats["stars"]["box_mag"] = self.box_mag
         self.stats["stars"]["bkg"] = self.bkg
         self.stats["stars"]["fwhm"] = self.fwhm
@@ -375,6 +397,8 @@ class FFS:
         self.stats["stars"]["ellipticity"] = self.ellipticity
         self.stats["stars"]["theta"] = self.theta
         self.stats["stars"]["cpe"] = self.cpe
+        self.stats["stars"]["shape"] = self.shape
+        self.stats["stars"]["ci"] = self.ci
 
         self.stars = Table(self.stats["stars"])
 
@@ -422,6 +446,19 @@ class FFS:
                 "and background noise; higher values indicate sharper, more "
                 "centrally concentrated profiles"
             ),
+
+            "shape": (
+                "PSF shape parameter defined as CPE × FWHM^2; "
+                "for a Gaussian PSF this is approximately constant, "
+                "deviations indicate non-Gaussian profiles (e.g. broader wings or sharper cores)"
+            ),
+
+            "ci": (
+                "Concentration Index (CI), defined as the ratio of flux within inner radius r1 "
+                "to flux within outer radius r2 (CI = F(r<r1)/F(r<r2)); "
+                "higher values indicate more centrally concentrated profiles"
+            ),
+
         })
 
     def sky_gradient(self,n_segments=10):
@@ -660,14 +697,18 @@ class FFS:
             if I_std == 0 or np.isnan(I_std):
                 return np.nan
 
-            I_max = np.max(image_cut)
-            flux =  np.sum(image_cut)
+            cx, cy = FFS.centroid(image_cut)
+            cx_i = int(round(cx))
+            cy_i = int(round(cy))
+
+            I_peak = image_cut[cy_i, cx_i]
+            flux = np.sum(image_cut)
 
             # opcja rekomendowana
             if flux <= 0 or not np.isfinite(flux):
                 return np.nan
 
-            cpe = I_max / flux
+            cpe = I_peak / flux
 
             # # opcja mozliwa
             # noise = mad_std(image_cut)
@@ -683,10 +724,15 @@ class FFS:
 
     @staticmethod
     def fwhm(image_cut):
-        cx = int(image_cut.shape[0]/2)
-        cy = int(image_cut.shape[1]/2)
-        line_x = image_cut[cx, :]
-        line_y = image_cut[:, cy]
+        cx, cy = FFS.centroid(image_cut)
+        if cx is None:
+            return np.nan, np.nan
+
+        cx_i = int(round(cx))
+        cy_i = int(round(cy))
+
+        line_x = image_cut[cy_i, :]
+        line_y = image_cut[:, cx_i]
 
         fwhm_x = FFS.fwhm_1d(line_x)
         fwhm_y = FFS.fwhm_1d(line_y)
@@ -730,6 +776,47 @@ class FFS:
 
         return xr - xl
 
+    @staticmethod
+    def concentration_index(image_cut, r1=2.0, r2=4.0):
+        if image_cut.size == 0:
+            return np.nan
+
+        # centroid (wazne!)
+        y, x = np.indices(image_cut.shape)
+        I = image_cut.clip(min=0)
+
+        flux_total = np.sum(I)
+        if flux_total <= 0 or not np.isfinite(flux_total):
+            return np.nan
+
+        cy = np.sum(y * I) / flux_total
+        cx = np.sum(x * I) / flux_total
+
+        # odleglosci od centroidu
+        r = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+
+        flux_r1 = np.sum(I[r <= r1])
+        flux_r2 = np.sum(I[r <= r2])
+
+        if flux_r2 <= 0:
+            return np.nan
+
+        return flux_r1 / flux_r2
+
+    @staticmethod
+    def centroid(image_cut):
+        I = image_cut.clip(min=0)
+        Itot = I.sum()
+
+        if Itot <= 0:
+            return None, None
+
+        y, x = np.indices(I.shape)
+
+        cx = np.sum(x * I) / Itot
+        cy = np.sum(y * I) / Itot
+
+        return cx, cy
 
     @staticmethod
     def make_segments(image, n_segments=10, overlap=0):
