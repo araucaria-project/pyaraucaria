@@ -194,6 +194,7 @@ class FFS:
         self.frame_cpe = np.nanmedian(self.cpe)
         self.frame_shape = np.nanmedian(self.shape)
         self.frame_ci = np.nanmedian(self.ci)
+        self.frame_ff = np.nanmedian(self.ff)
 
         self.stats["frame"].update({
             "fwhm": self.frame_fwhm,
@@ -204,6 +205,8 @@ class FFS:
             "cpe": self.frame_cpe,
             "shape": self.frame_shape,
             "ci": self.frame_ci,
+            # do wyjebania
+            "old_fwhm": self.frame_ff
         })
 
 
@@ -329,6 +332,9 @@ class FFS:
         self.shape = np.full(n, np.nan)
         self.ci = np.full(n, np.nan)
 
+        # do wyjebania
+        self.ff = np.full(n, np.nan)
+
         if N_stars is None:
             N_stars = n
 
@@ -375,8 +381,14 @@ class FFS:
             self.ellipticity[i] = e
             self.theta[i] = t
 
+            # do wyjebania
             cut_half = cut - 0.5 * np.max(cut)
-            fx, fy = FFS.fwhm(cut_half)
+            fx0, fy0 = FFS.fwhm_old(cut_half)
+
+            # do wyjebania
+            self.ff[i] = (fx0+fy0)/2.
+
+            fx, fy = FFS.fwhm(cut)
 
             if not np.isnan(fx) and not np.isnan(fy):
                 self.fwhm_x[i] = fx
@@ -408,6 +420,9 @@ class FFS:
         self.stats["stars"]["cpe"] = self.cpe
         self.stats["stars"]["shape"] = self.shape
         self.stats["stars"]["ci"] = self.ci
+
+        # do wyjebania
+        self.stats["stars"]["old_fwhm"] = self.ff
 
         self.stars = Table(self.stats["stars"])
 
@@ -735,8 +750,109 @@ class FFS:
 
         return cpe
 
-    @staticmethod
+
+#########################################
+
     def fwhm(image_cut):
+        if image_cut.size == 0:
+            return np.nan, np.nan
+
+        # tylko dodatni sygnał
+        data = image_cut.astype(float)
+        data[~np.isfinite(data)] = 0
+        data = data.clip(min=0)
+
+        if np.sum(data) <= 0:
+            return np.nan, np.nan
+
+        # lekkie wygładzenie (kluczowe!)
+        data = gaussian_filter(data, sigma=1)
+
+        # centroid
+        cx, cy = FFS.centroid(data)
+        if cx is None or cy is None:
+            return np.nan, np.nan
+
+        cx_i = int(round(cx))
+        cy_i = int(round(cy))
+
+        # zabezpieczenie zakresu
+        ny, nx = data.shape
+        if not (0 <= cx_i < nx and 0 <= cy_i < ny):
+            return np.nan, np.nan
+
+        # profile
+        line_x = data[cy_i, :]
+        line_y = data[:, cx_i]
+
+        fwhm_x = FFS.fwhm_1d(line_x)
+        fwhm_y = FFS.fwhm_1d(line_y)
+
+        return fwhm_x, fwhm_y
+
+    def fwhm_1d(line):
+        line = np.asarray(line, dtype=float)
+
+        if not np.any(np.isfinite(line)):
+            return np.nan
+
+        # usuń NaNy
+        mask = np.isfinite(line)
+        if mask.sum() < 3:
+            return np.nan
+        line = line[mask]
+
+
+        # peak i half max (bardziej odporne niż max)
+        peak = np.nanpercentile(line, 99)
+        if peak <= 0:
+            return np.nan
+
+        half = 0.5 * peak
+
+        # znajdź maksimum
+        imax = np.argmax(line)
+
+        # --- lewa strona ---
+        left = imax
+        while left > 0 and line[left] > half:
+            left -= 1
+
+        if left == 0:
+            return np.nan
+
+        # interpolacja
+        y1, y2 = line[left], line[left + 1]
+        if y2 == y1:
+            xl = left
+        else:
+            xl = left + (half - y1) / (y2 - y1)
+
+        # --- prawa strona ---
+        right = imax
+        while right < len(line) - 1 and line[right] > half:
+            right += 1
+
+        if right == len(line) - 1:
+            return np.nan
+
+        y1, y2 = line[right - 1], line[right]
+        if y2 == y1:
+            xr = right
+        else:
+            xr = (right - 1) + (half - y1) / (y2 - y1)
+
+        fwhm = xr - xl
+
+        if fwhm <= 0 or not np.isfinite(fwhm):
+            return np.nan
+
+        return fwhm
+
+    ###########################################
+
+    @staticmethod
+    def fwhm_old(image_cut):
         cx, cy = FFS.centroid(image_cut)
         if cx is None:
             return np.nan, np.nan
@@ -747,13 +863,13 @@ class FFS:
         line_x = image_cut[cy_i, :]
         line_y = image_cut[:, cx_i]
 
-        fwhm_x = FFS.fwhm_1d(line_x)
-        fwhm_y = FFS.fwhm_1d(line_y)
+        fwhm_x = FFS.fwhm_1d_old(line_x)
+        fwhm_y = FFS.fwhm_1d_old(line_y)
 
         return fwhm_x,fwhm_y
 
     @staticmethod
-    def fwhm_1d(line):
+    def fwhm_1d_old(line):
 
         if np.all(line <= 0):
             return np.nan
@@ -788,6 +904,8 @@ class FFS:
             xr = right
 
         return xr - xl
+
+################################################
 
     @staticmethod
     def concentration_index(image_cut, r1=2.0, r2=4.0):
