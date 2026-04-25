@@ -847,7 +847,7 @@ class FFS:
         if fwhm <= 0 or not np.isfinite(fwhm):
             return np.nan
 
-        fwhm = np.sqrt(fwhm**2 - (2.355 * 1)**2) # poprawka na splot z gauseem sigma = 1
+        fwhm = np.sqrt(fwhm**2 - (2.355 * 1)**2) # poprawka na splot z gaussem sigma = 1
 
         return fwhm
 
