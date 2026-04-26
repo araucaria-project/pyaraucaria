@@ -22,7 +22,7 @@ class Focus:
     }
 
     @staticmethod
-    def fwhm_deprecated(
+    def fwhm_broken(
             array, saturation: float, threshold: float = 20,
             kernel_size: float = 6, fwhm: float = 4) -> float | None:
         ffs = FFS(image=array)
@@ -38,10 +38,10 @@ class Focus:
 
     @staticmethod
     def fwhm(array, saturation: float, threshold: float = 20,
-            box_size: float = 10, fwhm: float = 4, N_stars = 50, clip = 4) -> float | None:
+            box_size: float = 10, fwhm: float = 4, N_stars = 30) -> float | None:
         ffs = FFS(array)
         ffs.saturation = saturation
-        ffs.calc_frame_fwhm(threshold=threshold, fwhm=fwhm, box=box_size, N_stars=N_stars, clip=clip)
+        ffs.calc_frame_fwhm(threshold=threshold, fwhm=fwhm, box=box_size, N_stars=N_stars, clip=None)
         frame_fwhm = ffs.frame_fwhm
         if np.isnan(frame_fwhm):
             return None
@@ -87,12 +87,9 @@ class Focus:
                 except ValueError:
                     sharpness = None
             elif Focus.METHODS[method]['measurement'] == 'fwhm':
-                fwhm =  Focus.fwhm(
-                    array=data,
-                    saturation = data.max() * 0.8,
-                )
+                fwhm =  Focus.fwhm(array=data,saturation = data.max() * 0.8,)
                 if fwhm is not None:
-                    sharpness = 50 - fwhm
+                    sharpness = (10 - fwhm) * 5
                 else:
                     sharpness = None
             else:
@@ -108,7 +105,7 @@ class Focus:
 
     @staticmethod
     def calculate(fits_path: str, focus_keyword: str = "FOCUS", focus_list: List = None,
-                  crop: int = 10, method: str = "rms_quad", range: Optional[List] = None,
+                  crop: int = 10, method: str = "laplacian", range: Optional[List] = None,
                   chart_path: Optional[str] = None) -> Optional[Tuple[int, Dict]]:
         """
         Function to calculate the focus position of maximum sharpness for a given FITS files.
