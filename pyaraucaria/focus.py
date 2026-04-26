@@ -22,7 +22,7 @@ class Focus:
     }
 
     @staticmethod
-    def fwhm(
+    def fwhm_deprecated(
             array, saturation: float, threshold: float = 20,
             kernel_size: float = 6, fwhm: float = 4) -> float | None:
         ffs = FFS(image=array)
@@ -35,6 +35,18 @@ class Focus:
                 return None
         else:
             return None
+
+    @staticmethod
+    def fwhm(array, saturation: float, threshold: float = 20,
+            box_size: float = 10, fwhm: float = 4, N_stars = 50, clip = 4) -> float | None:
+        ffs = FFS(array)
+        ffs.saturation = saturation
+        ffs.calc_frame_fwhm(threshold=threshold, fwhm=fwhm, box=box_size, N_stars=N_stars, clip=clip)
+        frame_fwhm = ffs.frame_fwhm
+        if np.isnan(frame_fwhm):
+            return None
+        else:
+            return frame_fwhm
 
     @staticmethod
     def lorentzian(x, a, x0, gamma, z):
