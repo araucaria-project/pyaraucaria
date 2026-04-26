@@ -178,14 +178,23 @@ class FFS:
 
         self.stars = Table(self.stats["stars"])
 
-    def calc_frame_fwhm(self,threshold=5, fwhm=10, box=10, N_stars=20):
+    def calc_frame_fwhm(self,threshold=5, fwhm=10, box=10, N_stars=20, clip=4):
         self.mk_stats()
         self.find_stars(threshold=threshold, fwhm=fwhm)
         self.star_info(box=box,N_stars=N_stars)
-        self.calc_star_stats()
+        self.calc_star_stats(clip=clip)
 
+    def _clip_mask(self,x,clip=4):
+        med = np.nanmedian(x)
+        sig = mad_std(x, ignore_nan=True)
 
-    def calc_star_stats(self):
+        if not np.isfinite(sig) or sig == 0:
+            return np.ones_like(x, dtype=bool)
+
+        return np.abs(x - med) < clip * sig
+
+    def calc_star_stats(self,clip=4):
+
         self.frame_fwhm = np.nanmedian(self.fwhm)
         self.frame_fwhm_x = np.nanmedian(self.fwhm_x)
         self.frame_fwhm_y = np.nanmedian(self.fwhm_y)
@@ -194,7 +203,32 @@ class FFS:
         self.frame_cpe = np.nanmedian(self.cpe)
         self.frame_shape = np.nanmedian(self.shape)
         self.frame_ci = np.nanmedian(self.ci)
-        self.frame_ff = np.nanmedian(self.ff)
+        self.frame_used_stars = len(self.fwhm[np.isfinite(self.fwhm)])
+
+        mk = np.ones_like(self.fwhm, dtype=bool)
+
+        if clip:
+            fwhm = np.where(self.fwhm > 0, np.log(self.fwhm), np.nan)
+            cpe = np.where(self.cpe > 0, np.log(self.cpe), np.nan)
+            ell = self.ellipticity
+
+            valid = np.isfinite(fwhm) & np.isfinite(cpe) & np.isfinite(ell)
+
+            mk = (valid & self._clip_mask(fwhm, clip) & self._clip_mask(cpe, clip) & self._clip_mask(ell, clip))
+
+            if np.sum(mk) < 3:
+                mk = valid
+
+        self.frame_fwhm = np.nanmedian(self.fwhm[mk])
+        self.frame_fwhm_x = np.nanmedian(self.fwhm_x[mk])
+        self.frame_fwhm_y = np.nanmedian(self.fwhm_y[mk])
+        self.frame_ellipticity = np.nanmedian(self.ellipticity[mk])
+        self.frame_theta_spread = np.nanstd(self.theta[mk])
+        self.frame_cpe = np.nanmedian(self.cpe[mk])
+        self.frame_shape = np.nanmedian(self.shape[mk])
+        self.frame_ci = np.nanmedian(self.ci[mk])
+        self.frame_used_stars = len(self.fwhm[mk])
+
 
         self.stats["frame"].update({
             "fwhm": self.frame_fwhm,
@@ -205,8 +239,7 @@ class FFS:
             "cpe": self.frame_cpe,
             "shape": self.frame_shape,
             "ci": self.frame_ci,
-            # do wyjebania
-            "old_fwhm": self.frame_ff
+            "used_stars": self.frame_used_stars
         })
 
 
@@ -218,7 +251,8 @@ class FFS:
             "theta_spread": "Angular spread (dispersion) of source position angles in the frame. Low spread with hight ellipticity means something",
             "cpe": "Median central pixel excess (CPE) of detected sources; higher values indicate sharper, more centrally concentrated profiles",
             "shape": "Median PSF shape parameter defined as CPE × FWHM^2 ",
-            "ci": "Median concentration index (CI) of detected stars in the frame; "
+            "ci": "Median concentration index (CI) of detected stars in the frame; ",
+            "used_stars": "How many star were used to evaluate thos statistics"
         })
 
     def fwhm_deprecated(self, radius=10, all_stars=True):
@@ -332,9 +366,6 @@ class FFS:
         self.shape = np.full(n, np.nan)
         self.ci = np.full(n, np.nan)
 
-        # do wyjebania
-        self.ff = np.full(n, np.nan)
-
         if N_stars is None:
             N_stars = n
 
@@ -381,13 +412,6 @@ class FFS:
             self.ellipticity[i] = e
             self.theta[i] = t
 
-            # do wyjebania
-            cut_half = cut - 0.5 * np.max(cut)
-            fx0, fy0 = FFS.fwhm_old(cut_half)
-
-            # do wyjebania
-            self.ff[i] = (fx0+fy0)/2.
-
             fx, fy = FFS.fwhm(cut)
 
             if not np.isnan(fx) and not np.isnan(fy):
@@ -410,6 +434,19 @@ class FFS:
             self.ci[i] = FFS.concentration_index(cut,r1,r2)
 
 
+        self.box_mag = self.box_mag[:ni]
+        self.bkg = self.bkg[:ni]
+        self.ellipticity = self.ellipticity[:ni]
+        self.theta = self.theta[:ni]
+        self.fwhm = self.fwhm[:ni]
+        self.fwhm_x = self.fwhm_x[:ni]
+        self.fwhm_y = self.fwhm_y[:ni]
+        self.cpe = self.cpe[:ni]
+        self.shape = self.shape[:ni]
+        self.ci = self.ci[:ni]
+        self.coo = self.coo[:ni]
+        self.adu = self.adu[:ni]
+
         self.stats["stars"]["box_mag"] = self.box_mag
         self.stats["stars"]["bkg"] = self.bkg
         self.stats["stars"]["fwhm"] = self.fwhm
@@ -420,9 +457,10 @@ class FFS:
         self.stats["stars"]["cpe"] = self.cpe
         self.stats["stars"]["shape"] = self.shape
         self.stats["stars"]["ci"] = self.ci
+        self.stats["stars"]["x"] = self.coo[:, 1]
+        self.stats["stars"]["y"] = self.coo[:, 0]
+        self.stats["stars"]["max_adu"] = self.adu
 
-        # do wyjebania
-        self.stats["stars"]["old_fwhm"] = self.ff
 
         self.stars = Table(self.stats["stars"])
 
