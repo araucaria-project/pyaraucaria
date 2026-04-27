@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.signal import find_peaks
-from scipy.ndimage.filters import maximum_filter
+from scipy.ndimage import maximum_filter
 from scipy.ndimage import convolve
 from scipy.ndimage import gaussian_filter
 
@@ -64,11 +64,19 @@ class FFS:
         self.frame_ellipticity = None
         self.frame_theta_spread = None
         self.frame_cpe = None
+        self.frame_shape = None
+        self.frame_ci = None
 
         self.rh = None
         self.maska  = None
-        self.stats = None
-        self.stats_description = None
+        self.stats = {
+            "frame": {},
+            "stars": {}
+        }
+        self.stats_description = {
+            "frame": {},
+            "stars": {}
+        }
 
     def mk_stats(self):
         img = self.image.ravel()
@@ -91,11 +99,11 @@ class FFS:
 
         self.sigma_quantile = self.q_sigma
 
-        self.noise = np.sqrt(self.median / self.gain + self.rn_noise)
+        self.noise = np.sqrt(self.median / self.gain + self.rn_noise**2)
 
         self.maska = self.image > np.median(self.image) + 3 * self.q_sigma
 
-        self.stats = {
+        self.stats["frame"] = {
             "min": self.min,
             "max": self.max,
             "mean": self.mean,
@@ -107,7 +115,7 @@ class FFS:
             "noise": self.noise,
         }
 
-        self.stats_description = {
+        self.stats_description["frame"] = {
             "min": "Minimal pixel value in the image",
             "max": "Maximum pixel value in the image",
             "mean": "Mean pixel value (arithmetic average)",
@@ -135,7 +143,7 @@ class FFS:
         elif self.fs_method == "sigma quantile":
             self.fs_sigma = self.q_sigma
         else:
-            raise ValueError(f"Invalid method type {self.method}")
+            raise ValueError(f"Invalid method type {self.fs_method}")
 
         mask1 = self.image > self.median + self.fs_threshold * self.fs_sigma
         data2 = gaussian_filter(self.image, sigma=self.fs_kernel_sigma)
@@ -152,8 +160,8 @@ class FFS:
             self.adu = val[sorted_i]
 
             self.stats["stars"] = {
-                "x": self.coo[:, 0],
-                "y": self.coo[:, 1],
+                "x": self.coo[:, 1],
+                "y": self.coo[:, 0],
                 "max_adu": self.adu
             }
         else:
@@ -170,35 +178,81 @@ class FFS:
 
         self.stars = Table(self.stats["stars"])
 
-    def calc_frame_fwhm(self,threshold=5, fwhm=10, box=10, N_stars=20):
+    def calc_frame_fwhm(self,threshold=5, fwhm=10, box=10, N_stars=20, clip=4):
         self.mk_stats()
         self.find_stars(threshold=threshold, fwhm=fwhm)
         self.star_info(box=box,N_stars=N_stars)
-        self.calc_star_stats()
+        self.calc_star_stats(clip=clip)
 
+    def _clip_mask(self,x,clip=4):
+        med = np.nanmedian(x)
+        sig = mad_std(x, ignore_nan=True)
 
-    def calc_star_stats(self):
+        if not np.isfinite(sig) or sig == 0:
+            return np.ones_like(x, dtype=bool)
+
+        return np.abs(x - med) < clip * sig
+
+    def calc_star_stats(self,clip=4):
+
         self.frame_fwhm = np.nanmedian(self.fwhm)
         self.frame_fwhm_x = np.nanmedian(self.fwhm_x)
         self.frame_fwhm_y = np.nanmedian(self.fwhm_y)
         self.frame_ellipticity = np.nanmedian(self.ellipticity)
         self.frame_theta_spread = np.nanstd(self.theta)
         self.frame_cpe = np.nanmedian(self.cpe)
+        self.frame_shape = np.nanmedian(self.shape)
+        self.frame_ci = np.nanmedian(self.ci)
+        self.frame_used_stars = len(self.fwhm[np.isfinite(self.fwhm)])
 
-        self.stats["frame_fwhm"] = self.frame_fwhm
-        self.stats["frame_fwhm_x"] = self.frame_fwhm_x
-        self.stats["frame_fwhm_y"] = self.frame_fwhm_y
-        self.stats["frame_ellipticity"] = self.frame_ellipticity
-        self.stats["frame_theta_spread"] = self.frame_theta_spread
-        self.stats["frame_cpe"] = self.frame_cpe
+        mk = np.ones_like(self.fwhm, dtype=bool)
 
-        self.stats_description.update({
-            "frame_fwhm": "Median of the full width at half maximum (FWHM) of the brightest sources in the frame",
-            "frame_fwhm_x": "Median FWHM measured along the X axis",
-            "frame_fwhm_y": "Median FWHM measured along the Y axis",
-            "frame_ellipticity": "Median source ellipticity (1 − b/a), describing PSF elongation",
-            "frame_theta_spread": "Angular spread (dispersion) of source position angles in the frame. Low spread with hight ellipticity means something",
-            "frame_cpe": "Median central pixel excess (CPE) of detected sources; higher values indicate sharper, more centrally concentrated profiles",
+        if clip:
+            fwhm = np.where(self.fwhm > 0, np.log(self.fwhm), np.nan)
+            cpe = np.where(self.cpe > 0, np.log(self.cpe), np.nan)
+            ell = self.ellipticity
+
+            valid = np.isfinite(fwhm) & np.isfinite(cpe) & np.isfinite(ell)
+
+            mk = (valid & self._clip_mask(fwhm, clip) & self._clip_mask(cpe, clip) & self._clip_mask(ell, clip))
+
+            if np.sum(mk) < 3:
+                mk = valid
+
+        self.frame_fwhm = np.nanmedian(self.fwhm[mk])
+        self.frame_fwhm_x = np.nanmedian(self.fwhm_x[mk])
+        self.frame_fwhm_y = np.nanmedian(self.fwhm_y[mk])
+        self.frame_ellipticity = np.nanmedian(self.ellipticity[mk])
+        self.frame_theta_spread = np.nanstd(self.theta[mk])
+        self.frame_cpe = np.nanmedian(self.cpe[mk])
+        self.frame_shape = np.nanmedian(self.shape[mk])
+        self.frame_ci = np.nanmedian(self.ci[mk])
+        self.frame_used_stars = len(self.fwhm[mk])
+
+
+        self.stats["frame"].update({
+            "fwhm": self.frame_fwhm,
+            "fwhm_x": self.frame_fwhm_x,
+            "fwhm_y": self.frame_fwhm_y,
+            "ellipticity": self.frame_ellipticity,
+            "theta_spread": self.frame_theta_spread,
+            "cpe": self.frame_cpe,
+            "shape": self.frame_shape,
+            "ci": self.frame_ci,
+            "used_stars": self.frame_used_stars
+        })
+
+
+        self.stats_description["frame"].update({
+            "fwhm": "Median of the full width at half maximum (FWHM) of the brightest sources in the frame",
+            "fwhm_x": "Median FWHM measured along the X axis",
+            "fwhm_y": "Median FWHM measured along the Y axis",
+            "ellipticity": "Median source ellipticity (1 − b/a), describing PSF elongation",
+            "theta_spread": "Angular spread (dispersion) of source position angles in the frame. Low spread with hight ellipticity means something",
+            "cpe": "Median central pixel excess (CPE) of detected sources; higher values indicate sharper, more centrally concentrated profiles",
+            "shape": "Median PSF shape parameter defined as CPE × FWHM^2 ",
+            "ci": "Median concentration index (CI) of detected stars in the frame; ",
+            "used_stars": "How many star were used to evaluate thos statistics"
         })
 
     def fwhm_deprecated(self, radius=10, all_stars=True):
@@ -309,13 +363,18 @@ class FFS:
         self.fwhm_x = np.full(n, np.nan)
         self.fwhm_y = np.full(n, np.nan)
         self.cpe = np.full(n, np.nan)
+        self.shape = np.full(n, np.nan)
+        self.ci = np.full(n, np.nan)
 
         if N_stars is None:
             N_stars = n
 
+        if len(self.coo) < 5:
+            return
+
         ni = 0
 
-        for i, (x, y) in enumerate(self.coo):
+        for i, (y, x) in enumerate(self.coo):
 
             if self.adu[i] >= self.saturation:
                 continue
@@ -325,12 +384,12 @@ class FFS:
 
             ni += 1
 
-            x0 = max(0, x - box)
-            x1 = min(self.image.shape[0], x + box)
             y0 = max(0, y - box)
-            y1 = min(self.image.shape[1], y + box)
+            y1 = min(self.image.shape[0], y + box)
+            x0 = max(0, x - box)
+            x1 = min(self.image.shape[1], x + box)
 
-            cut = self.image[x0:x1, y0:y1]
+            cut = self.image[y0:y1, x0:x1]
 
             if cut.size == 0:
                 continue
@@ -356,13 +415,40 @@ class FFS:
             self.ellipticity[i] = e
             self.theta[i] = t
 
-            cut_half = cut - 0.5 * np.max(cut)
-            fx, fy = FFS.fwhm(cut_half)
+            fx, fy = FFS.fwhm(cut)
 
             if not np.isnan(fx) and not np.isnan(fy):
                 self.fwhm_x[i] = fx
                 self.fwhm_y[i] = fy
                 self.fwhm[i] = (fx + fy) / 2
+
+            # to jest nowy fragment, tzrba go zabezpieczyc
+            self.cpe[i] = FFS.cpe(cut)
+
+            self.shape[i] = self.cpe[i] * self.fwhm[i]**2
+
+            if self.frame_fwhm:
+                r1 = 1.0 * self.frame_fwhm
+                r2 = 2.0 * self.frame_fwhm
+            else:
+                r1 = 2.0
+                r2 = 4.0
+
+            self.ci[i] = FFS.concentration_index(cut,r1,r2)
+
+
+        self.box_mag = self.box_mag[:ni]
+        self.bkg = self.bkg[:ni]
+        self.ellipticity = self.ellipticity[:ni]
+        self.theta = self.theta[:ni]
+        self.fwhm = self.fwhm[:ni]
+        self.fwhm_x = self.fwhm_x[:ni]
+        self.fwhm_y = self.fwhm_y[:ni]
+        self.cpe = self.cpe[:ni]
+        self.shape = self.shape[:ni]
+        self.ci = self.ci[:ni]
+        self.coo = self.coo[:ni]
+        self.adu = self.adu[:ni]
 
         self.stats["stars"]["box_mag"] = self.box_mag
         self.stats["stars"]["bkg"] = self.bkg
@@ -372,6 +458,12 @@ class FFS:
         self.stats["stars"]["ellipticity"] = self.ellipticity
         self.stats["stars"]["theta"] = self.theta
         self.stats["stars"]["cpe"] = self.cpe
+        self.stats["stars"]["shape"] = self.shape
+        self.stats["stars"]["ci"] = self.ci
+        self.stats["stars"]["x"] = self.coo[:, 1]
+        self.stats["stars"]["y"] = self.coo[:, 0]
+        self.stats["stars"]["max_adu"] = self.adu
+
 
         self.stars = Table(self.stats["stars"])
 
@@ -419,6 +511,19 @@ class FFS:
                 "and background noise; higher values indicate sharper, more "
                 "centrally concentrated profiles"
             ),
+
+            "shape": (
+                "PSF shape parameter defined as CPE × FWHM^2; "
+                "for a Gaussian PSF this is approximately constant, "
+                "deviations indicate non-Gaussian profiles (e.g. broader wings or sharper cores)"
+            ),
+
+            "ci": (
+                "Concentration Index (CI), defined as the ratio of flux within inner radius r1 "
+                "to flux within outer radius r2 (CI = F(r<r1)/F(r<r2)); "
+                "higher values indicate more centrally concentrated profiles"
+            ),
+
         })
 
     def sky_gradient(self,n_segments=10):
@@ -464,7 +569,8 @@ class FFS:
             de.append(FFS.polysurf(xi, y0, coeff))
 
         max_amplitude = max(bk) - min(bk)
-        max(le) - min(re)
+        # co to po co to
+        # max(le) - min(re)
         frame_gradient = max(max((max(le) - min(re)), (max(re) - min(le))),
                              max((max(ue) - min(de)), (max(de) - min(ue))))
 
@@ -475,20 +581,22 @@ class FFS:
         self.sky_surface_x = x
         self.sky_surface_y = y
 
-        self.stats["bkg_max_amplitude"] = self.max_amplitude
-        self.stats["bkg_frame_gradient"] = self.frame_gradient
-        self.stats["sky_surface_coeff"] = self.sky_surface_coeff
+        self.stats["frame"].update({
+            "bkg_max_amplitude": self.max_amplitude,
+            "bkg_frame_gradient": self.frame_gradient,
+            "sky_surface_coeff": self.sky_surface_coeff,
+        })
 
-        tmp = {}
-        tmp["surface_bkg"] = self.sky_surface_bkg
-        tmp["surface_x"] = self.sky_surface_x
-        tmp["surface_y"] = self.sky_surface_y
-        self.stats["sky"] = tmp
+        self.stats["sky"] = {
+            "surface_bkg": self.sky_surface_bkg,
+            "surface_x": self.sky_surface_x,
+            "surface_y": self.sky_surface_y,
+        }
 
         self.sky = Table([self.sky_surface_x,self.sky_surface_y,self.sky_surface_bkg], names=["sky_surface_x","sky_surface_y","sky_surface_bkg"])
 
 
-        self.stats_description.update({
+        self.stats_description["frame"].update({
 
             "bkg_max_amplitude": (
                 "Maximum amplitude of the background signal across the image (in ADU)"
@@ -502,21 +610,23 @@ class FFS:
                 "Coefficients of the fitted sky model describing "
                 "the sky background variation across the image"
             ),
-
-            "sky": {
-                "surface_bkg": (
-                    "Estimated sky background surface evaluated over the image grid, "
-                ),
-                "surface_x": (
-                    "X-coordinate grid used for evaluating the sky background surface "
-                    "(pixel indices, 0-based)"
-                ),
-                "surface_y": (
-                    "Y-coordinate grid used for evaluating the sky background surface "
-                    "(pixel indices, 0-based)"
-                ),
-            },
         })
+
+        self.stats_description["sky"] = {
+            "surface_bkg": (
+                "Estimated sky background surface evaluated over the image grid, "
+            ),
+            "surface_x": (
+                "X-coordinate grid used for evaluating the sky background surface "
+                "(pixel indices, 0-based)"
+            ),
+            "surface_y": (
+                "Y-coordinate grid used for evaluating the sky background surface "
+                "(pixel indices, 0-based)"
+            )
+        }
+
+
 
     def find_lines(self):
         self.hough_transform()
@@ -554,7 +664,7 @@ class FFS:
         np.add.at(self.accumulator, (ri_flat, ti_flat), 1)
 
         #self.accumulator
-        self.theta = theta
+        self.hough_theta = theta
         self.rh = rh
 
         accu_max = self.accumulator.max(axis=1)
@@ -566,7 +676,7 @@ class FFS:
         for p in peaks:
             rho = rh[p]
             ti = np.argmax(self.accumulator[p])
-            t = self.theta[ti]
+            t = self.hough_theta[ti]
             val = self.accumulator[p, ti]
             lines_rho.append(rho)
             lines_theta.append(t)
@@ -656,24 +766,154 @@ class FFS:
             if I_std == 0 or np.isnan(I_std):
                 return np.nan
 
-            cpe = (I_max - I_bck) / I_std
+            cx, cy = FFS.centroid(image_cut)
+            cx_i = int(round(cx))
+            cy_i = int(round(cy))
+
+            I_peak = image_cut[cy_i, cx_i]
+            flux = np.sum(image_cut)
+
+            # opcja rekomendowana
+            if flux <= 0 or not np.isfinite(flux):
+                return np.nan
+
+            cpe = I_peak / flux
+
+            # # opcja mozliwa
+            # noise = mad_std(image_cut)
+            # cpe2 = I_max / (I_bck + noise)
+            #
+            # # opcja bledna
+            # cpe3 = (I_max - I_bck) / I_std
+
+            # DUPA
+            #print(cpe,cpe2,cpe3)
 
         return cpe
 
-    @staticmethod
+
+#########################################
+
     def fwhm(image_cut):
-        cx = int(image_cut.shape[0]/2)
-        cy = int(image_cut.shape[1]/2)
-        line_x = image_cut[cx, :]
-        line_y = image_cut[:, cy]
+        if image_cut.size == 0:
+            return np.nan, np.nan
+
+        # tylko dodatni sygnał
+        data = image_cut.astype(float)
+        data[~np.isfinite(data)] = 0
+        data = data.clip(min=0)
+
+        if np.sum(data) <= 0:
+            return np.nan, np.nan
+
+        # lekkie wygładzenie (kluczowe!)
+        data = gaussian_filter(data, sigma=0.5)
+
+        # centroid
+        cx, cy = FFS.centroid(data)
+        if cx is None or cy is None:
+            return np.nan, np.nan
+
+        cx_i = int(round(cx))
+        cy_i = int(round(cy))
+
+        # zabezpieczenie zakresu
+        ny, nx = data.shape
+        if not (0 <= cx_i < nx and 0 <= cy_i < ny):
+            return np.nan, np.nan
+
+        # profile
+        line_x = data[cy_i, :]
+        line_y = data[:, cx_i]
 
         fwhm_x = FFS.fwhm_1d(line_x)
         fwhm_y = FFS.fwhm_1d(line_y)
 
+        return fwhm_x, fwhm_y
+
+    def fwhm_1d(line):
+        line = np.asarray(line, dtype=float)
+
+        if not np.any(np.isfinite(line)):
+            return np.nan
+
+        # usuń NaNy
+        mask = np.isfinite(line)
+        if mask.sum() < 3:
+            return np.nan
+        line = line[mask]
+
+
+
+        # znajdź maksimum
+        imax = np.argmax(line)
+
+        # peak i half max (bardziej odporne niż max)
+        peak = line[imax]
+        if peak <= 0:
+            return np.nan
+
+        half = 0.5 * peak
+
+        # --- lewa strona ---
+        left = imax
+        while left > 0 and line[left] > half:
+            left -= 1
+
+        if left == 0:
+            return np.nan
+
+        # interpolacja
+        y1, y2 = line[left], line[left + 1]
+        if y2 == y1:
+            xl = left
+        else:
+            xl = left + (half - y1) / (y2 - y1)
+
+        # --- prawa strona ---
+        right = imax
+        while right < len(line) - 1 and line[right] > half:
+            right += 1
+
+        if right == len(line) - 1:
+            return np.nan
+
+        y1, y2 = line[right - 1], line[right]
+        if y2 == y1:
+            xr = right
+        else:
+            xr = (right - 1) + (half - y1) / (y2 - y1)
+
+        fwhm = xr - xl
+
+        if fwhm <= 0 or not np.isfinite(fwhm):
+            return np.nan
+
+        fwhm = np.sqrt(fwhm**2 - (2.355 * 0.5)**2) # poprawka na splot z gaussem sigma = 1
+
+        return fwhm
+
+    ###########################################
+
+    @staticmethod
+    def fwhm_old(image_cut):
+        cx, cy = FFS.centroid(image_cut)
+        if cx is None:
+            return np.nan, np.nan
+
+        cx_i = int(round(cx))
+        cy_i = int(round(cy))
+
+        line_x = image_cut[cy_i, :]
+        line_y = image_cut[:, cx_i]
+
+        fwhm_x = FFS.fwhm_1d_old(line_x)
+        fwhm_y = FFS.fwhm_1d_old(line_y)
+
         return fwhm_x,fwhm_y
 
     @staticmethod
-    def fwhm_1d(line):
+    def fwhm_1d_old(line):
 
         if np.all(line <= 0):
             return np.nan
@@ -709,6 +949,49 @@ class FFS:
 
         return xr - xl
 
+################################################
+
+    @staticmethod
+    def concentration_index(image_cut, r1=2.0, r2=4.0):
+        if image_cut.size == 0:
+            return np.nan
+
+        # centroid (wazne!)
+        y, x = np.indices(image_cut.shape)
+        I = image_cut.clip(min=0)
+
+        flux_total = np.sum(I)
+        if flux_total <= 0 or not np.isfinite(flux_total):
+            return np.nan
+
+        cy = np.sum(y * I) / flux_total
+        cx = np.sum(x * I) / flux_total
+
+        # odleglosci od centroidu
+        r = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+
+        flux_r1 = np.sum(I[r <= r1])
+        flux_r2 = np.sum(I[r <= r2])
+
+        if flux_r2 <= 0:
+            return np.nan
+
+        return flux_r1 / flux_r2
+
+    @staticmethod
+    def centroid(image_cut):
+        I = image_cut.clip(min=0)
+        Itot = I.sum()
+
+        if Itot <= 0:
+            return None, None
+
+        y, x = np.indices(I.shape)
+
+        cx = np.sum(x * I) / Itot
+        cy = np.sum(y * I) / Itot
+
+        return cx, cy
 
     @staticmethod
     def make_segments(image, n_segments=10, overlap=0):
@@ -775,7 +1058,7 @@ class FFS:
 
         kernel_l, kernel_r = FFS.line_detection_kernel(kernel2_size)  # tu sie zmienia
         result_l = convolve(image, kernel_l)
-        maska_2l = result_l > np.median(result_l) + th2 * mad_std(result_r)
+        maska_2l = result_l > np.median(result_l) + th2 * mad_std(result_r) # to nie blad, chcemy miec ta sama skalef
         result_r = convolve(image, kernel_r)
         maska_2r = result_r > np.median(result_r) + th2 * mad_std(result_r)
 
@@ -810,8 +1093,8 @@ class FFS:
         return kernel_l, kernel_r
 
     @staticmethod
-    def gauss2d_kernel(size, sigma):
-        kernel = []
+    def laplace_kernel():
+        kernel = [[0,-1,0],[-1,4,-1],[0,-1,0]]
         return kernel
 
     @staticmethod

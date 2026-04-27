@@ -332,5 +332,62 @@ class ObsValidator:
 
         return result
 
+    @staticmethod
+    def calc_seq_time(seq, base_time=5, overhead=10, filter_overhead=2, auto_time=5):
+        """
+        Calculate total observation time from a sequence string.
+        Args:
+            seq (str): Sequence string (e.g. "2/1/30,3/1/a" or "3x(...)")
+            base_time (float, optional):
+                Fixed time added once per sequence (seconds),
+                e.g. telescope setup.
+            overhead (float, optional):
+                Time added to EACH exposure (seconds).
+            filter_overhead (float, optional):
+                Time added BETWEEN sequence elements (seconds).
+            auto_time (float, optional):
+                Exposure time used when "a" is encountered.
 
+        Returns:
+            float or None: Total time in seconds, or None if parsing fails.
+        """
 
+        try:
+            slot_time = 0
+            k = 1
+
+            if "x(" in seq and ")" in seq:
+                k = int(seq.split("x")[0])
+                seq = seq.split("x(")[1].split(")")[0]
+
+            elements = seq.split(",")
+
+            for x_seq in elements:
+                parts = x_seq.split("/")
+
+                if len(parts) < 3:
+                    return None
+
+                n_exp = float(parts[0])
+
+                if parts[2] == "a":
+                    exp_time = auto_time
+                else:
+                    exp_time = float(parts[2])
+
+                slot_time += n_exp * (exp_time + overhead)
+
+            # filter overhead
+            if len(elements) > 1:
+                slot_time += (len(elements) - 1) * filter_overhead
+
+            # apply repetition
+            slot_time *= k
+
+            # add base time BEFORE multiplying
+            slot_time += base_time
+
+            return slot_time
+
+        except (ValueError, IndexError, TypeError):
+            return None

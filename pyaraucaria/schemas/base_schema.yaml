@@ -161,6 +161,7 @@ properties:
   dome_follow:
     type: string
     enum:
+      - on
       - off
     description: Disable dome following telescope movement.
     examples:
