@@ -369,6 +369,9 @@ class FFS:
         if N_stars is None:
             N_stars = n
 
+        if len(self.coo) < 5:
+            return
+
         ni = 0
 
         for i, (y, x) in enumerate(self.coo):
@@ -804,7 +807,7 @@ class FFS:
             return np.nan, np.nan
 
         # lekkie wygładzenie (kluczowe!)
-        data = gaussian_filter(data, sigma=1)
+        data = gaussian_filter(data, sigma=0.5)
 
         # centroid
         cx, cy = FFS.centroid(data)
@@ -841,15 +844,16 @@ class FFS:
         line = line[mask]
 
 
+
+        # znajdź maksimum
+        imax = np.argmax(line)
+
         # peak i half max (bardziej odporne niż max)
-        peak = np.nanpercentile(line, 99)
+        peak = line[imax]
         if peak <= 0:
             return np.nan
 
         half = 0.5 * peak
-
-        # znajdź maksimum
-        imax = np.argmax(line)
 
         # --- lewa strona ---
         left = imax
@@ -885,7 +889,7 @@ class FFS:
         if fwhm <= 0 or not np.isfinite(fwhm):
             return np.nan
 
-        fwhm = np.sqrt(fwhm**2 - (2.355 * 1)**2) # poprawka na splot z gaussem sigma = 1
+        fwhm = np.sqrt(fwhm**2 - (2.355 * 0.5)**2) # poprawka na splot z gaussem sigma = 1
 
         return fwhm
 

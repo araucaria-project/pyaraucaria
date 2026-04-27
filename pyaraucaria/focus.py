@@ -37,7 +37,7 @@ class Focus:
             return None
 
     @staticmethod
-    def fwhm(array, saturation: float, threshold: float = 20,
+    def fwhm(array, saturation: float, threshold: float = 10,
             box_size: float = 10, fwhm: float = 4, N_stars = 30) -> float | None:
         ffs = FFS(array)
         ffs.saturation = saturation
