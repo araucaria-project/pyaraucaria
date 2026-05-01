@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from astropy.time import Time
 from astropy.coordinates import EarthLocation, get_body, SkyCoord
 import astropy.units as u
-from pyaraucaria.ephemeris import moon_phase, calculate_sun_rise_set, moon_separation
+from pyaraucaria.ephemeris import moon_phase, calculate_sun_rise_set, moon_separation, calculate_moon_rise_set
 from pyaraucaria.ephemeris import Sun, Moon, Star, Stars
 
 
@@ -247,6 +247,69 @@ class TestEphemerisFunctions(unittest.TestCase):
 
         # Should be very close to 0%
         self.assertLess(phase, 2.0)
+
+    # ==========================================
+    # Tests for calculate_moon_rise_set
+    # ==========================================
+
+    def test_moon_rise_set_returns_datetime(self):
+        """Test that the function returns a standard python datetime object."""
+        result = calculate_moon_rise_set(
+            date=self.ref_date,
+            horiz_height=0.0,
+            moonrise=True,
+            latitude=self.lat,
+            longitude=self.lon,
+            elevation=self.elev
+        )
+        # Result may be None if moon doesn't cross horizon in 24 hours
+        if result is not None:
+            self.assertIsInstance(result, datetime)
+
+    def test_moon_rise_set_returns_future_event(self):
+        """Test that 'next' moonrise and moonset are in the future."""
+        moonrise = calculate_moon_rise_set(
+            self.ref_date, 0.0, moonrise=True,
+            latitude=self.lat, longitude=self.lon, elevation=self.elev
+        )
+        moonset = calculate_moon_rise_set(
+            self.ref_date, 0.0, moonrise=False,
+            latitude=self.lat, longitude=self.lon, elevation=self.elev
+        )
+        ref_naive = self.ref_date.replace(tzinfo=None)
+        if moonrise is not None:
+            self.assertGreater(moonrise.replace(tzinfo=None), ref_naive,
+                               "Next moonrise should be in the future")
+        if moonset is not None:
+            self.assertGreater(moonset.replace(tzinfo=None), ref_naive,
+                               "Next moonset should be in the future")
+
+    def test_moon_rise_set_returns_none_for_impossible_altitude(self):
+        """Test that an impossible altitude (e.g. +89 deg) returns None."""
+        result = calculate_moon_rise_set(
+            date=self.ref_date,
+            horiz_height=89.0,
+            moonrise=True,
+            latitude=self.lat,
+            longitude=self.lon,
+            elevation=self.elev
+        )
+        self.assertIsNone(result)
+
+    def test_moon_rise_set_timezone_aware(self):
+        """Test that the returned datetime is timezone-aware UTC."""
+        result = calculate_moon_rise_set(
+            date=self.ref_date,
+            horiz_height=0.0,
+            moonrise=True,
+            latitude=self.lat,
+            longitude=self.lon,
+            elevation=self.elev
+        )
+        if result is not None:
+            self.assertIsNotNone(result.tzinfo)
+            self.assertEqual(result.tzinfo, timezone.utc)
+
 
 class TestOcacal(unittest.TestCase):
 

@@ -428,6 +428,32 @@ def calculate_sun_rise_set(date: datetime, horiz_height: float, sunrise: bool,
         return obs.sun_set_time(date, which='next', horizon=horiz_height * u.deg).to_datetime(timezone.utc)
 
 
+def calculate_moon_rise_set(date: datetime, horiz_height: float, moonrise: bool,
+                            latitude: float, longitude: float, elevation: float):
+    """
+    Calculate next moonrise or moonset at horizon height
+    :param date: utc date of start calculating
+    :param horiz_height: the height over (or under) horizon
+    :param moonrise: if true the moonrise will be calculated, else moonset
+    :param latitude: latitude of observer
+    :param longitude: longitude of observer
+    :param elevation: elevation of observer
+    :return: utc datetime time of next moonrise / moonset, or None if the moon does not
+             reach that altitude in the next 24 hours
+    """
+    date = Time(val=date)
+    obs = Observer(latitude=latitude,
+                   longitude=longitude,
+                   elevation=elevation * u.m)
+    if moonrise:
+        result = obs.moon_rise_time(date, which='next', horizon=horiz_height * u.deg)
+    else:
+        result = obs.moon_set_time(date, which='next', horizon=horiz_height * u.deg)
+    if result is None or np.ma.is_masked(result.jd) or np.isnan(float(result.jd)):
+        return None
+    return result.to_datetime(timezone.utc)
+
+
 def moon_separation(ra: float, dec: float, utc_time: Time):
     """
     Func. returns moon separation
