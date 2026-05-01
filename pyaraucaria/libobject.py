@@ -31,9 +31,12 @@ reldate="5 Aug 2021"                                           #
 #################################################################
 
 import logging
+import datetime as _datetime
 from numpy import *
 import sys, os, time, string
-import ephem
+from astropy.time import Time as _AstropyTime
+from astropy.coordinates import SkyCoord as _SkyCoord
+import astropy.units as _u
 from difflib import get_close_matches
 
 log = logging.getLogger('libobject')
@@ -65,14 +68,50 @@ def listize(sth,sep="+"):
 #alias2name = lambda name: ALIASES[name] if name in ALIASES else name
 
 
+def _parse_date_to_time(date):
+    """Parse an ephem-style date string or datetime to an astropy Time (UTC).
+
+    Accepts:
+      - ``datetime.datetime`` objects (naive treated as UTC)
+      - Strings in ephem format: 'YYYY/MM/DD [HH[:MM[:SS[.s]]]]'
+        including fractional-day notation, e.g. '1980/05/30.75'
+    """
+    if isinstance(date, _datetime.datetime):
+        if date.tzinfo is None:
+            return _AstropyTime(date, scale='utc')
+        return _AstropyTime(date)
+    s = str(date).strip()
+    # Replace date-field slashes with dashes for ISO-like parsing
+    parts = s.replace('/', '-', 2).split()
+    date_str = parts[0]
+    time_str = parts[1] if len(parts) > 1 else None
+    # Handle fractional day: '1980-05-30.75'
+    date_fields = date_str.split('-')
+    if len(date_fields) == 3 and '.' in date_fields[2]:
+        year, month = int(date_fields[0]), int(date_fields[1])
+        day_f = float(date_fields[2])
+        day = int(day_f)
+        frac_secs = (day_f - day) * 86400.0
+        h = int(frac_secs // 3600)
+        rem = frac_secs % 3600
+        mi = int(rem // 60)
+        se = rem % 60
+        iso = '{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:09.6f}'.format(
+            year, month, day, h, mi, se)
+    else:
+        iso = date_str
+        if time_str:
+            iso += ' ' + time_str
+    return _AstropyTime(iso, scale='utc')
+
+
 def get_jday_now():
-    jdnow = ephem.julian_date(ephem.now())
-    return jdnow
+    return _AstropyTime.now().jd
 
 def get_jday_date(date):
     try:
-        jd = ephem.julian_date(ephem.Date(date))
-    except ValueError:
+        jd = _parse_date_to_time(date).jd
+    except (ValueError, TypeError):
         log.critical("Wrong date format: %s", date)
         log.error(
             "Allowed is: yyyy/mm/dd hh:mm:ss with any number of trailing elements omitted (last element may be a floating point value, eg. 1980/05/30.75)")
@@ -80,43 +119,45 @@ def get_jday_date(date):
     return jd
 
 def get_ut_now():
-    utnow = ephem.now()
-    return utnow
+    return _datetime.datetime.now(tz=_datetime.timezone.utc)
 
 def get_ut_date(date):
     try:
-        ut = ephem.Date(date)
-    except ValueError:
+        ut = _parse_date_to_time(date).to_datetime(timezone=_datetime.timezone.utc)
+    except (ValueError, TypeError):
         log.critical("Wrong date format: %s", date)
         log.error(
             "Allowed is: yyyy/mm/dd hh:mm:ss with any number of trailing elements omitted (last element may be a floating point value, eg. 1980/05/30.75)")
         sys.exit(0)
-    return float(ut)
+    return ut
 
 def get_lt_now(force_tz=None):
+    now_utc = _datetime.datetime.now(tz=_datetime.timezone.utc)
     if force_tz is None:
-        ltnow = ephem.localtime(ephem.now())
+        return now_utc.astimezone()
     else:
-        ltnow = ephem.Date(float(get_ut_now())+force_tz/24.).datetime()
-    return ltnow
+        tz = _datetime.timezone(_datetime.timedelta(hours=force_tz))
+        return now_utc.astimezone(tz)
 
 def get_lt_date(date, force_tz=None):
     try:
+        dt_utc = _parse_date_to_time(date).to_datetime(timezone=_datetime.timezone.utc)
         if force_tz is None:
-            lt = ephem.localtime(ephem.Date(date))
+            return dt_utc.astimezone()
         else:
-            lt = ephem.Date(float(date)+force_tz/24.)
-    except ValueError:
+            tz = _datetime.timezone(_datetime.timedelta(hours=force_tz))
+            return dt_utc.astimezone(tz)
+    except (ValueError, TypeError):
         log.critical("Wrong date format: %s", date)
         sys.exit(0)
-    return lt
 
 def ut2jday(date):
-    jday = ephem.julian_date(date)
-    return jday
+    if isinstance(date, _datetime.datetime):
+        return _AstropyTime(date).jd
+    return _AstropyTime(date).jd
 
 def utvec2jday(date):
-    jday = map(ephem.julian_date, date)
+    jday = [ut2jday(d) for d in date]
     return array(jday)
 
 
@@ -760,15 +801,18 @@ class Object():
 #        print "DBG:", self.rv
 
     def set_star_ephem(self):
-        ephem_data = "star,f|V|G2,%s,%s,9.99,2000"%(self.data["ra"],self.data["dec"])
-        self.data["star"] = ephem.readdb(ephem_data)
-        return self.data["star"]
+        from pyaraucaria.coordinates import ra_to_decimal, dec_to_decimal
+        ra_deg = ra_to_decimal(str(self.data["ra"]))
+        dec_deg = dec_to_decimal(str(self.data["dec"]))
+        star = _SkyCoord(ra=ra_deg * _u.degree, dec=dec_deg * _u.degree, frame='icrs')
+        self.data["star"] = star
+        return star
 
     def get_phase(self, hjd=None, ut=None, hshift=0.0):
         if self.type in ["CONST", "STD"] or self.data['hjd0'] is None or self.data['per'] is None:
             return None
         if hjd is None:
-            hjd = ephem.julian_date(ut)
+            hjd = _AstropyTime(ut).jd
         ph = (hjd+hshift/24. - self.data["hjd0"]) / self.data["per"]
         return ph%1.0
 

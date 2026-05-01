@@ -95,17 +95,20 @@ class TestAzAlt2RaDec(unittest.TestCase):
         OCA = {'latitude': -24.598056, 'longitude': -70.196389, 'elevation': 2817}
         ra = '19:50:46.68'
         dec = '8:52:03'
+        fixed_time = datetime.datetime(2023, 3, 27, 15, 0, 16)
         az, alt = ra_dec_2_az_alt(ra=ra_to_decimal(ra),
                                  dec=dec_to_decimal(dec),
                                  latitude=OCA['latitude'],
                                  longitude=OCA['longitude'],
                                  elevation=OCA['elevation'],
-                                 epoch='2000')
+                                 epoch='2000',
+                                 time=fixed_time)
         ra_2, dec_2 = az_alt_2_ra_dec(az=az,
                                       alt=alt,
                                       latitude=OCA['latitude'],
                                       longitude=OCA['longitude'],
-                                      elevation=OCA['elevation'])
+                                      elevation=OCA['elevation'],
+                                      time=fixed_time)
         ra_0 = hourangle_to_decimal_deg(ra)
         dec_0 = dec_to_decimal(dec)
         self.assertAlmostEqual(ra_0, ra_2, places=3)
