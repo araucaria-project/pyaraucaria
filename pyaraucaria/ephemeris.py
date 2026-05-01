@@ -1,6 +1,7 @@
 from typing import List, Dict, Union, Optional
 import sys
 import csv
+import warnings
 from datetime import datetime, timezone
 import argparse
 
@@ -441,18 +442,26 @@ def moon_separation(ra: float, dec: float, utc_time: Time):
     return float(moon.separation(obj_coo).to(u.deg).deg)
 
 
-def moon_phase(date_utc: datetime, latitude: float, longitude: float, elevation: float):
+def moon_phase(date_utc: datetime, latitude: float = None, longitude: float = None, elevation: float = None):
     """
-    Func. returns moon phase (illumination).
-    :param date_utc: calculating utc date
-    :param latitude: latitude of observer
-    :param longitude: longitude of observer
-    :param elevation: elevation of observer
-    :return: moon phase (illumination) in % (range 0-100)
-    """
+    Return moon phase (illumination) in percent (0–100).
 
-    date = Time(val=date_utc)
-    obs = Observer(latitude=latitude,
-                   longitude=longitude,
-                   elevation=elevation * u.m)
-    return obs.moon_illumination(time=date) * 100
+    Moon illumination is a geocentric quantity; *latitude*, *longitude*, and
+    *elevation* are therefore not used in the calculation.  Passing them is
+    deprecated and they will be removed in a future release.
+
+    :param date_utc: UTC date/time of the calculation
+    :param latitude: **deprecated** – ignored, kept for backward compatibility
+    :param longitude: **deprecated** – ignored, kept for backward compatibility
+    :param elevation: **deprecated** – ignored, kept for backward compatibility
+    :return: moon phase (illumination) in % (range 0–100)
+    """
+    if latitude is not None or longitude is not None or elevation is not None:
+        warnings.warn(
+            "latitude, longitude, and elevation are deprecated in moon_phase() "
+            "and are ignored; moon illumination is a geocentric quantity. "
+            "Pass only date_utc in new code.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    return float(moon_illumination(Time(date_utc))) * 100

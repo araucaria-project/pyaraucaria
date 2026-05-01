@@ -1,4 +1,5 @@
 import unittest
+import warnings
 import numpy as np
 from datetime import datetime, timezone
 from astropy.time import Time
@@ -11,13 +12,9 @@ from pyaraucaria.ephemeris import Sun, Moon, Star, Stars
 class TestAzAlt2RaDecAstropy(unittest.TestCase):
 
     def test_ra_dec_2_az_alt_astropy(self):
-        OCA = {'latitude': -24.59855, 'longitude': -70.20126, 'elevation': 2817}
-        latitude = OCA['latitude']
-        longitude = OCA['longitude']
-        elevation = OCA['elevation']
         tim = datetime(2024, 8, 11, 0, 0, 0, tzinfo=timezone.utc)
         test_phase = 34.6
-        mp = moon_phase(date_utc=tim, latitude=latitude, longitude=longitude, elevation=elevation)
+        mp = moon_phase(date_utc=tim)
         self.assertAlmostEqual(mp, test_phase, places=1)
 
 
@@ -226,7 +223,7 @@ class TestEphemerisFunctions(unittest.TestCase):
 
     def test_moon_phase_range(self):
         """Test that moon phase is between 0 and 100."""
-        phase = moon_phase(self.ref_date, self.lat, self.lon, self.elev)
+        phase = moon_phase(self.ref_date)
         self.assertGreaterEqual(phase, 0.0)
         self.assertLessEqual(phase, 100.0)
 
@@ -234,7 +231,7 @@ class TestEphemerisFunctions(unittest.TestCase):
         """Test a known Full Moon date (e.g., Jan 25, 2024)."""
         # Full Moon: 2024-01-25 ~17:54 UTC
         full_moon_date = datetime(2024, 1, 25, 18, 0, 0)
-        phase = moon_phase(full_moon_date, self.lat, self.lon, self.elev)
+        phase = moon_phase(full_moon_date)
 
         # Should be very close to 100%
         self.assertGreater(phase, 98.0)
@@ -243,10 +240,24 @@ class TestEphemerisFunctions(unittest.TestCase):
         """Test a known New Moon date (e.g., Jan 11, 2024)."""
         # New Moon: 2024-01-11 ~11:57 UTC
         new_moon_date = datetime(2024, 1, 11, 12, 0, 0)
-        phase = moon_phase(new_moon_date, self.lat, self.lon, self.elev)
+        phase = moon_phase(new_moon_date)
 
         # Should be very close to 0%
         self.assertLess(phase, 2.0)
+
+    def test_moon_phase_deprecated_args_warn(self):
+        """Passing lat/lon/elev should emit DeprecationWarning but still return correct value."""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            phase = moon_phase(self.ref_date, self.lat, self.lon, self.elev)
+
+        dep_warnings = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        self.assertTrue(dep_warnings, "Expected a DeprecationWarning when lat/lon/elev are passed")
+        msg = str(dep_warnings[0].message)
+        self.assertIn("deprecated", msg.lower())
+        self.assertIn("geocentric", msg.lower())
+        self.assertGreaterEqual(phase, 0.0)
+        self.assertLessEqual(phase, 100.0)
 
 class TestOcacal(unittest.TestCase):
 

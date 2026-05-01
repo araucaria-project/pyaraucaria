@@ -113,7 +113,7 @@ class TestBenchmarks(unittest.TestCase):
         # ------------------------
         t0 = time.perf_counter()
 
-        p_phase = moon_phase(self.check_time, self.lat, self.lon, self.elev) * 0.01
+        p_phase = moon_phase(self.check_time) * 0.01
 
         t_py = (time.perf_counter() - t0) * 1000  # ms
         print(f"Pyaraucaria time : {t_py:.3f} ms")
