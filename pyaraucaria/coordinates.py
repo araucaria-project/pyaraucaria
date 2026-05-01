@@ -254,19 +254,20 @@ def radec_to_j2000(
 ):
     # type: (float, float, Any, Optional[u.Quantity], Optional[u.Quantity], Optional[u.Quantity], Optional[u.Quantity], Optional[Any]) -> (float, float)
     """
-    Konwersja RA/Dec podanych na równonoc/epoce `epoch` do równonocy J2000 (FK5/J2000).
-    Jeśli podasz kinematykę (µα*, µδ, paralaksa, RV + obstime), wynik uwzględni ruch własny, paralaksę i RV.
+    Convert RA/Dec given at equinox/epoch `epoch` to J2000 equinox (FK5/J2000).
+    If kinematics are provided (pm_ra_cosdec, pm_dec, parallax, radial_velocity + obstime),
+    the result will account for proper motion, parallax and radial velocity.
 
-    Parametry:
-      ra_deg, dec_deg  — w stopniach.
-      epoch            — np. 'J2015.5', 2015.5, '2000', '2016-07-01'.
-      pm_ra_cosdec     — np.  mas/yr (astropy units), komponent µα*cosδ.
-      pm_dec           — np.  mas/yr.
-      parallax         — np.  mas.
-      radial_velocity  — np.  km/s.
-      obstime          — czas obowiązywania pozycji wejściowej, np. '2016-07-01'.
+    Parameters:
+      ra_deg, dec_deg  — in degrees.
+      epoch            — e.g. 'J2015.5', 2015.5, '2000', '2016-07-01'.
+      pm_ra_cosdec     — proper motion in RA* (mas/yr, astropy units).
+      pm_dec           — proper motion in Dec (mas/yr).
+      parallax         — parallax (mas).
+      radial_velocity  — radial velocity (km/s).
+      obstime          — epoch of the input position, e.g. '2016-07-01'.
 
-    Zwraca:
+    Returns:
       (ra_j2000_deg, dec_j2000_deg)
     """
     eq_in = _parse_epoch_to_astropy(epoch)

@@ -152,8 +152,6 @@ def get_lt_date(date, force_tz=None):
         sys.exit(0)
 
 def ut2jday(date):
-    if isinstance(date, _datetime.datetime):
-        return _AstropyTime(date).jd
     return _AstropyTime(date).jd
 
 def utvec2jday(date):
