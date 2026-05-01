@@ -259,6 +259,40 @@ class TestEphemerisFunctions(unittest.TestCase):
         self.assertGreaterEqual(phase, 0.0)
         self.assertLessEqual(phase, 100.0)
 
+    def test_moon_phase_regression_vs_observer(self):
+        """
+        Regression: new moon_phase() (moon_illumination directly) must agree with
+        the pre-fix implementation (Observer.moon_illumination) to ≥6 decimal places.
+
+        The pre-fix code was:
+            obs = Observer(latitude=lat, longitude=lon, elevation=elev*u.m)
+            return obs.moon_illumination(time=Time(date_utc)) * 100
+        """
+        from astroplan import Observer
+        from astropy.time import Time as AstroTime
+
+        test_dates = [
+            datetime(2024, 1, 11, 12, 0, 0),   # near new moon
+            datetime(2024, 1, 25, 18, 0, 0),   # near full moon
+            datetime(2024, 5, 20, 12, 0, 0),   # arbitrary mid-cycle
+            datetime(2024, 8, 11,  0, 0, 0),   # reference date from legacy test
+        ]
+
+        obs = Observer(
+            latitude=self.lat,
+            longitude=self.lon,
+            elevation=self.elev * u.m,
+        )
+
+        for date in test_dates:
+            legacy = obs.moon_illumination(time=AstroTime(date)) * 100
+            new = moon_phase(date)
+            self.assertAlmostEqual(
+                new, legacy, places=6,
+                msg=f"moon_phase() disagrees with pre-fix Observer path for {date}: "
+                    f"new={new}, legacy={legacy}",
+            )
+
 class TestOcacal(unittest.TestCase):
 
     def setUp(self):
