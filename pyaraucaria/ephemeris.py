@@ -494,6 +494,36 @@ def calculate_sun_rise_set(date: datetime, horiz_height: float, sunrise: bool,
         horiz_height, direction, start_time=date)
 
 
+def calculate_moon_rise_set(date: datetime, horiz_height: float, moonrise: bool,
+                            latitude: float, longitude: float,
+                            elevation: float) -> Optional[datetime]:
+    """Next moonrise or moonset at the given horizon altitude.
+
+    Mirror of :py:func:`calculate_sun_rise_set` for the Moon — same
+    contract: returns a UTC ``datetime`` for the next crossing in the
+    chosen direction, or ``None`` if no such crossing occurs within 24 h
+    (e.g. the moon stays below the requested altitude all night).
+    Delegates to :py:meth:`Moon.get_next_event_by_altitude` so both
+    convenience wrappers share one algorithm.
+
+    :param date: UTC start time of the search.
+    :param horiz_height: altitude in degrees (0 for the visible horizon).
+    :param moonrise: ``True`` for the next time the moon rises through
+        ``horiz_height``; ``False`` for the next time it sets through it.
+    :param latitude: observer latitude in degrees.
+    :param longitude: observer longitude in degrees.
+    :param elevation: observer elevation in metres.
+    :return: UTC ``datetime`` of the next event, or ``None`` if no such
+        event occurs within 24 h of ``date``.
+    """
+    location = EarthLocation(lat=latitude * u.deg,
+                             lon=longitude * u.deg,
+                             height=elevation * u.m)
+    direction = 'rising' if moonrise else 'setting'
+    return Moon(location).get_next_event_by_altitude(
+        horiz_height, direction, start_time=date)
+
+
 def moon_separation(ra: float, dec: float, utc_time: Time):
     """
     Func. returns moon separation

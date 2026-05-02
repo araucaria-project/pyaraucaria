@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from astropy.time import Time
 from astropy.coordinates import EarthLocation, get_body, SkyCoord
 import astropy.units as u
-from pyaraucaria.ephemeris import moon_phase, calculate_sun_rise_set, moon_separation
+from pyaraucaria.ephemeris import moon_phase, calculate_sun_rise_set, calculate_moon_rise_set, moon_separation
 from pyaraucaria.ephemeris import Sun, Moon, Star, Stars
 
 
@@ -292,6 +292,53 @@ class TestEphemerisFunctions(unittest.TestCase):
                 msg=f"moon_phase() disagrees with pre-fix Observer path for {date}: "
                     f"new={new}, legacy={legacy}",
             )
+
+    # ==========================================
+    # Tests for calculate_moon_rise_set
+    # ==========================================
+
+    def test_moon_rise_set_returns_datetime_or_none(self):
+        """Wrapper must always return ``datetime`` or ``None`` — never an
+        astropy masked array."""
+        result = calculate_moon_rise_set(
+            date=self.ref_date, horiz_height=0.0, moonrise=True,
+            latitude=self.lat, longitude=self.lon, elevation=self.elev,
+        )
+        self.assertTrue(result is None or isinstance(result, datetime))
+
+    def test_moon_rise_set_returns_future_event(self):
+        """Both ``moonrise=True`` and ``moonrise=False`` must return a time
+        strictly after the search start."""
+        ref_naive = self.ref_date.replace(tzinfo=None)
+        for direction in (True, False):
+            t = calculate_moon_rise_set(
+                self.ref_date, 0.0, moonrise=direction,
+                latitude=self.lat, longitude=self.lon, elevation=self.elev,
+            )
+            if t is not None:
+                self.assertGreater(
+                    t.replace(tzinfo=None), ref_naive,
+                    f"moonrise={direction} returned a non-future time",
+                )
+
+    def test_moon_rise_set_returns_none_for_unreachable_altitude(self):
+        """Altitude 89° is never reached at OCA — must propagate ``None``."""
+        result = calculate_moon_rise_set(
+            date=self.ref_date, horiz_height=89.0, moonrise=True,
+            latitude=self.lat, longitude=self.lon, elevation=self.elev,
+        )
+        self.assertIsNone(result)
+
+    def test_moon_rise_set_timezone_aware(self):
+        """Returned datetime must be tz-aware UTC (not naive)."""
+        result = calculate_moon_rise_set(
+            date=self.ref_date, horiz_height=0.0, moonrise=True,
+            latitude=self.lat, longitude=self.lon, elevation=self.elev,
+        )
+        if result is not None:
+            self.assertIsNotNone(result.tzinfo)
+            self.assertEqual(result.tzinfo, timezone.utc)
+
 
 class TestOcacal(unittest.TestCase):
 
