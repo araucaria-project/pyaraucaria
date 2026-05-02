@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from astropy.time import Time
 from astropy.coordinates import EarthLocation, get_body, SkyCoord
 import astropy.units as u
-from pyaraucaria.ephemeris import moon_phase, calculate_sun_rise_set, moon_separation
+from pyaraucaria.ephemeris import moon_phase, calculate_sun_rise_set, calculate_moon_rise_set, moon_separation
 from pyaraucaria.ephemeris import Sun, Moon, Star, Stars
 
 
@@ -293,6 +293,53 @@ class TestEphemerisFunctions(unittest.TestCase):
                     f"new={new}, legacy={legacy}",
             )
 
+    # ==========================================
+    # Tests for calculate_moon_rise_set
+    # ==========================================
+
+    def test_moon_rise_set_returns_datetime_or_none(self):
+        """Wrapper must always return ``datetime`` or ``None`` — never an
+        astropy masked array."""
+        result = calculate_moon_rise_set(
+            date=self.ref_date, horiz_height=0.0, moonrise=True,
+            latitude=self.lat, longitude=self.lon, elevation=self.elev,
+        )
+        self.assertTrue(result is None or isinstance(result, datetime))
+
+    def test_moon_rise_set_returns_future_event(self):
+        """Both ``moonrise=True`` and ``moonrise=False`` must return a time
+        strictly after the search start."""
+        ref_naive = self.ref_date.replace(tzinfo=None)
+        for direction in (True, False):
+            t = calculate_moon_rise_set(
+                self.ref_date, 0.0, moonrise=direction,
+                latitude=self.lat, longitude=self.lon, elevation=self.elev,
+            )
+            if t is not None:
+                self.assertGreater(
+                    t.replace(tzinfo=None), ref_naive,
+                    f"moonrise={direction} returned a non-future time",
+                )
+
+    def test_moon_rise_set_returns_none_for_unreachable_altitude(self):
+        """Altitude 89° is never reached at OCA — must propagate ``None``."""
+        result = calculate_moon_rise_set(
+            date=self.ref_date, horiz_height=89.0, moonrise=True,
+            latitude=self.lat, longitude=self.lon, elevation=self.elev,
+        )
+        self.assertIsNone(result)
+
+    def test_moon_rise_set_timezone_aware(self):
+        """Returned datetime must be tz-aware UTC (not naive)."""
+        result = calculate_moon_rise_set(
+            date=self.ref_date, horiz_height=0.0, moonrise=True,
+            latitude=self.lat, longitude=self.lon, elevation=self.elev,
+        )
+        if result is not None:
+            self.assertIsNotNone(result.tzinfo)
+            self.assertEqual(result.tzinfo, timezone.utc)
+
+
 class TestOcacal(unittest.TestCase):
 
     def setUp(self):
@@ -395,6 +442,77 @@ class TestOcacal(unittest.TestCase):
 
         self.assertIsInstance(events, list)
         self.assertEqual(len(events), 0)
+
+    # ==========================================
+    # Tests for get_next_event_by_altitude
+    # ==========================================
+
+    def test_next_event_returns_datetime_or_none(self):
+        """Generic primitive must always return ``datetime`` or ``None`` —
+        never an astropy masked array (the bug ``calculate_sun_rise_set``
+        used to leak when astroplan couldn't find a crossing in 24 h)."""
+        sun = Sun(self.location)
+        # Altitude the sun *does* reach: must be a real datetime.
+        t = sun.get_next_event_by_altitude(
+            0.0, 'setting', start_time=Time("2024-05-20 12:00:00"))
+        self.assertIsInstance(t, datetime)
+
+        # Altitude the sun never reaches at OCA in May (max ~70 deg,
+        # nowhere near 88): must be exactly ``None``.
+        t_none = sun.get_next_event_by_altitude(
+            88.0, 'rising', start_time=Time("2024-05-20 12:00:00"))
+        self.assertIsNone(t_none)
+
+    def test_next_event_picks_correct_direction(self):
+        """When both a rise and a set lie in the next 24 h, the
+        primitive must pick the requested direction — *not* simply the
+        first crossing."""
+        sun = Sun(self.location)
+        start = Time("2024-05-20 12:00:00")  # noon UTC, Sun above horizon
+        # All horizon-crossing events in the window:
+        events = sun.get_events_by_altitude([0.0], start_time=start)
+        # We expect at least one set then one rise; primitive should
+        # return the set when asked for setting and the rise when
+        # asked for rising — and the set must come first.
+        t_set = sun.get_next_event_by_altitude(0.0, 'setting', start_time=start)
+        t_rise = sun.get_next_event_by_altitude(0.0, 'rising', start_time=start)
+        self.assertIsInstance(t_set, datetime)
+        self.assertIsInstance(t_rise, datetime)
+        self.assertLess(t_set, t_rise)
+        # Returned times must match members of the events list.
+        all_event_times = {e['time_utc'] for e in events}
+        self.assertIn(t_set, all_event_times)
+        self.assertIn(t_rise, all_event_times)
+
+    def test_next_event_rejects_bad_direction(self):
+        """``direction`` is a closed enum — anything else is a bug."""
+        sun = Sun(self.location)
+        with self.assertRaises(ValueError):
+            sun.get_next_event_by_altitude(0.0, 'sideways',
+                                           start_time=Time("2024-05-20 12:00:00"))
+
+    def test_next_event_works_on_moon(self):
+        """The primitive lives on ``CelestialBody`` so it works for any
+        body — the moon being the obvious other consumer."""
+        moon = Moon(self.location)
+        start = Time("2024-05-20 12:00:00")
+        # In any 24 h window at OCA the moon crosses the horizon at
+        # least once; ``get_events_by_altitude([0.0])`` confirms.
+        if moon.get_events_by_altitude([0.0], start_time=start):
+            t = moon.get_next_event_by_altitude(0.0, 'rising', start_time=start)
+            self.assertIsInstance(t, (datetime, type(None)))
+
+    def test_calculate_sun_rise_set_returns_none_for_unreachable_altitude(self):
+        """Convenience wrapper must propagate the primitive's ``None``
+        — never return a masked array when no event exists in 24 h."""
+        ref_date = datetime(2024, 5, 20, 12, 0, 0, tzinfo=timezone.utc)
+        result = calculate_sun_rise_set(
+            date=ref_date,
+            horiz_height=88.0,  # never reached at OCA
+            sunrise=True,
+            latitude=-24.6, longitude=-70.2, elevation=2800.0,
+        )
+        self.assertIsNone(result)
 
     def test_interpolation_accuracy(self):
         """Verify that the event finder is reasonably precise."""

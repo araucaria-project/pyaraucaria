@@ -21,6 +21,28 @@ from astropy.time import Time
 import astropy.units as u
 
 
+def _ensure_time(t, wrap_scalar: bool = False, **time_kwargs):
+    """Local helper to normalize inputs to astropy Time for this module.
+
+    Mirrors the helper used in other modules: constructs Time(t, **time_kwargs)
+    where appropriate and optionally wraps scalars into a 1-element Time
+    array when requested.
+    """
+    if t is None:
+        out = Time.now()
+    elif isinstance(t, Time):
+        out = t
+    else:
+        out = Time(t, **time_kwargs)
+
+    if wrap_scalar and getattr(out, 'isscalar', False):
+        if isinstance(t, Time):
+            return Time([t])
+        return Time([t], **time_kwargs)
+
+    return out
+
+
 def ra_to_decimal(hms):
     # type: (str) -> float
     return hourangle_to_decimal_deg(hms)
@@ -230,16 +252,16 @@ def _parse_epoch_to_astropy(epoch):
     if isinstance(epoch, Time):
         return epoch
     if isinstance(epoch, (int, float)):
-        return Time(float(epoch), format="jyear")
+        return _ensure_time(float(epoch), format="jyear")
     s = str(epoch).strip().upper()
     try:
         if s.startswith(("J", "B")):
-            return Time(s)  # 'J2000', 'B1950'
+            return _ensure_time(s)  # 'J2000', 'B1950'
         # próba jako liczba roku juliańskiego
-        return Time(float(s), format="jyear")
+        return _ensure_time(float(s), format="jyear")
     except Exception:
         # próba ISO-daty
-        return Time(s)
+        return _ensure_time(s)
 
 
 def radec_to_j2000(
