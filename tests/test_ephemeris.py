@@ -1,7 +1,7 @@
 import unittest
 import warnings
 import numpy as np
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from astropy.time import Time
 from astropy.coordinates import EarthLocation, get_body, SkyCoord
 import astropy.units as u
@@ -479,10 +479,18 @@ class TestOcacal(unittest.TestCase):
         self.assertIsInstance(t_set, datetime)
         self.assertIsInstance(t_rise, datetime)
         self.assertLess(t_set, t_rise)
-        # Returned times must match members of the events list.
-        all_event_times = {e['time_utc'] for e in events}
-        self.assertIn(t_set, all_event_times)
-        self.assertIn(t_rise, all_event_times)
+        # Returned times must match members of the events list — within a
+        # small tolerance, since ``get_next_event_by_altitude`` uses an
+        # analytic Sun model (``get_sun``) for speed while
+        # ``get_events_by_altitude`` uses the ephemerides-based
+        # ``get_body('sun')``. The two agree to within a few seconds at
+        # the horizon — well under what any caller cares about.
+        tol = timedelta(seconds=5)
+        all_event_times = [e['time_utc'] for e in events]
+        self.assertTrue(any(abs(t_set - t) < tol for t in all_event_times),
+                        f"{t_set} not within {tol} of any of {all_event_times}")
+        self.assertTrue(any(abs(t_rise - t) < tol for t in all_event_times),
+                        f"{t_rise} not within {tol} of any of {all_event_times}")
 
     def test_next_event_rejects_bad_direction(self):
         """``direction`` is a closed enum — anything else is a bug."""

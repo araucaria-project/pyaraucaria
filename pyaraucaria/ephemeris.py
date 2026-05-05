@@ -3,6 +3,7 @@ import sys
 import csv
 import warnings
 from datetime import datetime, timezone
+from functools import lru_cache
 import argparse
 
 import numpy as np
@@ -10,7 +11,7 @@ from scipy.interpolate import UnivariateSpline
 
 from astropy import units as u
 from astropy.time import Time
-from astropy.coordinates import SkyCoord, EarthLocation, AltAz, get_body, FK5
+from astropy.coordinates import SkyCoord, EarthLocation, AltAz, get_body, FK5, get_sun
 from astropy.coordinates.errors import UnknownSiteException
 
 from astroplan import moon_illumination
@@ -53,6 +54,51 @@ def _ensure_time(t: Optional[Union[Time, datetime]], wrap_scalar: bool = False, 
     return out
 
 
+
+
+# ==========================================
+# Module-level cache for next-rise/set queries
+# ==========================================
+
+# Tuned for live-poll workloads (TOI etc.) where the same site is queried
+# repeatedly at slightly different ``now`` values. With 60-second time
+# rounding a single site/altitude/direction occupies one entry per minute.
+_NEXT_EVENT_CACHE_SIZE = 256
+_TIME_GRAN_SEC = 60.0
+
+
+def _round_mjd_to_seconds(mjd: float, gran_sec: float = _TIME_GRAN_SEC) -> float:
+    """Round an MJD to the nearest ``gran_sec`` boundary (default: 60 s)."""
+    sec_per_day = 86400.0
+    return round(mjd * sec_per_day / gran_sec) * gran_sec / sec_per_day
+
+
+@lru_cache(maxsize=_NEXT_EVENT_CACHE_SIZE)
+def _next_event_cached(body_kind: str, lat_deg: float, lon_deg: float,
+                       height_m: float, altitude_deg: float, direction: str,
+                       start_mjd: float) -> Optional[datetime]:
+    """LRU-cached next-rise/set computation.
+
+    Keyed on already-rounded scalar inputs so equivalent calls hit the
+    cache without floating-point identity issues. Hot path is the
+    body-specific :meth:`CelestialBody._alt_grid_deg` computation
+    underneath :meth:`CelestialBody._next_event_uncached`.
+    """
+    location = EarthLocation(
+        lat=lat_deg * u.deg, lon=lon_deg * u.deg, height=height_m * u.m)
+    start = Time(start_mjd, format='mjd', scale='utc')
+    if body_kind == 'sun':
+        body: 'CelestialBody' = Sun(location)
+    elif body_kind == 'moon':
+        body = Moon(location)
+    else:
+        raise ValueError(f"unknown body_kind {body_kind!r}")
+    return body._next_event_uncached(altitude_deg, direction, start)
+
+
+def clear_next_event_cache() -> None:
+    """Drop all cached next-rise/set results (mostly useful in tests)."""
+    _next_event_cached.cache_clear()
 
 
 # ==========================================
@@ -112,17 +158,73 @@ class CelestialBody:
         """Abstract method to be implemented by children."""
         raise NotImplementedError
 
+    # Subclasses set this to a short string ('sun', 'moon') to opt into
+    # the module-level result cache in :func:`get_next_event_by_altitude`.
+    # Bodies whose state is not fully captured by ``self.location``
+    # (e.g. ``Star`` with per-instance RA/Dec) leave this ``None`` and
+    # fall through to the uncached path.
+    _BODY_KIND: Optional[str] = None
+
+    # Step (minutes) of the coarse altitude grid used by the rise/set
+    # primitive. The cubic-spline root finder over a 24 h window is
+    # accurate to <1 s at horizon crossings even at 10-min spacing,
+    # because altitude is near-linear in time at the horizon.
+    _NEXT_EVENT_STEP_MIN = 10
+
+    def _alt_grid_deg(self, times: Time) -> np.ndarray:
+        """Altitude (degrees) of the body at each grid time.
+
+        Subclass override is the sole hot path for
+        :meth:`get_next_event_by_altitude` — keep it lean (one frame
+        transform, no extra ICRS/exact-time recomputation).
+        """
+        raise NotImplementedError
+
+    def _next_event_uncached(self, altitude_deg: float, direction: str,
+                             start_time: Time) -> Optional[datetime]:
+        times_grid = self._get_time_grid(
+            start_time, step_minutes=self._NEXT_EVENT_STEP_MIN)
+        alt_deg = np.asarray(self._alt_grid_deg(times_grid), dtype=float)
+
+        time_mjd = times_grid.mjd
+        spline = UnivariateSpline(time_mjd, alt_deg - altitude_deg, s=0)
+        roots = spline.roots()
+        roots = roots[(roots >= time_mjd[0]) & (roots <= time_mjd[-1])]
+        if len(roots) == 0:
+            return None
+
+        # Direction is inferred from the alternation pattern starting at
+        # the first grid point — no extra ephemeris call needed since
+        # alt_deg[0] is alt at start_time itself.
+        state_above = bool(alt_deg[0] > altitude_deg)
+        want_rising = (direction == 'rising')
+        for r in roots:
+            is_rising = not state_above
+            if is_rising == want_rising:
+                return Time(float(r), format='mjd',
+                            scale='utc').to_datetime(timezone.utc)
+            state_above = not state_above
+        return None
+
     def get_next_event_by_altitude(self, altitude_deg: float, direction: str,
                                    start_time: Optional[Union[Time, datetime]] = None
                                    ) -> Optional[datetime]:
         """First crossing of ``altitude_deg`` after ``start_time`` going
         in the requested vertical direction.
 
-        Generic primitive built on :py:meth:`get_events_by_altitude` —
-        the convenience function :py:func:`calculate_sun_rise_set` is a
-        thin wrapper around this for the Sun, and any caller that wants
-        e.g. "next moonset at horizon" should use this rather than
+        Generic primitive used by :py:func:`calculate_sun_rise_set` and
+        :py:func:`calculate_moon_rise_set`; any caller that wants e.g.
+        "next moonset at horizon" should use this rather than
         re-implementing the rise/set selection.
+
+        For ``Sun`` and ``Moon`` results are LRU-cached at the module
+        level (see :data:`_NEXT_EVENT_CACHE_SIZE`). Inputs are rounded
+        to a stable key — location to ~1 µdeg, altitude to 1 µdeg,
+        ``start_time`` to a 60-second grid — so repeated calls within
+        a minute (e.g. live-poll workloads) hit the cache after the
+        first computation. The 60-second rounding shifts the *start*
+        of the search window by at most 30 s, which is irrelevant for
+        a 24 h next-rise/set query.
 
         :param altitude_deg: target altitude in degrees
         :param direction: ``'rising'`` (object going up through the
@@ -138,30 +240,39 @@ class CelestialBody:
         if direction not in ('rising', 'setting'):
             raise ValueError(
                 f"direction must be 'rising' or 'setting', got {direction!r}")
-        events = self.get_events_by_altitude([altitude_deg], start_time=start_time)
-        if not events:
-            return None
-        # `get_events_by_altitude` returns crossings without direction
-        # info. We derive it from the body's altitude at start_time:
-        # each crossing flips the above/below-altitude state, so the
-        # first crossing after starting "above" is a setting, after
-        # starting "below" is a rising — and so on alternately.
-        start = _ensure_time(start_time)
-        alt_now = float(self.get_ephemeris(start)[0]['alt'])
-        state_above = alt_now > altitude_deg
-        want_rising = (direction == 'rising')
-        for ev in events:
-            is_rising = not state_above
-            if is_rising == want_rising:
-                return ev['time_utc']
-            state_above = not state_above
-        return None
+
+        tm = _ensure_time(start_time)
+        if self._BODY_KIND is None:
+            return self._next_event_uncached(float(altitude_deg), direction, tm)
+
+        # Cache key: rounded location + altitude + direction + rounded start.
+        loc = self.location
+        lat = round(float(loc.lat.deg), 6)
+        lon = round(float(loc.lon.deg), 6)
+        height = round(float(loc.height.to_value(u.m)), 3)
+        alt = round(float(altitude_deg), 6)
+        start_mjd = _round_mjd_to_seconds(float(tm.utc.mjd))
+        return _next_event_cached(self._BODY_KIND, lat, lon, height,
+                                  alt, direction, start_mjd)
 
 
 class Sun(CelestialBody):
     """
     Class for Solar calculations.
     """
+
+    _BODY_KIND = 'sun'
+
+    def _alt_grid_deg(self, times: Time) -> np.ndarray:
+        # ``get_sun`` is the analytic low-precision (arcmin) Sun
+        # position — orders of magnitude cheaper than ``get_body('sun',
+        # location=...)`` because it skips JPL/built-in ephemerides.
+        # The position error translates to ~few-second timing error at
+        # rise/set, far below the unmodeled refraction (~35 arcmin at
+        # the horizon) and well within what users care about for
+        # next-rise/set queries.
+        frame = AltAz(obstime=times, location=self.location)
+        return get_sun(times).transform_to(frame).alt.deg
 
     def get_events_by_altitude(self, altitudes_deg: List[float], start_time: Optional[Union[Time, datetime]] = None) -> \
     List[Dict]:
@@ -226,6 +337,15 @@ class Moon(CelestialBody):
     """
     Class for Lunar calculations, including phase.
     """
+
+    _BODY_KIND = 'moon'
+
+    def _alt_grid_deg(self, times: Time) -> np.ndarray:
+        # Moon parallax is up to ~1° at the horizon, so we cannot use a
+        # geocentric shortcut here — the topocentric ``get_body('moon',
+        # location=...)`` path is required for correct rise/set timing.
+        frame = AltAz(obstime=times, location=self.location)
+        return get_body('moon', times, location=self.location).transform_to(frame).alt.deg
 
     def get_events_by_altitude(self, altitudes_deg: List[float], start_time: Optional[Union[Time, datetime]] = None) -> \
     List[Dict]:
@@ -321,6 +441,10 @@ class Star(CelestialBody):
         dec_deg = dec_to_decimal(dec)
         self.coord = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame='icrs')
         self.name = name
+
+    def _alt_grid_deg(self, times: Time) -> np.ndarray:
+        frame = AltAz(obstime=times, location=self.location)
+        return self.coord.transform_to(frame).alt.deg
 
     def get_events_by_altitude(self, altitudes_deg: List[float], start_time: Optional[Union[Time, datetime]] = None) -> \
     List[Dict]:
