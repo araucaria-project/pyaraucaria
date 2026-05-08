@@ -127,7 +127,64 @@ class FFS:
             "noise": "Expected total noise (Poisson + read noise)",
         }
 
-    def find_stars(self, threshold=5, method="sigma quantile", fwhm=10):
+    def find_stars(self, threshold=5, method="sigma quantile", fwhm=10,
+                   min_smoothed_sigma=None, rank_by="raw",
+                   max_concentration=None, aperture_radius=None,
+                   min_pixels_above_threshold=None):
+        """Detect star peaks in ``self.image``.
+
+        Parameters
+        ----------
+        threshold : float
+            Detection threshold in units of background sigma (raw image).
+        method : str
+            How background sigma is estimated — see class docs.
+        fwhm : float
+            Adopted PSF FWHM (pixels). Drives the Gaussian kernel sigma
+            used to smooth the image before the local-maximum test.
+        min_smoothed_sigma : float | None
+            When set, also require the *smoothed-image* peak to exceed
+            ``median(data2) + min_smoothed_sigma * mad(data2)``. This is
+            a kernel-matched (matched-filter) SNR test that rejects hot
+            pixels and narrow noise spikes — they collapse to a small
+            fraction of their raw amplitude under the Gaussian
+            convolution while real PSF-shaped sources stay bright.
+            Default ``None`` preserves prior behaviour.
+        max_concentration : float | None
+            Reject candidates where the central pixel carries more than
+            this fraction of the background-subtracted aperture flux.
+            A hot pixel / cosmic ray / readout spike has concentration
+            ≈ 1.0 (all signal in one pixel); a real PSF has
+            concentration ≈ 0.2-0.4 depending on FWHM vs aperture.
+            Default ``None`` disables. Recommended ~0.5 for typical
+            guiders — cuts single-pixel artifacts regardless of how
+            bright they are. Aperture from ``aperture_radius``.
+        aperture_radius : int | None
+            Half-width in pixels of the square aperture used for both
+            ``max_concentration`` and ``rank_by="aperture"``. ``None``
+            picks ``max(2, round(2 * fwhm))`` — wide enough to capture
+            most of an in-focus PSF.
+        rank_by : {"raw", "smoothed", "aperture"}
+            Sort key for the returned candidate list (descending). All
+            three return the same coords + raw-peak ``adu`` array; only
+            order differs. ``"raw"`` is the FFS legacy default — peak
+            pixel ADU, hot pixels win. ``"smoothed"`` uses the
+            kernel-matched amplitude (real stars outrank surviving hot
+            pixels for bright targets, but dim real stars can still
+            lose). ``"aperture"`` ranks by background-subtracted flux
+            inside ``aperture_radius`` — most robust against
+            single-pixel artifacts.
+        min_pixels_above_threshold : int | None
+            Reject candidates whose ``mask1`` (raw threshold) footprint
+            inside the aperture box has fewer than this many pixels.
+            Physically: a real PSF spans many pixels above the noise
+            floor (e.g., FWHM=3 PSF at 5σ gives ~5-15 above-threshold
+            pixels); a hot pixel, cosmic-ray streak, or random noise
+            spike has 1-3. Cheapest possible "shape" filter — uses
+            the already-computed mask1, just counts pixels per box.
+            Default ``None`` disables. Recommended ~5 for typical
+            in-focus PSFs.
+        """
 
         self.coo = []
         self.adu = []
@@ -135,6 +192,17 @@ class FFS:
         self.fs_method = method
         self.fs_fwhm_adopted = float(fwhm)
         self.fs_kernel_sigma = float(fwhm) / 2.355
+        self.fs_min_smoothed_sigma = (
+            float(min_smoothed_sigma) if min_smoothed_sigma is not None else None
+        )
+        self.fs_max_concentration = (
+            float(max_concentration) if max_concentration is not None else None
+        )
+        self.fs_aperture_radius = (
+            int(aperture_radius) if aperture_radius is not None
+            else max(2, int(round(2.0 * float(fwhm))))
+        )
+        self.fs_rank_by = rank_by
 
         if self.fs_method == "rms Poisson":
             self.fs_sigma = self.noise
@@ -150,12 +218,77 @@ class FFS:
         mask2 = data2 == maximum_filter(data2, size=3)
         mask = mask1 & mask2
 
+        if self.fs_min_smoothed_sigma is not None:
+            # MAD-based robust sigma of the smoothed image; falls back to
+            # std() if MAD collapses (uniform smoothed frame).
+            smoothed_med = float(np.median(data2))
+            smoothed_mad = float(np.median(np.abs(data2 - smoothed_med)))
+            smoothed_sigma = 1.4826 * smoothed_mad
+            if smoothed_sigma <= 0:
+                smoothed_sigma = float(data2.std()) or 1.0
+            mask3 = data2 > smoothed_med + self.fs_min_smoothed_sigma * smoothed_sigma
+            mask = mask & mask3
+
         coo = np.column_stack(np.nonzero(mask))
         val = self.image[mask]
 
+        # Per-candidate aperture statistics (background-subtracted) —
+        # needed for max_concentration filter and rank_by="aperture".
+        # Computed once for both, since both are cheap (~50 ops/cand).
+        ap_radius = self.fs_aperture_radius
+        bg_level = float(self.median)
+        H, W = self.image.shape
+        n_cand = len(coo)
+        aperture_excess = np.zeros(n_cand, dtype=float)
+        peak_excess = np.zeros(n_cand, dtype=float)
+        for i in range(n_cand):
+            y, x = int(coo[i, 0]), int(coo[i, 1])
+            y0 = max(0, y - ap_radius)
+            y1 = min(H, y + ap_radius + 1)
+            x0 = max(0, x - ap_radius)
+            x1 = min(W, x + ap_radius + 1)
+            patch = self.image[y0:y1, x0:x1]
+            aperture_excess[i] = float(patch.sum() - bg_level * patch.size)
+            peak_excess[i] = float(self.image[y, x] - bg_level)
+
+        # Concentration-index cull — single-pixel artifacts have all
+        # their signal in the central pixel (peak/aperture ≈ 1.0); real
+        # PSFs spread it (peak/aperture ≈ 0.2-0.4 for FWHM≈3 and
+        # aperture_radius=2*FWHM).
+        if self.fs_max_concentration is not None and n_cand > 0:
+            denom = np.where(aperture_excess > 0, aperture_excess, 1.0)
+            concentration = peak_excess / denom
+            keep = (aperture_excess > 0) & (concentration <= self.fs_max_concentration)
+            coo = coo[keep]
+            val = val[keep]
+            aperture_excess = aperture_excess[keep]
+            peak_excess = peak_excess[keep]
+
+        # Pixel-count cull — count mask1 pixels inside each candidate's
+        # aperture box. A PSF spans many; an isolated noise spike spans 1.
+        if min_pixels_above_threshold is not None and len(coo) > 0:
+            min_px = int(min_pixels_above_threshold)
+            counts = np.zeros(len(coo), dtype=int)
+            for i in range(len(coo)):
+                yi, xi = int(coo[i, 0]), int(coo[i, 1])
+                y0 = max(0, yi - ap_radius); y1 = min(H, yi + ap_radius + 1)
+                x0 = max(0, xi - ap_radius); x1 = min(W, xi + ap_radius + 1)
+                counts[i] = int(mask1[y0:y1, x0:x1].sum())
+            keep = counts >= min_px
+            coo = coo[keep]
+            val = val[keep]
+            aperture_excess = aperture_excess[keep]
+            peak_excess = peak_excess[keep]
+
         self.stats["stars"] = {}
         if len(coo) > 0:
-            sorted_i = np.argsort(val)[::-1]
+            if self.fs_rank_by == "smoothed":
+                sort_keys = data2[coo[:, 0], coo[:, 1]]
+            elif self.fs_rank_by == "aperture":
+                sort_keys = aperture_excess
+            else:
+                sort_keys = val
+            sorted_i = np.argsort(sort_keys)[::-1]
             self.coo = coo[sorted_i]
             self.adu = val[sorted_i]
 
