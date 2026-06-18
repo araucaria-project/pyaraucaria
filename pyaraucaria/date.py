@@ -26,6 +26,30 @@ logger = logging.getLogger('dates')
 
 import numpy as __np
 
+
+def _ensure_time(t, wrap_scalar: bool = False, **time_kwargs):
+    """Local helper to normalize inputs to astropy Time.
+
+    Accepts the same lightweight semantics as the helper used across
+    other modules: if ``t`` is already a Time, return it; if ``None``
+    return Time.now(); otherwise construct Time(t, **time_kwargs).
+    If ``wrap_scalar`` is True and the result is scalar, return a
+    1-element Time array.
+    """
+    if t is None:
+        out = Time.now()
+    elif isinstance(t, Time):
+        out = t
+    else:
+        out = Time(t, **time_kwargs)
+
+    if wrap_scalar and getattr(out, 'isscalar', False):
+        if isinstance(t, Time):
+            return Time([t])
+        return Time([t], **time_kwargs)
+
+    return out
+
 _datetime_regexps = [re.compile(r) for r in [
     r'^\s*(?P<Y>\d\d\d\d)[-/\.](?P<M>\d\d)[-/\.](?P<D>\d\d)((?:\s+|T)(?P<h>\d?\d):(?P<m>\d?\d)(?::(?P<s>\d?\d(?:\.\d*)?))?)?(?:Z|(?P<tzs>[+-])(?P<tzh>\d\d):?(?P<tzm>\d\d))?(\s.*)?$',
     r'^\s*(?P<D>\d?\d)[-/](?P<M>\d?\d)[-/](?P<Y>\d{2}(?:\d{2})?)((?:\s+)(?P<h>\d?\d):(?P<m>\d?\d)(?:(?::(?P<s>\d?\d(?:\.\d*)?)))?)?(\s.*)?$',
@@ -282,7 +306,7 @@ def helio_corr(jd, ra, dec, longitude=None, latitude=None, elevation=None):
         geocenter = EarthLocation.from_geocentric(0, 0, 0, unit=u.m)
 
     # 2. Create Time object with location attached
-    t = Time(jd, format='jd', scale='utc', location=geocenter)
+    t = _ensure_time(jd, format='jd', scale='utc', location=geocenter)
 
     # 3. Create Target Coordinate
     # units=(u.hourangle, u.deg) handles both string parsing ("05:05:37")
