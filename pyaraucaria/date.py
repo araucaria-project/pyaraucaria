@@ -344,7 +344,6 @@ def jd_to_bjd(
         return None
 
 
-
 def correct_year(year):
     # type: (int) -> int
     return year if year > 100 else (year + 1900 if year > 40 else year + 2000)
