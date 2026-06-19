@@ -342,7 +342,7 @@ def _normalize_bjd_target(obj_ra: Union[float, SkyCoord], obj_dec: Optional[floa
         return obj_ra
     if obj_dec is None:
         raise ValueError("obj_dec is required when obj_ra is numeric")
-    return _cached_target(float(obj_ra), float(obj_dec)).copy()
+    return _cached_target(float(obj_ra), float(obj_dec))
 
 
 def _normalize_bjd_location(
@@ -357,7 +357,7 @@ def _normalize_bjd_location(
         return observ_lat
     if observ_lon is None or observ_elev is None:
         raise ValueError("observ_lon and observ_elev are required when observ_lat is numeric")
-    return _cached_location(float(observ_lat), float(observ_lon), float(observ_elev)).copy()
+    return _cached_location(float(observ_lat), float(observ_lon), float(observ_elev))
 
 
 def jd_to_bjd(

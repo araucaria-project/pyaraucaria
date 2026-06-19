@@ -35,6 +35,18 @@ class TestJdToBjd(unittest.TestCase):
 
         self.assertAlmostEqual(bjd_objects, bjd_numeric, places=12)
 
+    def test_jd_to_bjd_rejects_extra_dec_for_skycoord(self):
+        target = SkyCoord(ra=10.0 * u.deg, dec=70.0 * u.deg)
+
+        with self.assertRaises(ValueError):
+            jd_to_bjd(2460000, target, 70.0, -24.59806, -70.19638, 2817.0)
+
+    def test_jd_to_bjd_rejects_extra_location_parts_for_earthlocation(self):
+        location = EarthLocation(lat=-24.59806 * u.deg, lon=-70.19638 * u.deg, height=2817.0 * u.m)
+
+        with self.assertRaises(ValueError):
+            jd_to_bjd(2460000, 10.0, 70.0, location, -70.19638, 2817.0)
+
 
 if __name__ == '__main__':
     unittest.main()
