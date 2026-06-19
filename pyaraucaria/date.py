@@ -14,7 +14,7 @@ Licence: MIT
 import logging
 import re
 import datetime
-from typing import Union
+from typing import Union, Optional
 
 import numpy as np
 from astropy.coordinates import SkyCoord, EarthLocation
@@ -318,6 +318,32 @@ def helio_corr(jd, ra, dec, longitude=None, latitude=None, elevation=None):
     ltt = t.light_travel_time(target, kind='heliocentric')
 
     return ltt.to_value('day')
+
+
+def jd_to_bjd(
+        jd: float, obj_ra: float, obj_dec: float,
+        observ_lat: float, observ_lon: float, observ_elev: float) -> Optional[float]:
+
+    t = Time(jd, format='jd', scale='utc')
+
+    target = SkyCoord(
+        ra=obj_ra * u.deg,
+        dec=obj_dec * u.deg
+    )
+
+    location = EarthLocation(
+        lat=observ_lat * u.deg,
+        lon=observ_lon * u.deg,
+        height=observ_elev * u.m
+    )
+
+    try:
+        ltt_bary = t.light_travel_time(target, location=location, kind='barycentric')
+        return float((t.tdb + ltt_bary).jd)
+    except (ValueError, TypeError):
+        return None
+
+
 
 def correct_year(year):
     # type: (int) -> int
