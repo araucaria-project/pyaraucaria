@@ -14,6 +14,7 @@ Licence: MIT
 import logging
 import re
 import datetime
+from functools import lru_cache
 from typing import Union, Optional
 
 import numpy as np
@@ -320,28 +321,66 @@ def helio_corr(jd, ra, dec, longitude=None, latitude=None, elevation=None):
     return ltt.to_value('day')
 
 
-def jd_to_bjd(
-        jd: float, obj_ra: float, obj_dec: float,
-        observ_lat: float, observ_lon: float, observ_elev: float) -> Optional[float]:
+@lru_cache(maxsize=256)
+def _cached_target(obj_ra: float, obj_dec: float) -> SkyCoord:
+    return SkyCoord(ra=obj_ra * u.deg, dec=obj_dec * u.deg)
 
-    t = Time(jd, format='jd', scale='utc')
 
-    target = SkyCoord(
-        ra=obj_ra * u.deg,
-        dec=obj_dec * u.deg
-    )
-
-    location = EarthLocation(
+@lru_cache(maxsize=256)
+def _cached_location(observ_lat: float, observ_lon: float, observ_elev: float) -> EarthLocation:
+    return EarthLocation(
         lat=observ_lat * u.deg,
         lon=observ_lon * u.deg,
         height=observ_elev * u.m
     )
 
-    try:
-        ltt_bary = t.light_travel_time(target, location=location, kind='barycentric')
-        return float((t.tdb + ltt_bary).jd)
-    except (ValueError, TypeError):
-        return None
+
+def _normalize_bjd_target(obj_ra: Union[float, SkyCoord], obj_dec: Optional[float]) -> SkyCoord:
+    if isinstance(obj_ra, SkyCoord):
+        if obj_dec is not None:
+            raise ValueError("obj_dec must be None when obj_ra is SkyCoord")
+        return obj_ra
+    if obj_dec is None:
+        raise ValueError("obj_dec is required when obj_ra is numeric")
+    return _cached_target(float(obj_ra), float(obj_dec))
+
+
+def _normalize_bjd_location(
+        observ_lat: Union[float, EarthLocation, None],
+        observ_lon: Optional[float],
+        observ_elev: Optional[float]) -> EarthLocation:
+    if observ_lat is None:
+        raise ValueError("observ_lat is required")
+    if isinstance(observ_lat, EarthLocation):
+        if observ_lon is not None or observ_elev is not None:
+            raise ValueError("observ_lon and observ_elev must be None when observ_lat is EarthLocation")
+        return observ_lat
+    if observ_lon is None or observ_elev is None:
+        raise ValueError("observ_lon and observ_elev are required when observ_lat is numeric")
+    return _cached_location(float(observ_lat), float(observ_lon), float(observ_elev))
+
+
+def jd_to_bjd(
+        jd: float,
+        obj_ra: Union[float, SkyCoord],
+        obj_dec: Optional[float] = None,
+        observ_lat: Union[float, EarthLocation, None] = None,
+        observ_lon: Optional[float] = None,
+        observ_elev: Optional[float] = None) -> float:
+    """Convert JD to BJD.
+
+    The target can be passed either as numeric degrees (`obj_ra`, `obj_dec`)
+    or directly as `SkyCoord` (`obj_ra`, with `obj_dec=None`).
+    The observer location can be passed either as numeric
+    (`observ_lat`, `observ_lon`, `observ_elev`) or directly as
+    `EarthLocation` (`observ_lat`, with `observ_lon=None` and
+    `observ_elev=None`).
+    """
+    t = Time(jd, format='jd', scale='utc')
+    target = _normalize_bjd_target(obj_ra, obj_dec)
+    location = _normalize_bjd_location(observ_lat, observ_lon, observ_elev)
+    ltt_bary = t.light_travel_time(target, location=location, kind='barycentric')
+    return float((t.tdb + ltt_bary).jd)
 
 
 def correct_year(year):
