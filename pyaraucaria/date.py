@@ -342,7 +342,7 @@ def _normalize_bjd_target(obj_ra: Union[float, SkyCoord], obj_dec: Optional[floa
         return obj_ra
     if obj_dec is None:
         raise ValueError("obj_dec is required when obj_ra is numeric")
-    return _cached_target(float(obj_ra), float(obj_dec))
+    return _cached_target(float(obj_ra), float(obj_dec)).copy()
 
 
 def _normalize_bjd_location(
@@ -357,24 +357,44 @@ def _normalize_bjd_location(
         return observ_lat
     if observ_lon is None or observ_elev is None:
         raise ValueError("observ_lon and observ_elev are required when observ_lat is numeric")
-    return _cached_location(float(observ_lat), float(observ_lon), float(observ_elev))
+    return _cached_location(float(observ_lat), float(observ_lon), float(observ_elev)).copy()
 
 
 def jd_to_bjd(
         jd: float,
         obj_ra: Union[float, SkyCoord],
-        obj_dec: Optional[float] = None,
-        observ_lat: Union[float, EarthLocation, None] = None,
+        obj_dec: Optional[float],
+        observ_lat: Union[float, EarthLocation],
         observ_lon: Optional[float] = None,
         observ_elev: Optional[float] = None) -> float:
-    """Convert JD to BJD.
+    """Convert Julian Date to Barycentric Julian Date.
 
-    The target can be passed either as numeric degrees (`obj_ra`, `obj_dec`)
-    or directly as `SkyCoord` (`obj_ra`, with `obj_dec=None`).
-    The observer location can be passed either as numeric
-    (`observ_lat`, `observ_lon`, `observ_elev`) or directly as
-    `EarthLocation` (`observ_lat`, with `observ_lon=None` and
-    `observ_elev=None`).
+    Parameters
+    ----------
+    jd : float
+        Julian date in UTC scale.
+    obj_ra : float or SkyCoord
+        Either target RA in degrees (with ``obj_dec``) or a ``SkyCoord``.
+    obj_dec : float or None
+        Target DEC in degrees when ``obj_ra`` is numeric. Must be ``None``
+        when ``obj_ra`` is ``SkyCoord``.
+    observ_lat : float or EarthLocation
+        Either observatory latitude in degrees (with ``observ_lon`` and
+        ``observ_elev``) or an ``EarthLocation``.
+    observ_lon : float, optional
+        Observatory longitude in degrees for numeric-location mode.
+    observ_elev : float, optional
+        Observatory elevation in meters for numeric-location mode.
+
+    Returns
+    -------
+    float
+        Barycentric Julian Date.
+
+    Raises
+    ------
+    ValueError
+        If mixed arguments are invalid (e.g. ``SkyCoord`` plus ``obj_dec``).
     """
     t = Time(jd, format='jd', scale='utc')
     target = _normalize_bjd_target(obj_ra, obj_dec)

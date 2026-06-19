@@ -31,7 +31,7 @@ class TestJdToBjd(unittest.TestCase):
         location = EarthLocation(lat=-24.59806 * u.deg, lon=-70.19638 * u.deg, height=2817.0 * u.m)
 
         bjd_numeric = jd_to_bjd(jd, 10.0, 70.0, -24.59806, -70.19638, 2817.0)
-        bjd_objects = jd_to_bjd(jd=jd, obj_ra=target, observ_lat=location)
+        bjd_objects = jd_to_bjd(jd=jd, obj_ra=target, obj_dec=None, observ_lat=location)
 
         self.assertAlmostEqual(bjd_objects, bjd_numeric, places=12)
 
