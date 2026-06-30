@@ -320,45 +320,66 @@ def helio_corr(jd, ra, dec, longitude=None, latitude=None, elevation=None):
     return ltt.to_value('day')
 
 
-class ConvertJd:
+def jd_to_bjd(
+        jd: Union[float, np.ndarray], obj_ra: float, obj_dec: float,
+        observ_lat: float, observ_lon: float, observ_elev: float) -> Optional[Union[float, np.ndarray]]:
+    """Converts Julian Date (JD) to Barycentric Julian Date (BJD) for a given target and observer location.
 
-    def __init__(
-           self, obj_ra: Optional[float], obj_dec: Optional[float],
-           observ_lat: Optional[float], observ_lon: Optional[float], observ_elev: Optional[float]) -> None:
-        self.obj_ra = obj_ra
-        self.obj_dec = obj_dec
-        self.observ_lat = observ_lat
-        self.observ_lon = observ_lon
-        self.observ_elev = observ_elev
-        self.target_sky_coord = None
-        self.earth_location = None
-        self._init_sky_coord()
-        self._init_earth_location()
+    The function applies a barycentric light-travel time correction using Astropy, transforming the input
+    time from UTC Julian Date to Barycentric Dynamical Time (TDB) and accounting for the observer's position
+    on Earth (or the geocenter if no location is effectively provided).
 
-    def _init_sky_coord(self):
-        if self.obj_ra is not None and self.obj_dec is not None:
-            self.target_sky_coord = SkyCoord(
-                ra=self.obj_ra * u.deg,
-                dec=self.obj_dec * u.deg
-            )
+    Parameters
+    ----------
+    jd : float or numpy.ndarray
+        Julian Date(s) in UTC scale. Can be a single value or an array.
+    obj_ra : float
+        Right ascension of the target in degrees.
+    obj_dec : float
+        Declination of the target in degrees.
+    observ_lat : float
+        Observer's geographic latitude in degrees.
+    observ_lon : float
+        Observer's geographic longitude in degrees.
+    observ_elev : float
+        Observer's elevation above sea level in meters.
 
-    def _init_earth_location(self):
-        if self.observ_lat is not None and self.observ_lon is not None and self.observ_elev is not None:
-            self.earth_location = EarthLocation(
-                lat=self.observ_lat * u.deg,
-                lon=self.observ_lon * u.deg,
-                height=self.observ_elev * u.m
-            )
+    Returns
+    -------
+    float or numpy.ndarray or None
+        Barycentric Julian Date(s) in TDB scale (proposed column name: ).
+        Returns a float if input is scalar, otherwise a numpy array.
+        Returns None if computation fails due to invalid input or type error.
 
-    def to_bjd(self, jd: float) -> Optional[float]:
+    Notes
+    -----
+    - Uses Astropy's light_travel_time correction with kind='barycentric'.
+    - Time conversion is performed from UTC to TDB internally.
+    - Accuracy depends on available IERS data; outdated or missing IERS tables may reduce precision.
+    - If Astropy cannot compute the correction (e.g., invalid coordinates or time format), the function returns None.
+    """
 
-        t = Time(jd, format='jd', scale='utc')
+    earth_location = EarthLocation(
+        lat=observ_lat * u.deg,
+        lon=observ_lon * u.deg,
+        height=observ_elev * u.m
+    )
 
-        try:
-            ltt_bary = t.light_travel_time(self.target_sky_coord, location=self.earth_location, kind='barycentric')
-            return float((t.tdb + ltt_bary).jd)
-        except (ValueError, TypeError):
-            return None
+    target_sky_coord = SkyCoord(
+        ra=obj_ra * u.deg,
+        dec=obj_dec * u.deg
+    )
+
+    t = Time(jd, format='jd', scale='utc')
+
+    try:
+        ltt_bary = t.light_travel_time(target_sky_coord, location=earth_location, kind='barycentric')
+        bjd = (t.tdb + ltt_bary).jd
+        if np.isscalar(jd):
+            return float(bjd)
+        return np.asarray(bjd)
+    except (ValueError, TypeError):
+        return None
 
 
 def correct_year(year):
