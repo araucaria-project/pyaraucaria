@@ -18,6 +18,7 @@ from typing import Union, Optional
 
 import numpy as np
 from astropy.coordinates import SkyCoord, EarthLocation
+from astropy.utils import iers
 from astropy.time import Time
 import astropy.units as u
 from pyaraucaria.erfa_utils import eraCal2jd
@@ -322,7 +323,8 @@ def helio_corr(jd, ra, dec, longitude=None, latitude=None, elevation=None):
 
 def jd_to_bjd(
         jd: Union[float, np.ndarray], obj_ra: float, obj_dec: float,
-        observ_lat: float, observ_lon: float, observ_elev: float) -> Optional[Union[float, np.ndarray]]:
+        observ_lat: float, observ_lon: float, observ_elev: float,
+        iers_auto_download: bool = False, iers_remote_timeout: float = 30) -> Optional[Union[float, np.ndarray]]:
     """Converts Julian Date (JD) to Barycentric Julian Date (BJD) for a given target and observer location.
 
     The function applies a barycentric light-travel time correction using Astropy, transforming the input
@@ -343,11 +345,15 @@ def jd_to_bjd(
         Observer's geographic longitude in degrees.
     observ_elev : float
         Observer's elevation above sea level in meters.
+    iers_auto_download : float
+        ccc
+    iers_remote_timeout : float
+        ccc
 
     Returns
     -------
     float or numpy.ndarray or None
-        Barycentric Julian Date(s) in TDB scale (proposed column name: ).
+        Barycentric Julian Date(s) in TDB scale (proposed column name: bjd_tdb).
         Returns a float if input is scalar, otherwise a numpy array.
         Returns None if computation fails due to invalid input or type error.
 
@@ -358,6 +364,10 @@ def jd_to_bjd(
     - Accuracy depends on available IERS data; outdated or missing IERS tables may reduce precision.
     - If Astropy cannot compute the correction (e.g., invalid coordinates or time format), the function returns None.
     """
+    if not iers_auto_download:
+        iers.conf.auto_download = False
+    else:
+        iers.conf.remote_timeout = iers_remote_timeout
 
     earth_location = EarthLocation(
         lat=observ_lat * u.deg,
