@@ -14,7 +14,7 @@ Licence: MIT
 import logging
 import re
 import datetime
-from typing import Union
+from typing import Union, Optional
 
 import numpy as np
 from astropy.coordinates import SkyCoord, EarthLocation
@@ -319,6 +319,48 @@ def helio_corr(jd, ra, dec, longitude=None, latitude=None, elevation=None):
 
     return ltt.to_value('day')
 
+
+class ConvertJd:
+
+    def __init__(
+           self, obj_ra: Optional[float], obj_dec: Optional[float],
+           observ_lat: Optional[float], observ_lon: Optional[float], observ_elev: Optional[float]) -> None:
+        self.obj_ra = obj_ra
+        self.obj_dec = obj_dec
+        self.observ_lat = observ_lat
+        self.observ_lon = observ_lon
+        self.observ_elev = observ_elev
+        self.target_sky_coord = None
+        self.earth_location = None
+        self._init_sky_coord()
+        self._init_earth_location()
+
+    def _init_sky_coord(self):
+        if self.obj_ra is not None and self.obj_dec is not None:
+            self.target_sky_coord = SkyCoord(
+                ra=self.obj_ra * u.deg,
+                dec=self.obj_dec * u.deg
+            )
+
+    def _init_earth_location(self):
+        if self.observ_lat is not None and self.observ_lon is not None and self.observ_elev is not None:
+            self.earth_location = EarthLocation(
+                lat=self.observ_lat * u.deg,
+                lon=self.observ_lon * u.deg,
+                height=self.observ_elev * u.m
+            )
+
+    def to_bjd(self, jd: float) -> Optional[float]:
+
+        t = Time(jd, format='jd', scale='utc')
+
+        try:
+            ltt_bary = t.light_travel_time(self.target_sky_coord, location=self.earth_location, kind='barycentric')
+            return float((t.tdb + ltt_bary).jd)
+        except (ValueError, TypeError):
+            return None
+
+
 def correct_year(year):
     # type: (int) -> int
     return year if year > 100 else (year + 1900 if year > 40 else year + 2000)
@@ -339,3 +381,8 @@ def get_jd_from_oca_jd(oca_jd: Union[float, np.ndarray]) -> Union[float, np.ndar
     @return: Julian date
     """
     return oca_jd + 2460000
+
+
+def hms_to_days(hours: float = 0, minutes: float = 0, seconds: float = 0) -> float:
+    """Convert hours, minutes and seconds to a fraction of a day."""
+    return hours / 24.0 + minutes / 1440.0 + seconds / 86400.0
