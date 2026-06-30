@@ -346,9 +346,9 @@ def jd_to_bjd(
     observ_elev : float
         Observer's elevation above sea level in meters.
     iers_auto_download : float
-        ccc
+        Let iers auto download data
     iers_remote_timeout : float
-        ccc
+        Iers auto download timeout
 
     Returns
     -------
@@ -364,6 +364,7 @@ def jd_to_bjd(
     - Accuracy depends on available IERS data; outdated or missing IERS tables may reduce precision.
     - If Astropy cannot compute the correction (e.g., invalid coordinates or time format), the function returns None.
     """
+
     if not iers_auto_download:
         iers.conf.auto_download = False
     else:
