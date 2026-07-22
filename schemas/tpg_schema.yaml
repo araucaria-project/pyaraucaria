@@ -4,10 +4,6 @@ properties:
     minimum: -100
     description: "If <0, object will never be allocated; higher numbers = higher priority"
 
-  tag:
-    type: string
-    description: "Comma-separated list of tags for allocation filtering"
-
   comment:
     type: string
     description: "Comment visible to the observer"
@@ -16,11 +12,6 @@ properties:
     type: number
     minimum: 0
     description: "Days between planned and last observation (can be fractional of day for hours)"
-
-  ph_mk:
-    type: string
-    pattern: '^\d+/\w+/\d+(\.\d+)?$'
-    description: "Phase masking parameters: no_of_obs/band/phase_bin"
 
   obs_data:
     type: string
@@ -44,13 +35,18 @@ properties:
     type: number
     description: "Hours before sunrise for observing"
 
-  ph_star:
+  ph_start:
     type: number
     description: "Min phase for observing"
 
   ph_end:
     type: number
     description: "Max phase observing"
+
+  ph_mk:
+    type: string
+    pattern: '^\d+/\w+/\d+(\.\d+)?$'
+    description: "Phase masking parameters: no_of_obs/band/phase_bin"
 
   P:
     type: number
@@ -95,3 +91,7 @@ properties:
   fwhm_max:
     type: number
     description: "Max fwhm for object allocation. Not yet implemented"
+
+  tag:
+    type: string
+    description: "Comma-separated list of tags for allocation filtering"
