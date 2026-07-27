@@ -214,7 +214,11 @@ class FFS:
             raise ValueError(f"Invalid method type {self.fs_method}")
 
         mask1 = self.image > self.median + self.fs_threshold * self.fs_sigma
-        data2 = gaussian_filter(self.image, sigma=self.fs_kernel_sigma)
+        # Cast to float first: gaussian_filter preserves the input dtype, so on
+        # integer FITS data (uint16/int16) the smoothed image — and every test
+        # built on it (min_smoothed_sigma, rank_by="smoothed") — would be
+        # truncated to integers.
+        data2 = gaussian_filter(self.image.astype(float), sigma=self.fs_kernel_sigma)
         mask2 = data2 == maximum_filter(data2, size=3)
         mask = mask1 & mask2
 
@@ -560,9 +564,12 @@ class FFS:
 
             self.shape[i] = self.cpe[i] * self.fwhm[i]**2
 
-            if self.frame_fwhm:
-                r1 = 1.0 * self.frame_fwhm
-                r2 = 2.0 * self.frame_fwhm
+            # Radii scaled to this star's own measured FWHM; fall back to
+            # fixed radii when the FWHM measurement failed (NaN / non-positive).
+            star_fwhm = self.fwhm[i]
+            if np.isfinite(star_fwhm) and star_fwhm > 0:
+                r1 = 1.0 * star_fwhm
+                r2 = 2.0 * star_fwhm
             else:
                 r1 = 2.0
                 r2 = 4.0
