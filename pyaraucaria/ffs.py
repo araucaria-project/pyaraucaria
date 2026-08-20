@@ -392,102 +392,6 @@ class FFS:
             "used_stars": "How many star were used to evaluate thos statistics"
         })
 
-    def fwhm_deprecated(self, radius=10, all_stars=True):
-        # deprecated
-        radius = int(radius)
-        self.fwhm_xarr = []
-        self.fwhm_yarr = []
-        self.fwhm_x = None
-        self.fwhm_y = None
-        for i, tmp in enumerate(self.coo):
-            if all_stars:
-                i_max = len(self.adu)
-            else:
-                i_max = 100
-            d1 = d2 = d3 = d4 = None
-            if self.adu[i] < int(self.saturation) and i < i_max:
-                x, y = self.coo[i]
-                max_adu = self.adu[i]
-                half_adu = (max_adu - self.median) / 2.
-
-                if True:
-                    line = self.image[x - radius:x + radius, y] - self.median - half_adu
-                    line = self.image[x - radius + 1:x + 1, y] - self.median - half_adu
-                    maska1, maska2 = line > 0, line < 0
-                    pos, neg = line[maska1], line[maska2]
-                    if len(pos) > 0 and len(neg) > 0:
-                        lower, upper = max(neg), min(pos)
-                        line = list(line)
-                        lower_i, upper_i = line.index(lower), line.index(upper)
-                        lower_adu, upper_adu = line[lower_i], line[upper_i]
-                        d1 = radius - upper_i - np.abs(lower_adu) / (np.abs(lower_adu) + np.abs(upper_adu))
-
-                    line = self.image[x:x + radius, y] - self.median - half_adu
-                    maska1, maska2 = line > 0, line < 0
-                    pos, neg = line[maska1], line[maska2]
-                    if len(pos) > 0 and len(neg) > 0:
-                        lower, upper = max(neg), min(pos)
-                        line = list(line)
-                        lower_i, upper_i = line.index(lower), line.index(upper)
-                        lower_adu, upper_adu = line[lower_i], line[upper_i]
-                        d2 = upper_i + 1 - np.abs(lower_adu) / (np.abs(lower_adu) + np.abs(upper_adu))
-
-                    line = self.image[x, y - radius + 1:y + 1] - self.median - half_adu
-                    maska1, maska2 = line > 0, line < 0
-                    pos, neg = line[maska1], line[maska2]
-                    if len(pos) > 0 and len(neg) > 0:
-                        lower, upper = max(neg), min(pos)
-                        line = list(line)
-                        lower_i, upper_i = line.index(lower), line.index(upper)
-                        lower_adu, upper_adu = line[lower_i], line[upper_i]
-                        d3 = radius - upper_i - np.abs(lower_adu) / (np.abs(lower_adu) + np.abs(upper_adu))
-
-                    line = self.image[x, y:y + radius] - self.median - half_adu
-                    maska1, maska2 = line > 0, line < 0
-                    pos, neg = line[maska1], line[maska2]
-                    if len(pos) > 0 and len(neg) > 0:
-                        lower, upper = max(neg), min(pos)
-                        line = list(line)
-                        lower_i, upper_i = line.index(lower), line.index(upper)
-                        lower_adu, upper_adu = line[lower_i], line[upper_i]
-                        d4 = upper_i + 1 - np.abs(lower_adu) / (np.abs(lower_adu) + np.abs(upper_adu))
-
-            if d1 != None and d2 != None:
-                dx = (d1 + d2)
-            else:
-                dx = 0
-
-            if d3 != None and d4 != None:
-                dy = (d3 + d4)
-            else:
-                dy = 0
-            self.fwhm_xarr.append(dx)
-            self.fwhm_yarr.append(dy)
-
-        self.fwhm_xarr, self.fwhm_yarr = np.array(self.fwhm_xarr), np.array(self.fwhm_yarr)
-
-        maska1 = self.fwhm_xarr == 0
-        maska2 = self.fwhm_yarr == 0
-        maska = maska1 & maska2
-        fwhm_xarr = self.fwhm_xarr[~maska]
-        fwhm_yarr = self.fwhm_yarr[~maska]
-
-        if len(fwhm_xarr) > 2:
-            self.fwhm_x = np.median(fwhm_xarr)
-        if len(fwhm_yarr) > 2:
-            self.fwhm_y = np.median(fwhm_yarr)
-
-            self.stats["stars"]["fwhm"] = (fwhm_xarr + fwhm_yarr)/2.
-            self.stats["stars"]["fwhm_xax"] = fwhm_xarr
-            self.stats["stars"]["fwhm_yax"] = fwhm_yarr
-
-            self.stats["fwhm"] = (self.fwhm_x + self.fwhm_y)/2.
-            self.stats["fwhm_xax"] = self.fwhm_x
-            self.stats["fwhm_yax"] = self.fwhm_y
-
-        return self.fwhm_x, self.fwhm_y
-
-
     def star_info(self, box=10, N_stars=None):
 
         n = len(self.coo)
@@ -518,8 +422,6 @@ class FFS:
 
             if ni >= N_stars:
                 break
-
-            ni += 1
 
             y0 = max(0, y - box)
             y1 = min(self.image.shape[0], y + box)
@@ -575,6 +477,9 @@ class FFS:
                 r2 = 4.0
 
             self.ci[i] = FFS.concentration_index(cut,r1,r2)
+
+            if self.fwhm[i] is not np.nan and self.ellipticity[i] is not np.nan and self.ci[i] is not np.nan:
+                ni += 1
 
 
         self.box_mag = self.box_mag[:ni]
