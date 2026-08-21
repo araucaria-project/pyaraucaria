@@ -33,7 +33,7 @@ class TestFitsHeader(unittest.TestCase):
     def test_fits_header_defaults_include_m1_cards(self):
         header = fits_header()
 
-        self.assertEqual(header["OCASTD"][0], "1.2.0")
+        self.assertEqual(header["OCASTD"][0], "1.1.3")
         self.assertEqual(header["M1-POS1"], ('', '[um] M1 cell motor 1 position'))
         self.assertEqual(header["M1-POS2"], ('', '[um] M1 cell motor 2 position'))
         self.assertEqual(header["M1-POS3"], ('', '[um] M1 cell motor 3 position'))

@@ -86,7 +86,7 @@ def save_fits_from_array(array,
 
 
 def fits_header(
-    oca_std="1.2.0",
+    oca_std="1.1.3",
     obs="OCA",
     obs_lat='',
     obs_lon='',
