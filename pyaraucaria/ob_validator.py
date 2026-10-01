@@ -384,7 +384,7 @@ class ObsValidator:
             # apply repetition
             slot_time *= k
 
-            # add base time BEFORE multiplying
+            # base time (e.g. telescope slew) happens once per OB, not per repetition
             slot_time += base_time
 
             return slot_time
