@@ -365,7 +365,10 @@ class TestValidateTxt(unittest.TestCase):
             self.assertFalse(result['result'][key])
 
     def test_unparsable_text(self):
-        self.assertEqual(self._validate('dupa'),
+        # assertLogs also keeps the parser's error off the test output
+        with self.assertLogs('obs_plan_parser', level='ERROR'):
+            result = self._validate('dupa')
+        self.assertEqual(result,
                          {'valid': False, 'result': {}, 'data': {}, 'required': {}, 'allowed': {}})
 
 
