@@ -214,7 +214,11 @@ class FFS:
             raise ValueError(f"Invalid method type {self.fs_method}")
 
         mask1 = self.image > self.median + self.fs_threshold * self.fs_sigma
-        data2 = gaussian_filter(self.image, sigma=self.fs_kernel_sigma)
+        # Cast to float first: gaussian_filter preserves the input dtype, so on
+        # integer FITS data (uint16/int16) the smoothed image — and every test
+        # built on it (min_smoothed_sigma, rank_by="smoothed") — would be
+        # truncated to integers.
+        data2 = gaussian_filter(self.image.astype(float), sigma=self.fs_kernel_sigma)
         mask2 = data2 == maximum_filter(data2, size=3)
         mask = mask1 & mask2
 
@@ -326,17 +330,19 @@ class FFS:
 
         return np.abs(x - med) < clip * sig
 
-    def calc_star_stats(self,clip=4):
+    @staticmethod
+    def _axial_spread(theta):
+        # Circular spread of orientations (period pi): theta and theta +/- pi
+        # are the same axis, so a plain std would explode on sign flips.
+        # Equals the ordinary std (radians) for small spreads.
+        theta = np.asarray(theta, dtype=float)
+        theta = theta[np.isfinite(theta)]
+        if theta.size == 0:
+            return np.nan
+        R = np.abs(np.mean(np.exp(2j * theta)))
+        return 0.5 * np.sqrt(-2.0 * np.log(max(R, 1e-12)))
 
-        self.frame_fwhm = np.nanmedian(self.fwhm)
-        self.frame_fwhm_x = np.nanmedian(self.fwhm_x)
-        self.frame_fwhm_y = np.nanmedian(self.fwhm_y)
-        self.frame_ellipticity = np.nanmedian(self.ellipticity)
-        self.frame_theta_spread = np.nanstd(self.theta)
-        self.frame_cpe = np.nanmedian(self.cpe)
-        self.frame_shape = np.nanmedian(self.shape)
-        self.frame_ci = np.nanmedian(self.ci)
-        self.frame_used_stars = len(self.fwhm[np.isfinite(self.fwhm)])
+    def calc_star_stats(self,clip=4):
 
         mk = np.ones_like(self.fwhm, dtype=bool)
 
@@ -356,7 +362,7 @@ class FFS:
         self.frame_fwhm_x = np.nanmedian(self.fwhm_x[mk])
         self.frame_fwhm_y = np.nanmedian(self.fwhm_y[mk])
         self.frame_ellipticity = np.nanmedian(self.ellipticity[mk])
-        self.frame_theta_spread = np.nanstd(self.theta[mk])
+        self.frame_theta_spread = FFS._axial_spread(self.theta[mk])
         self.frame_cpe = np.nanmedian(self.cpe[mk])
         self.frame_shape = np.nanmedian(self.shape[mk])
         self.frame_ci = np.nanmedian(self.ci[mk])
@@ -381,108 +387,12 @@ class FFS:
             "fwhm_x": "Median FWHM measured along the X axis",
             "fwhm_y": "Median FWHM measured along the Y axis",
             "ellipticity": "Median source ellipticity (1 − b/a), describing PSF elongation",
-            "theta_spread": "Angular spread (dispersion) of source position angles in the frame. Low spread with hight ellipticity means something",
+            "theta_spread": "Axial (period pi) circular spread of source position angles, in radians. Low spread with high ellipticity indicates a common elongation direction (e.g. tracking or wind)",
             "cpe": "Median central pixel excess (CPE) of detected sources; higher values indicate sharper, more centrally concentrated profiles",
             "shape": "Median PSF shape parameter defined as CPE × FWHM^2 ",
             "ci": "Median concentration index (CI) of detected stars in the frame; ",
             "used_stars": "How many star were used to evaluate thos statistics"
         })
-
-    def fwhm_deprecated(self, radius=10, all_stars=True):
-        # deprecated
-        radius = int(radius)
-        self.fwhm_xarr = []
-        self.fwhm_yarr = []
-        self.fwhm_x = None
-        self.fwhm_y = None
-        for i, tmp in enumerate(self.coo):
-            if all_stars:
-                i_max = len(self.adu)
-            else:
-                i_max = 100
-            d1 = d2 = d3 = d4 = None
-            if self.adu[i] < int(self.saturation) and i < i_max:
-                x, y = self.coo[i]
-                max_adu = self.adu[i]
-                half_adu = (max_adu - self.median) / 2.
-
-                if True:
-                    line = self.image[x - radius:x + radius, y] - self.median - half_adu
-                    line = self.image[x - radius + 1:x + 1, y] - self.median - half_adu
-                    maska1, maska2 = line > 0, line < 0
-                    pos, neg = line[maska1], line[maska2]
-                    if len(pos) > 0 and len(neg) > 0:
-                        lower, upper = max(neg), min(pos)
-                        line = list(line)
-                        lower_i, upper_i = line.index(lower), line.index(upper)
-                        lower_adu, upper_adu = line[lower_i], line[upper_i]
-                        d1 = radius - upper_i - np.abs(lower_adu) / (np.abs(lower_adu) + np.abs(upper_adu))
-
-                    line = self.image[x:x + radius, y] - self.median - half_adu
-                    maska1, maska2 = line > 0, line < 0
-                    pos, neg = line[maska1], line[maska2]
-                    if len(pos) > 0 and len(neg) > 0:
-                        lower, upper = max(neg), min(pos)
-                        line = list(line)
-                        lower_i, upper_i = line.index(lower), line.index(upper)
-                        lower_adu, upper_adu = line[lower_i], line[upper_i]
-                        d2 = upper_i + 1 - np.abs(lower_adu) / (np.abs(lower_adu) + np.abs(upper_adu))
-
-                    line = self.image[x, y - radius + 1:y + 1] - self.median - half_adu
-                    maska1, maska2 = line > 0, line < 0
-                    pos, neg = line[maska1], line[maska2]
-                    if len(pos) > 0 and len(neg) > 0:
-                        lower, upper = max(neg), min(pos)
-                        line = list(line)
-                        lower_i, upper_i = line.index(lower), line.index(upper)
-                        lower_adu, upper_adu = line[lower_i], line[upper_i]
-                        d3 = radius - upper_i - np.abs(lower_adu) / (np.abs(lower_adu) + np.abs(upper_adu))
-
-                    line = self.image[x, y:y + radius] - self.median - half_adu
-                    maska1, maska2 = line > 0, line < 0
-                    pos, neg = line[maska1], line[maska2]
-                    if len(pos) > 0 and len(neg) > 0:
-                        lower, upper = max(neg), min(pos)
-                        line = list(line)
-                        lower_i, upper_i = line.index(lower), line.index(upper)
-                        lower_adu, upper_adu = line[lower_i], line[upper_i]
-                        d4 = upper_i + 1 - np.abs(lower_adu) / (np.abs(lower_adu) + np.abs(upper_adu))
-
-            if d1 != None and d2 != None:
-                dx = (d1 + d2)
-            else:
-                dx = 0
-
-            if d3 != None and d4 != None:
-                dy = (d3 + d4)
-            else:
-                dy = 0
-            self.fwhm_xarr.append(dx)
-            self.fwhm_yarr.append(dy)
-
-        self.fwhm_xarr, self.fwhm_yarr = np.array(self.fwhm_xarr), np.array(self.fwhm_yarr)
-
-        maska1 = self.fwhm_xarr == 0
-        maska2 = self.fwhm_yarr == 0
-        maska = maska1 & maska2
-        fwhm_xarr = self.fwhm_xarr[~maska]
-        fwhm_yarr = self.fwhm_yarr[~maska]
-
-        if len(fwhm_xarr) > 2:
-            self.fwhm_x = np.median(fwhm_xarr)
-        if len(fwhm_yarr) > 2:
-            self.fwhm_y = np.median(fwhm_yarr)
-
-            self.stats["stars"]["fwhm"] = (fwhm_xarr + fwhm_yarr)/2.
-            self.stats["stars"]["fwhm_xax"] = fwhm_xarr
-            self.stats["stars"]["fwhm_yax"] = fwhm_yarr
-
-            self.stats["fwhm"] = (self.fwhm_x + self.fwhm_y)/2.
-            self.stats["fwhm_xax"] = self.fwhm_x
-            self.stats["fwhm_yax"] = self.fwhm_y
-
-        return self.fwhm_x, self.fwhm_y
-
 
     def star_info(self, box=10, N_stars=None):
 
@@ -505,17 +415,18 @@ class FFS:
         if len(self.coo) < 5:
             return
 
-        ni = 0
+        # Measurements of accepted stars only; `keep` holds their indices in
+        # self.coo so every output row stays aligned with its source.
+        keep = []
+        rows = []
 
         for i, (y, x) in enumerate(self.coo):
 
-            if self.adu[i] >= self.saturation:
-                continue
-
-            if ni >= N_stars:
+            if len(keep) >= N_stars:
                 break
 
-            ni += 1
+            if self.adu[i] >= self.saturation:
+                continue
 
             y0 = max(0, y - box)
             y1 = min(self.image.shape[0], y + box)
@@ -535,53 +446,52 @@ class FFS:
             bkg_pixels = np.concatenate([top.ravel(),bottom.ravel(),left.ravel(),right.ravel()])
 
             bkg = np.median(bkg_pixels)
-            self.bkg[i] = bkg
             cut = cut - bkg
 
             flux = np.sum(cut)
             if flux <= 0:
                 continue
 
-            self.box_mag[i] = -2.5 * np.log10(flux) + 25
+            box_mag = -2.5 * np.log10(flux) + 25
 
-            _, e, t = FFS.pca(cut)
-            self.ellipticity[i] = e
-            self.theta[i] = t
+            # Adaptive moments resist noise and neighbours in the box; plain
+            # pca() is the fallback when they do not converge (e.g. donuts).
+            _, e, t = FFS.adaptive_moments(cut)
+            if not np.isfinite(e):
+                _, e, t = FFS.pca(cut)
 
             fx, fy = FFS.fwhm(cut)
+            if np.isnan(fx) or np.isnan(fy):
+                fx = fy = star_fwhm = np.nan
+            else:
+                star_fwhm = (fx + fy) / 2
 
-            if not np.isnan(fx) and not np.isnan(fy):
-                self.fwhm_x[i] = fx
-                self.fwhm_y[i] = fy
-                self.fwhm[i] = (fx + fy) / 2
+            cpe = FFS.cpe(cut)
+            shape = cpe * star_fwhm**2
 
-            # to jest nowy fragment, tzrba go zabezpieczyc
-            self.cpe[i] = FFS.cpe(cut)
-
-            self.shape[i] = self.cpe[i] * self.fwhm[i]**2
-
-            if self.frame_fwhm:
-                r1 = 1.0 * self.frame_fwhm
-                r2 = 2.0 * self.frame_fwhm
+            # Radii scaled to this star's own measured FWHM; fall back to
+            # fixed radii when the FWHM measurement failed (NaN / non-positive).
+            if np.isfinite(star_fwhm) and star_fwhm > 0:
+                r1 = 1.0 * star_fwhm
+                r2 = 2.0 * star_fwhm
             else:
                 r1 = 2.0
                 r2 = 4.0
 
-            self.ci[i] = FFS.concentration_index(cut,r1,r2)
+            ci = FFS.concentration_index(cut,r1,r2)
 
+            if not (np.isfinite(star_fwhm) and np.isfinite(e) and np.isfinite(ci)):
+                continue
 
-        self.box_mag = self.box_mag[:ni]
-        self.bkg = self.bkg[:ni]
-        self.ellipticity = self.ellipticity[:ni]
-        self.theta = self.theta[:ni]
-        self.fwhm = self.fwhm[:ni]
-        self.fwhm_x = self.fwhm_x[:ni]
-        self.fwhm_y = self.fwhm_y[:ni]
-        self.cpe = self.cpe[:ni]
-        self.shape = self.shape[:ni]
-        self.ci = self.ci[:ni]
-        self.coo = self.coo[:ni]
-        self.adu = self.adu[:ni]
+            keep.append(i)
+            rows.append((box_mag, bkg, e, t, star_fwhm, fx, fy, cpe, shape, ci))
+
+        cols = np.array(rows, dtype=float).reshape(-1, 10).T
+        (self.box_mag, self.bkg, self.ellipticity, self.theta, self.fwhm,
+         self.fwhm_x, self.fwhm_y, self.cpe, self.shape, self.ci) = cols
+        keep = np.array(keep, dtype=int)
+        self.coo = self.coo[keep]
+        self.adu = self.adu[keep]
 
         self.stats["stars"]["box_mag"] = self.box_mag
         self.stats["stars"]["bkg"] = self.bkg
@@ -661,7 +571,7 @@ class FFS:
 
     def sky_gradient(self,n_segments=10):
         image = self.image
-        segments = FFS.make_segments(image)
+        segments = FFS.make_segments(image, n_segments=n_segments)
 
         x = []
         y = []
@@ -850,14 +760,15 @@ class FFS:
         e = np.nan
         t = np.nan
         f = np.nan
-        lx, ly = image_cut.shape
-        nx, ny = np.mgrid[0:lx, 0:ly]
-        image_cut = image_cut.clip(min=0)
+        # x = column, y = row; theta is the major-axis angle counter-clockwise
+        # from +x, folded into [-pi/2, pi/2) (an orientation has period pi).
+        y, x = np.indices(image_cut.shape)
         I = image_cut.clip(min=0)
         It = I.sum()
         if It > 0:
-            dx = nx - int(lx/2)
-            dy = ny - int(ly/2)
+            # second moments about the centroid, not the box centre
+            dx = x - np.sum(I * x) / It
+            dy = y - np.sum(I * y) / It
 
             Mxx = np.sum(I * dx * dx) / It
             Myy = np.sum(I * dy * dy) / It
@@ -875,8 +786,63 @@ class FFS:
 
                 e = 1.0 - np.sqrt(b2 / a2)
                 vx, vy = eigvecs[:, 1]
-                t = np.arctan2(vy, vx)
+                t = (np.arctan2(vy, vx) + np.pi / 2) % np.pi - np.pi / 2
         return f,e,t
+
+    @staticmethod
+    def adaptive_moments(image_cut, sigma0=2.0, max_iter=30, tol=1e-4):
+        """Shape from Gaussian-weighted (adaptive) second moments.
+
+        The elliptical Gaussian window is iterated to match the source
+        (Bernstein & Jarvis 2002), so noise and neighbours far from the
+        core get little weight and no clipping at zero is needed. For a
+        Gaussian PSF the converged moments equal its covariance.
+
+        ``image_cut`` must be background subtracted. Returns
+        ``(fwhm, ellipticity, theta)`` like :meth:`pca`, all NaN when the
+        iteration does not converge.
+        """
+        f = e = t = np.nan
+        I = np.asarray(image_cut, dtype=float)
+        if I.size == 0 or not np.all(np.isfinite(I)):
+            return f, e, t
+        y, x = np.indices(I.shape)
+
+        cx, cy = FFS.centroid(I)
+        if cx is None:
+            return f, e, t
+        M = np.eye(2) * sigma0 ** 2
+
+        for _ in range(max_iter):
+            dx, dy = x - cx, y - cy
+            Mi = np.linalg.inv(M)
+            r2 = Mi[0, 0] * dx * dx + 2 * Mi[0, 1] * dx * dy + Mi[1, 1] * dy * dy
+            wI = np.exp(-0.5 * r2) * I
+            S = wI.sum()
+            if S <= 0:
+                return f, e, t
+            cx = cx + np.sum(wI * dx) / S
+            cy = cy + np.sum(wI * dy) / S
+            # factor 2: for a Gaussian source with window == source the
+            # weighted moments are half the true covariance
+            M_new = 2.0 * np.array([[np.sum(wI * dx * dx), np.sum(wI * dx * dy)],
+                                    [np.sum(wI * dx * dy), np.sum(wI * dy * dy)]]) / S
+            if np.linalg.det(M_new) <= 0 or M_new[0, 0] <= 0:
+                return f, e, t
+            done = np.max(np.abs(M_new - M)) < tol * np.trace(M)
+            M = M_new
+            if done:
+                break
+        else:
+            return f, e, t
+
+        eigvals, eigvecs = np.linalg.eigh(M)
+        b2, a2 = eigvals
+        f = 2.355 * (np.sqrt(a2) + np.sqrt(b2)) / 2
+        e = 1.0 - np.sqrt(b2 / a2)
+        vx, vy = eigvecs[:, 1]
+        t = (np.arctan2(vy, vx) + np.pi / 2) % np.pi - np.pi / 2
+        return f, e, t
 
     @staticmethod
     def cpe(image_cut):
