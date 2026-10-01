@@ -270,6 +270,64 @@ class TestValidateOb(unittest.TestCase):
         self.assertNotIn('priority', self.validator.base_schema['properties'])
 
 
+class TestTpgRules(unittest.TestCase):
+    """tpg master-file rules: stricter than base_rules, see tpg_rules.yaml."""
+
+    def setUp(self):
+        schema = ObsValidator.load_schema("base_schema")
+        schema["properties"].update(ObsValidator.load_schema("tpg_schema")["properties"])
+        self.validator = ObsValidator(schema, ObsValidator.load_schema("tpg_rules"))
+        self.ob = {'command_name': 'OBJECT', 'name': 'AP_Ser', 'ra': '15:14:00.92',
+                   'dec': '+09:58:51.8', 'seq': '2/Ic/6', 'priority': 5}
+
+    def test_complete_master_line(self):
+        self.assertTrue(self.validator.validate_ob(self.ob)['valid'])
+
+    def test_scheduling_keys_are_typed_by_tpg_schema(self):
+        ob = dict(self.ob, cycle='0.08', ph_start='0.1', ph_end='0.3', P='7.5')
+        result = self.validator.validate_ob(ob)
+        self.assertTrue(result['valid'])
+        self.assertEqual(result['data']['cycle'], 0.08)
+        self.assertEqual(result['data']['ph_start'], 0.1)
+
+    def test_missing_priority_is_rejected(self):
+        # base_rules accepts this line, tpg crashes on it in allocate()
+        ob = dict(self.ob)
+        del ob['priority']
+        result = self.validator.validate_ob(ob)
+        self.assertFalse(result['valid'])
+        self.assertIsNone(result['result']['priority'])
+
+    def test_missing_coordinates_are_rejected(self):
+        for key in ('name', 'ra', 'dec'):
+            with self.subTest(key=key):
+                ob = dict(self.ob)
+                del ob[key]
+                self.assertFalse(self.validator.validate_ob(ob)['valid'])
+
+    def test_seq_or_ob_time_is_required(self):
+        ob = dict(self.ob)
+        del ob['seq']
+        result = self.validator.validate_ob(ob)
+        self.assertFalse(result['valid'])
+
+        ob['ob_time'] = 12
+        self.assertTrue(self.validator.validate_ob(ob)['valid'])
+
+    def test_non_object_command_is_rejected(self):
+        result = self.validator.validate_ob({'command_name': 'ZERO', 'seq': '15/Ic/0'})
+        self.assertFalse(result['valid'])
+        self.assertFalse(result['result']['command_name'])
+
+    def test_base_rules_accept_what_tpg_rules_reject(self):
+        # documents why tpg needs its own rules at all
+        base = ObsValidator(ObsValidator.load_schema("base_schema"),
+                            ObsValidator.load_schema("base_rules"))
+        ob = {'command_name': 'OBJECT', 'name': 'AP_Ser', 'seq': '2/Ic/6'}
+        self.assertTrue(base.validate_ob(ob)['valid'])
+        self.assertFalse(self.validator.validate_ob(ob)['valid'])
+
+
 class TestValidateTxt(unittest.TestCase):
 
     def setUp(self):
