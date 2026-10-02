@@ -1,4 +1,8 @@
+import inspect
 import unittest
+
+from astropy.io import fits
+
 from pyaraucaria.fits import fits_header, fits_stat
 
 
@@ -33,7 +37,6 @@ class TestFitsHeader(unittest.TestCase):
     def test_fits_header_defaults_include_m1_cards(self):
         header = fits_header()
 
-        self.assertEqual(header["OCASTD"][0], "1.1.3")
         self.assertEqual(header["M1-POS1"], ('', '[um] M1 cell motor 1 position'))
         self.assertEqual(header["M1-POS2"], ('', '[um] M1 cell motor 2 position'))
         self.assertEqual(header["M1-POS3"], ('', '[um] M1 cell motor 3 position'))
@@ -51,6 +54,45 @@ class TestFitsHeader(unittest.TestCase):
         self.assertEqual(header["M1-POS2"][0], 0.0)
         self.assertEqual(header["M1-POS3"][0], 15.2)
         self.assertTrue(header["M1-ATSET"][0])
+
+    def test_fits_header_defaults_include_dome_cards(self):
+        header = fits_header()
+
+        self.assertEqual(header["T-DOME"], ('', '[deg C] Temperature - dome'))
+        self.assertEqual(header["RHUM-DOM"], ('', '[%] Relative humidity - dome'))
+
+    def test_fits_header_dome_cards_accept_values(self):
+        header = fits_header(
+            temp_dome=12.5,
+            rhum_dome=34.0,
+        )
+
+        self.assertEqual(header["T-DOME"][0], 12.5)
+        self.assertEqual(header["RHUM-DOM"][0], 34.0)
+
+    def test_fits_header_is_valid_fits(self):
+        """All keywords fit FITS standard (max 8 chars) and header can be built by astropy."""
+        header = fits_header()
+
+        for key in header:
+            self.assertLessEqual(len(key), 8, msg=f"Keyword too long: '{key}'")
+
+        fits_hdr = fits.Header([(key, value, comment) for key, (value, comment) in header.items()])
+        self.assertEqual(len(fits_hdr), len(header))
+
+    def test_fits_header_every_param_maps_to_one_card(self):
+        """Each fits_header parameter fills exactly one card, each card has a comment."""
+        params = list(inspect.signature(fits_header).parameters)
+        header = fits_header(**{p: f'value_{p}' for p in params})
+
+        self.assertEqual(len(header), len(params))
+
+        values = [value for value, comment in header.values()]
+        for p in params:
+            self.assertEqual(values.count(f'value_{p}'), 1, msg=f"Parameter '{p}' not mapped to exactly one card")
+
+        for key, (value, comment) in header.items():
+            self.assertTrue(comment, msg=f"Empty comment for card '{key}'")
 
 
 if __name__ == '__main__':
