@@ -86,7 +86,7 @@ def save_fits_from_array(array,
 
 
 def fits_header(
-        oca_std="1.1.3",
+        oca_std="1.1.4",
         obs="OCA",
         obs_lat='',
         obs_lon='',
@@ -140,7 +140,7 @@ def fits_header(
         test='',
         baseline_clamp='',
         sensor_compensation='',
-        sensor_port='',
+        sensor_port="",
         vertical_shift_speed='',
         rotator_mech_pos='',
         tracking='',
@@ -149,6 +149,10 @@ def fits_header(
         dome_sht='',
         mirror_cover='',
         fan_mirr='',
+        m1_pos1='',
+        m1_pos2='',
+        m1_pos3='',
+        m1_atset='',
         fan_dome='',
         lamp_flat='',
         press_ws='',
@@ -159,7 +163,6 @@ def fits_header(
         wind_gust_ws='',
         temp_dome='',
         rhum_dome=''
-
     ):
 
     _header = OrderedDict({
@@ -225,6 +228,10 @@ def fits_header(
         "DOME-SHT": (dome_sht, 'Dome: 0,2=open(ing) 1,3=close(ing) 4&5=err'),
         "MIRR-COV": (mirror_cover, 'Mirror cover: 0&4=unkn 1=closed 2=move 3=open'),
         "FAN-MIRR": (fan_mirr, 'Ventilator mirror status:  T=on, F=off'),
+        "M1-POS1": (m1_pos1, '[um] M1 cell motor 1 position'),
+        "M1-POS2": (m1_pos2, '[um] M1 cell motor 2 position'),
+        "M1-POS3": (m1_pos3, '[um] M1 cell motor 3 position'),
+        "M1-ATSET": (m1_atset, 'M1 cell motors at commanded position'),
         "FAN-DOME": (fan_dome, 'Ventilator dome status:  T=on, F=off'),
         "LAMP-FLT": (lamp_flat, 'Dome flat light: 0=unknown 1=off 2=busy 3=on'),
         "P-WS": (press_ws, '[hPa] Pressure - weather station'),
