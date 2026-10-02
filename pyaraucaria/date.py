@@ -324,7 +324,7 @@ def helio_corr(jd, ra, dec, longitude=None, latitude=None, elevation=None):
 def jd_to_bjd(
         jd: Union[float, np.ndarray], obj_ra: float, obj_dec: float,
         observ_lat: float, observ_lon: float, observ_elev: float,
-        iers_auto_download: bool = False, iers_remote_timeout: float = 30) -> Optional[Union[float, np.ndarray]]:
+        iers_auto_download: bool = False, iers_remote_timeout: float = 30) -> Union[float, np.ndarray]:
     """Converts Julian Date (JD) to Barycentric Julian Date (BJD) for a given target and observer location.
 
     The function applies a barycentric light-travel time correction using Astropy, transforming the input
@@ -352,23 +352,18 @@ def jd_to_bjd(
 
     Returns
     -------
-    float or numpy.ndarray or None
+    float or numpy.ndarray
         Barycentric Julian Date(s) in TDB scale (proposed column name: bjd_tdb).
         Returns a float if input is scalar, otherwise a numpy array.
-        Returns None if computation fails due to invalid input or type error.
 
     Notes
     -----
     - Uses Astropy's light_travel_time correction with kind='barycentric'.
     - Time conversion is performed from UTC to TDB internally.
-    - Accuracy depends on available IERS data; outdated or missing IERS tables may reduce precision.
-    - If Astropy cannot compute the correction (e.g., invalid coordinates or time format), the function returns None.
+    - Old IERS tables are always accepted (no refresh of outdated tables); the resulting BJD error
+      is below ~1 us. With iers_auto_download=True the IERS-A table is downloaded only if not cached;
+      with iers_auto_download=False the table bundled with astropy is used.
     """
-
-    if not iers_auto_download:
-        iers.conf.auto_download = False
-    else:
-        iers.conf.remote_timeout = iers_remote_timeout
 
     earth_location = EarthLocation(
         lat=observ_lat * u.deg,
@@ -383,14 +378,16 @@ def jd_to_bjd(
 
     t = Time(jd, format='jd', scale='utc')
 
-    try:
+    with iers.conf.set_temp('auto_download', iers_auto_download), \
+            iers.conf.set_temp('remote_timeout', iers_remote_timeout), \
+            iers.conf.set_temp('auto_max_age', None), \
+            iers.conf.set_temp('iers_degraded_accuracy', 'warn'):
         ltt_bary = t.light_travel_time(target_sky_coord, location=earth_location, kind='barycentric')
-        bjd = (t.tdb + ltt_bary).jd
-        if np.isscalar(jd):
-            return float(bjd)
-        return np.asarray(bjd)
-    except (ValueError, TypeError):
-        return None
+
+    bjd = (t.tdb + ltt_bary).jd
+    if np.isscalar(jd):
+        return float(bjd)
+    return np.asarray(bjd)
 
 
 def correct_year(year):
