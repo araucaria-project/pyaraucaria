@@ -695,7 +695,8 @@ class FFS:
     def find_lines(self):
         self.hough_transform()
 
-    def hough_transform(self, line_threshold=0.5, steps=180, half_width=3.0, min_length=30, max_candidates=100):
+    def hough_transform(self, line_threshold=0.3, steps=None, half_width=3.0, min_length=30, max_candidates=100,
+                        max_shift=1.0):
         # Ensure that the mask has been computed or set before use
         if not hasattr(self, "maska") or self.maska is None:
             raise RuntimeError(
@@ -710,6 +711,13 @@ class FFS:
 
         ny, nx = self.image.shape
         rh0 = int((ny ** 2 + nx ** 2) ** 0.5)
+
+        if steps is None:
+            # siatka katow gesta na tyle, zeby najdluzsza linia (przekatna) nie odjechala
+            # na koncach o wiecej niz max_shift px: przesuniecie ~ dlugosc * krok / 4
+            diag = np.hypot(nx, ny)
+            steps = int(np.ceil(np.pi * diag / (4 * max_shift)))
+            steps += steps % 2      # parzyste, zeby 0 deg bylo w siatce
 
         theta = np.deg2rad(np.linspace(-90, 90, steps, endpoint=False))   # robimy siatke katow theta
         T = len(theta)
