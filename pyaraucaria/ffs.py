@@ -7,6 +7,8 @@ from scipy.ndimage import gaussian_filter
 from astropy.stats import mad_std
 from astropy.table import Table
 
+from pyaraucaria import satellites
+
 
 class FFS:
 
@@ -57,6 +59,9 @@ class FFS:
         self.lines_val = None
         self.lines_theta = None
         self.lines_rho = None
+
+        self.satellites = None
+        self.satellite_mask = None
 
         self.frame_fwhm = None
         self.frame_fwhm_x = None
@@ -671,10 +676,26 @@ class FFS:
 
 
 
+    def find_satellites(self, **kwargs):
+        """Detect satellite trails and other straight linear features.
+
+        Thin wrapper around :func:`pyaraucaria.satellites.find_satellites`
+        (see there for parameters). Stores ``self.satellites`` (Table, one
+        row per feature), ``self.satellite_mask`` (bool, True on satellite
+        pixels -- for photutils ``mask=``) and ``self.stats["satellites"]``.
+        ``saturation`` defaults to ``self.saturation``. Does not need
+        ``mk_stats()``.
+        """
+        kwargs.setdefault("saturation", self.saturation)
+        self.satellites, self.satellite_mask = satellites.find_satellites(self.image, **kwargs)
+        self.stats["satellites"] = {c: np.asarray(self.satellites[c]) for c in satellites.COLUMNS}
+        self.stats_description["satellites"] = dict(satellites.DESCRIPTIONS)
+        return self.satellites
+
     def find_lines(self):
         self.hough_transform()
 
-    def hough_transform(self, th_signal=100, steps=180):
+    def hough_transform(self, line_threshold=0.5, steps=180, half_width=3.0, min_length=30, max_candidates=100):
         # Ensure that the mask has been computed or set before use
         if not hasattr(self, "maska") or self.maska is None:
             raise RuntimeError(
@@ -682,7 +703,7 @@ class FFS:
                 "or set 'self.maska' to a boolean mask array before calling "
                 "'hough_transform()'."
             )
-        ys, xs = np.nonzero(self.maska)
+        ys, xs = np.nonzero(self.maska)  # piksele ktore biora udzial w zabawie
         xs = xs.astype(float)
         ys = ys.astype(float)
         N = len(xs)
@@ -690,15 +711,15 @@ class FFS:
         ny, nx = self.image.shape
         rh0 = int((ny ** 2 + nx ** 2) ** 0.5)
 
-        theta = np.deg2rad(np.linspace(-90, 90, steps))
+        theta = np.deg2rad(np.linspace(-90, 90, steps, endpoint=False))   # robimy siatke katow theta
         T = len(theta)
 
         cos_t = np.cos(theta)
         sin_t = np.sin(theta)
 
-        rho_mtx = xs[:, None] * cos_t[None, :] + ys[:, None] * sin_t[None, :]
+        rho_mtx = xs[:, None] * cos_t[None, :] + ys[:, None] * sin_t[None, :]   # liczymy rho dla kazdego piksela i thety
 
-        rh = np.linspace(-rh0, rh0, 2 * rh0)
+        rh = np.arange(-rh0, rh0 + 1, dtype=float)
         ri = np.round(rho_mtx + rh0).astype(int)
 
         self.accumulator = np.zeros((len(rh), T))
@@ -706,29 +727,41 @@ class FFS:
         ti_flat = np.tile(np.arange(T), N)
         np.add.at(self.accumulator, (ri_flat, ti_flat), 1)
 
-        #self.accumulator
         self.hough_theta = theta
         self.rh = rh
 
-        accu_max = self.accumulator.max(axis=1)
-        peaks, _ = find_peaks(accu_max, height=th_signal)
+        # znajdujemy maksimum, jak jest powyzej th, a nastepnie usuwamy z glosowania piksele ktore sa w odleglosci
+        # half_width od lini
 
-        lines_rho = []
-        lines_theta = []
-        lines_val = []
-        for p in peaks:
-            rho = rh[p]
-            ti = np.argmax(self.accumulator[p])
-            t = self.hough_theta[ti]
-            val = self.accumulator[p, ti]
+        acc = self.accumulator.copy()
+        lines_rho, lines_theta, lines_val = [], [], []
+        for _ in range(max_candidates):
+            ri_max, ti_max = np.unravel_index(np.argmax(acc), acc.shape)
+            val = acc[ri_max, ti_max]
+            if val < min_length:
+                break
+            rho, t = rh[ri_max], theta[ti_max]
+
+            # wypelnienie linii: glosy (piksele maski na linii) / dlugosc linii w klatce
+            length = self._full_line_length(rho, t, self.image.shape)
+            if val / length < line_threshold:
+                # odrzucony: wylaczamy te komorke i jej sasiadow, piksele zostaja
+                acc[max(0, ri_max - 2):ri_max + 3, max(0, ti_max - 1):ti_max + 2] = -1
+                continue
+
             lines_rho.append(rho)
             lines_theta.append(t)
             lines_val.append(val)
 
-        idx = np.argsort(lines_val)[::-1]  # descending
-        self.lines_rho = np.array(lines_rho)[idx]
-        self.lines_theta = np.array(lines_theta)[idx]
-        self.lines_val = np.array(lines_val)[idx]
+            on_line = np.abs(xs * np.cos(t) + ys * np.sin(t) - rho) <= half_width
+            ri_on = np.round(xs[on_line, None] * cos_t[None, :] + ys[on_line, None] * sin_t[None, :] + rh0).astype(int)
+            np.add.at(acc, (ri_on.ravel(), np.tile(np.arange(T), on_line.sum())), -1)
+            xs, ys = xs[~on_line], ys[~on_line]
+
+
+        self.lines_rho = np.array(lines_rho)
+        self.lines_theta = np.array(lines_theta)
+        self.lines_val = np.array(lines_val)
 
         tmp = {}
         tmp["val"] = self.lines_val
@@ -754,6 +787,32 @@ class FFS:
                 "the X axis of the image coordinate system (in radians)"
             ),
         }
+
+    @staticmethod
+    def _full_line_length(rho, theta, shape):
+        """Dlugosc linii x*cos(theta) + y*sin(theta) = rho na naszym obrazku [px]."""
+        ny, nx = shape
+        c, s = np.cos(theta), np.sin(theta)
+        points = []    # punkty przeciecia linii z krawedziami klatki
+
+        # krawedzie pionowe: x = -0.5 i x = nx - 0.5
+        if abs(s) > 1e-9:
+            for x in (-0.5, nx - 0.5):
+                y = (rho - x * c) / s
+                if -0.5 <= y <= ny - 0.5:
+                    points.append((x, y))
+
+        # krawedzie poziome: y = -0.5 i y = ny - 0.5
+        if abs(c) > 1e-9:
+            for y in (-0.5, ny - 0.5):
+                x = (rho - y * s) / c
+                if -0.5 <= x <= nx - 0.5:
+                    points.append((x, y))
+
+        if len(points) < 2:
+            return 0.0
+        # najdalsze punkty (przy narozniku ten sam punkt moze wyjsc dwa razy)
+        return max(np.hypot(xa - xb, ya - yb) for xa, ya in points for xb, yb in points)
 
     @staticmethod
     def pca(image_cut):
@@ -1174,8 +1233,12 @@ class FFS:
         inner = kernel_half_size - 1 / 2
         outer = kernel_half_size + 1 / 2
 
-        left = ((x <= center) & (y <= center)) | ((x >= center) & (y >= center))
-        right = ((x < center) & (y > center)) | ((x > center) & (y < center))
+        # The four ring pixels on the axes are split between the halves: the
+        # horizontal-axis pair (y == center) goes to "left", the vertical-axis
+        # pair (x == center) to "right", so each kernel sums to zero and no
+        # line direction gives a zero response.
+        left = ((x < center) & (y <= center)) | ((x > center) & (y >= center))
+        right = ((x <= center) & (y > center)) | ((x >= center) & (y < center))
 
         # left
         mk = ((distance >= inner) & (distance <= outer))

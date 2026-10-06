@@ -164,6 +164,7 @@ def make_frame(shape=(512, 512), sky=1000.0, sky_gradient=(0.0, 0.0),
         "mask_bad_column": mask_bad_column,
         "mask_line": mask_line,
         "mask_saturated": mask_saturated,
+        "lines": [dict(ln) for ln in lines],
     }
     params = dict(shape=shape, sky=sky, sky_gradient=sky_gradient,
                   sky_curvature=sky_curvature, gain=gain, read_noise=read_noise,

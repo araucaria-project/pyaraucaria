@@ -293,23 +293,36 @@ class TestLines(QuietTestCase):
             t, r = t + np.pi * np.sign(self.theta_true - t), -r
         return t, r
 
+    def _offset_at_trail_centre(self):
+        # Distance of the detected line from the middle of the true trail.
+        # rho alone is not compared with the truth: it depends on theta, and
+        # with a 1-deg theta grid a ~0.2 deg angle error shifts rho by ~1 px
+        # (lever arm ~300 px) even when the line passes through the trail.
+        t, r = self.ffs.lines_theta[0], self.ffs.lines_rho[0]
+        xm, ym = 511.0 / 2, (60.0 + 300.0) / 2
+        return abs(xm * np.cos(t) + ym * np.sin(t) - r)
+
     def test_strongest_line_orientation(self):
-        t, r = self._strongest()
+        t, _ = self._strongest()
         self.assertLess(abs(t - self.theta_true), np.deg2rad(1.5))
-        self.assertLess(abs(r - self.rho_true), 1.5)
+        self.assertLess(self._offset_at_trail_centre(), 1.5)
 
-    @unittest.expectedFailure
-    def test_strongest_line_rho_subpixel(self):
-        # KNOWN BUG: rho grid is linspace(-rh0, rh0, 2*rh0) -- step != 1 px,
-        # so rho is biased by up to ~1 px towards the grid edge.
-        _, r = self._strongest()
-        self.assertLess(abs(r - self.rho_true), 0.5)
+    def test_strongest_line_through_trail_centre(self):
+        # The rho grid must agree with the voting rule (bin k <-> rho = k - rh0);
+        # with linspace(-rh0, rh0, 2*rh0) the line was off by up to ~1 px.
+        self.assertLess(self._offset_at_trail_centre(), 0.5)
 
-    @unittest.expectedFailure
     def test_single_trail_single_line(self):
-        # KNOWN BUG: one injected trail is reported as several lines (peaks
-        # are searched only along rho, with an absolute vote threshold).
-        self.assertEqual(len(self.ffs.lines_val), 1)
+        # The trail must be reported exactly once (the "butterfly" of partial
+        # votes around it used to give extra lines). Other real lines in the
+        # frame -- the hot column at x=260 -- are not counted here.
+        xm, ym = 511.0 / 2, (60.0 + 300.0) / 2
+        on_trail = [
+            r for r, t in zip(self.ffs.lines_rho, self.ffs.lines_theta)
+            if np.rad2deg(abs((t - self.theta_true + np.pi / 2) % np.pi - np.pi / 2)) < 3.0
+            and abs(xm * np.cos(t) + ym * np.sin(t) - r) < 5.0
+        ]
+        self.assertEqual(len(on_trail), 1)
 
 
 if __name__ == "__main__":
