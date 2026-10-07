@@ -3,6 +3,7 @@ from scipy.signal import find_peaks
 from scipy.ndimage import maximum_filter
 from scipy.ndimage import convolve
 from scipy.ndimage import gaussian_filter
+from scipy.ndimage import binary_closing, label
 
 from astropy.stats import mad_std
 from astropy.table import Table
@@ -82,6 +83,10 @@ class FFS:
             "frame": {},
             "stars": {}
         }
+
+        self.lines = None              # tabela wykrytych linii (find_lines)
+        self.masks = {}                # maski logiczne w rozmiarze obrazu, osobno dla kazdej metody
+        self.masks_description = {}
 
     def mk_stats(self):
         img = self.image.ravel()
@@ -692,57 +697,34 @@ class FFS:
         self.stats_description["satellites"] = dict(satellites.DESCRIPTIONS)
         return self.satellites
 
-    def find_lines(self):
-        self.hough_transform()
+    def find_lines(self, min_length=30, fwhm=4.0, max_gap=5, min_fill=0.5, half_width=3.0,
+                   max_candidates=100, steps=None, max_shift=1.0):
+        """Detekcja sladow (linii) na podstawie transformaty Hougha maski self.maska.
 
-    def hough_transform(self, line_threshold=0.3, steps=None, half_width=3.0, min_length=30, max_candidates=100,
-                        max_shift=1.0):
-        # Ensure that the mask has been computed or set before use
-        if not hasattr(self, "maska") or self.maska is None:
-            raise RuntimeError(
-                "Attribute 'maska' is not initialized. Call 'mk_stats()' first "
-                "or set 'self.maska' to a boolean mask array before calling "
-                "'hough_transform()'."
-            )
-        ys, xs = np.nonzero(self.maska)  # piksele ktore biora udzial w zabawie
+        Kandydaci to komorki akumulatora z najwieksza liczba glosow. Kandydat jest
+        linia, jesli wzdluz niej piksele maski tworza ciagly odcinek: przerwy
+        <= max_gap px, dlugosc >= 10 * fwhm, zajetosc >= min_fill. Po przyjeciu
+        linii jej piksele (w odleglosci <= half_width) i ich glosy sa usuwane.
+        steps i max_shift sa przekazywane do hough_transform().
+        """
+        self.hough_transform(steps=steps, max_shift=max_shift)
+
+        rh, theta = self.rh, self.hough_theta
+        rh0 = -int(rh[0])                     # koszyk k <-> rho = k - rh0
+        cos_t, sin_t = np.cos(theta), np.sin(theta)
+        ys, xs = np.nonzero(self.maska)
         xs = xs.astype(float)
         ys = ys.astype(float)
-        N = len(xs)
-
-        ny, nx = self.image.shape
-        rh0 = int((ny ** 2 + nx ** 2) ** 0.5)
-
-        if steps is None:
-            # siatka katow gesta na tyle, zeby najdluzsza linia (przekatna) nie odjechala
-            # na koncach o wiecej niz max_shift px: przesuniecie ~ dlugosc * krok / 4
-            diag = np.hypot(nx, ny)
-            steps = int(np.ceil(np.pi * diag / (4 * max_shift)))
-            steps += steps % 2      # parzyste, zeby 0 deg bylo w siatce
-
-        theta = np.deg2rad(np.linspace(-90, 90, steps, endpoint=False))   # robimy siatke katow theta
-        T = len(theta)
-
-        cos_t = np.cos(theta)
-        sin_t = np.sin(theta)
-
-        rho_mtx = xs[:, None] * cos_t[None, :] + ys[:, None] * sin_t[None, :]   # liczymy rho dla kazdego piksela i thety
-
-        rh = np.arange(-rh0, rh0 + 1, dtype=float)
-        ri = np.round(rho_mtx + rh0).astype(int)
-
-        self.accumulator = np.zeros((len(rh), T))
-        ri_flat = ri.ravel()
-        ti_flat = np.tile(np.arange(T), N)
-        np.add.at(self.accumulator, (ri_flat, ti_flat), 1)
-
-        self.hough_theta = theta
-        self.rh = rh
 
         # znajdujemy maksimum, jak jest powyzej th, a nastepnie usuwamy z glosowania piksele ktore sa w odleglosci
         # half_width od lini
 
         acc = self.accumulator.copy()
+        work = self.maska.copy()       # maska, z ktorej usuwamy piksele przyjetych linii
+        removed = np.zeros_like(work)  # piksele usuniete razem z przyjetymi liniami
         lines_rho, lines_theta, lines_val = [], [], []
+        lines_x0, lines_y0, lines_x1, lines_y1 = [], [], [], []
+
         for _ in range(max_candidates):
             ri_max, ti_max = np.unravel_index(np.argmax(acc), acc.shape)
             val = acc[ri_max, ti_max]
@@ -750,32 +732,62 @@ class FFS:
                 break
             rho, t = rh[ri_max], theta[ti_max]
 
-            # wypelnienie linii: glosy (piksele maski na linii) / dlugosc linii w klatce
-            length = self._full_line_length(rho, t, self.image.shape)
-            if val / length < line_threshold:
+            # czy wzdluz linii piksele maski tworza ciagly odcinek?
+            pos, occupied = FFS._line_profile(work, rho, t)
+            _, unknown = FFS._line_profile(removed, rho, t)   # skrzyzowania z juz znalezionymi liniami
+            segments = FFS._line_segments(occupied, max_gap, 10 * fwhm, min_fill, unknown)
+            if not segments:
                 # odrzucony: wylaczamy te komorke i jej sasiadow, piksele zostaja
                 acc[max(0, ri_max - 2):ri_max + 3, max(0, ti_max - 1):ti_max + 2] = -1
                 continue
 
+            # przyjety: zapisujemy linie i konce najdluzszego odcinka
+            start, stop = max(segments, key=lambda seg: seg[1] - seg[0])
+            c, s = np.cos(t), np.sin(t)
+            p0, p1 = pos[start], pos[stop - 1]
             lines_rho.append(rho)
             lines_theta.append(t)
             lines_val.append(val)
+            lines_x0.append(rho * c - p0 * s)
+            lines_y0.append(rho * s + p0 * c)
+            lines_x1.append(rho * c - p1 * s)
+            lines_y1.append(rho * s + p1 * c)
 
-            on_line = np.abs(xs * np.cos(t) + ys * np.sin(t) - rho) <= half_width
-            ri_on = np.round(xs[on_line, None] * cos_t[None, :] + ys[on_line, None] * sin_t[None, :] + rh0).astype(int)
-            np.add.at(acc, (ri_on.ravel(), np.tile(np.arange(T), on_line.sum())), -1)
+            # usuwamy glosy pikseli tej linii i same piksele (tez z maski roboczej)
+            on_line = np.abs(xs * c + ys * s - rho) <= half_width
+            FFS._hough_votes(acc, xs[on_line], ys[on_line], cos_t, sin_t, rh0, weight=-1)
+            work[ys[on_line].astype(int), xs[on_line].astype(int)] = False
+            removed[ys[on_line].astype(int), xs[on_line].astype(int)] = True
             xs, ys = xs[~on_line], ys[~on_line]
-
 
         self.lines_rho = np.array(lines_rho)
         self.lines_theta = np.array(lines_theta)
         self.lines_val = np.array(lines_val)
+        self.lines_x0 = np.array(lines_x0)
+        self.lines_y0 = np.array(lines_y0)
+        self.lines_x1 = np.array(lines_x1)
+        self.lines_y1 = np.array(lines_y1)
 
         tmp = {}
         tmp["val"] = self.lines_val
         tmp["rho"] = self.lines_rho
         tmp["theta"] = self.lines_theta
+        tmp["x0"] = self.lines_x0
+        tmp["y0"] = self.lines_y0
+        tmp["x1"] = self.lines_x1
+        tmp["y1"] = self.lines_y1
         self.stats["lines"] = tmp
+
+        # tabela linii (do rysowania np. w FitsView) i maska pikseli linii
+        self.lines = Table(self.stats["lines"])
+        mask = np.zeros(self.image.shape, dtype=bool)
+        for row in self.lines:
+            FFS._paint_segment(mask, row["x0"], row["y0"], row["x1"], row["y1"],
+                               row["rho"], row["theta"], half_width)
+        self.masks["lines"] = mask
+        self.masks_description["lines"] = (
+            f"Pixels within {half_width} px of the detected line segments (find_lines)"
+        )
 
         self.stats_description["lines"] = {
 
@@ -794,33 +806,121 @@ class FFS:
                 "Orientation angle (θ) of each detected line, measured relative to "
                 "the X axis of the image coordinate system (in radians)"
             ),
+
+            "x0": "X of the first end of the detected line segment (pixels, 0-based)",
+            "y0": "Y of the first end of the detected line segment (pixels, 0-based)",
+            "x1": "X of the second end of the detected line segment (pixels, 0-based)",
+            "y1": "Y of the second end of the detected line segment (pixels, 0-based)",
         }
 
     @staticmethod
-    def _full_line_length(rho, theta, shape):
-        """Dlugosc linii x*cos(theta) + y*sin(theta) = rho na naszym obrazku [px]."""
-        ny, nx = shape
+    def _paint_segment(mask, x0, y0, x1, y1, rho, theta, half_width):
+        # zaznacza w masce piksele w odleglosci <= half_width od odcinka (x0, y0)-(x1, y1)
+        # lezacego na linii x*cos(theta) + y*sin(theta) = rho
+        ny, nx = mask.shape
         c, s = np.cos(theta), np.sin(theta)
-        points = []    # punkty przeciecia linii z krawedziami klatki
+        pad = half_width + 1
+        xa, xb = int(max(0, min(x0, x1) - pad)), int(min(nx, max(x0, x1) + pad + 1))
+        ya, yb = int(max(0, min(y0, y1) - pad)), int(min(ny, max(y0, y1) + pad + 1))
+        yy, xx = np.mgrid[ya:yb, xa:xb]
+        dist = np.abs(xx * c + yy * s - rho)            # odleglosc od linii
+        pos = -xx * s + yy * c                         # polozenie wzdluz linii
+        p0, p1 = sorted([-x0 * s + y0 * c, -x1 * s + y1 * c])
+        mask[ya:yb, xa:xb] |= (dist <= half_width) & (pos >= p0 - half_width) & (pos <= p1 + half_width)
 
-        # krawedzie pionowe: x = -0.5 i x = nx - 0.5
-        if abs(s) > 1e-9:
-            for x in (-0.5, nx - 0.5):
-                y = (rho - x * c) / s
-                if -0.5 <= y <= ny - 0.5:
-                    points.append((x, y))
+    def hough_transform(self, steps=None, max_shift=1.0):
+        """Transformata Hougha maski self.maska.
 
-        # krawedzie poziome: y = -0.5 i y = ny - 0.5
-        if abs(c) > 1e-9:
-            for y in (-0.5, ny - 0.5):
-                x = (rho - y * s) / c
-                if -0.5 <= x <= nx - 0.5:
-                    points.append((x, y))
+        Zapisuje self.accumulator (koszyki rho x katy theta), self.rh (rho koszykow,
+        krok 1 px) i self.hough_theta. steps=None dobiera liczbe katow tak, zeby
+        najdluzsza linia (przekatna) nie odjechala na koncach o wiecej niz max_shift px.
+        """
+        # Ensure that the mask has been computed or set before use
+        if not hasattr(self, "maska") or self.maska is None:
+            raise RuntimeError(
+                "Attribute 'maska' is not initialized. Call 'mk_stats()' first "
+                "or set 'self.maska' to a boolean mask array before calling "
+                "'hough_transform()'."
+            )
+        ys, xs = np.nonzero(self.maska)  # piksele ktore biora udzial w zabawie
+        xs = xs.astype(float)
+        ys = ys.astype(float)
 
-        if len(points) < 2:
-            return 0.0
-        # najdalsze punkty (przy narozniku ten sam punkt moze wyjsc dwa razy)
-        return max(np.hypot(xa - xb, ya - yb) for xa, ya in points for xb, yb in points)
+        ny, nx = self.image.shape
+        rh0 = int((ny ** 2 + nx ** 2) ** 0.5)
+
+        if steps is None:
+            # siatka katow gesta na tyle, zeby najdluzsza linia (przekatna) nie odjechala
+            # na koncach o wiecej niz max_shift px: przesuniecie ~ dlugosc * krok / 4
+            diag = np.hypot(nx, ny)
+            steps = int(np.ceil(np.pi * diag / (4 * max_shift)))
+            steps += steps % 2      # parzyste, zeby 0 deg bylo w siatce
+
+        theta = np.deg2rad(np.linspace(-90, 90, steps, endpoint=False))   # robimy siatke katow theta
+        cos_t = np.cos(theta)
+        sin_t = np.sin(theta)
+        rh = np.arange(-rh0, rh0 + 1, dtype=float)
+
+        self.accumulator = np.zeros((len(rh), len(theta)))
+        FFS._hough_votes(self.accumulator, xs, ys, cos_t, sin_t, rh0)
+
+        self.hough_theta = theta
+        self.rh = rh
+
+    @staticmethod
+    def _hough_votes(acc, xs, ys, cos_t, sin_t, rh0, weight=1):
+        # dodaje (weight=1) albo odejmuje (weight=-1) glosy pikseli (xs, ys) w akumulatorze:
+        # dla kazdego kata theta piksel glosuje na koszyk rho = round(x*cos + y*sin) (+ rh0)
+        R, T = acc.shape
+        ri = np.round(xs[:, None] * cos_t[None, :] + ys[:, None] * sin_t[None, :] + rh0).astype(int)
+        # zliczamy glosy na komorke: komorka (r, t) ma w splaszczonej tablicy numer r * T + t
+        flat = ri * T + np.arange(T)
+        acc += weight * np.bincount(flat.ravel(), minlength=R * T).reshape(R, T)
+
+    @staticmethod
+    def _line_profile(mask, rho, theta):
+        """Maska wzdluz linii x*cos(theta) + y*sin(theta) = rho, krokami po 1 px.
+
+        Zwraca (pos, occupied): polozenia wzdluz linii [px] i czy w danym miejscu
+        jest piksel maski (ktorykolwiek z 3 pikseli w poprzek linii).
+        """
+        ny, nx = mask.shape
+        c, s = np.cos(theta), np.sin(theta)
+        D = int(np.ceil(np.hypot(nx, ny)))
+        pos = np.arange(-D, D + 1)
+        x = rho * c - pos * s
+        y = rho * s + pos * c
+        inside = (x > -0.5) & (x < nx - 0.5) & (y > -0.5) & (y < ny - 0.5)
+        pos, x, y = pos[inside], x[inside], y[inside]
+
+        occupied = np.zeros(len(pos), dtype=bool)
+        for d in (-1, 0, 1):                       # 3 piksele w poprzek linii
+            xi = np.rint(x + d * c).astype(int)
+            yi = np.rint(y + d * s).astype(int)
+            ok = (xi >= 0) & (xi < nx) & (yi >= 0) & (yi < ny)
+            occupied[ok] |= mask[yi[ok], xi[ok]]
+        return pos, occupied
+
+    @staticmethod
+    def _line_segments(occupied, max_gap=5, min_length=40, min_fill=0.5, unknown=None):
+        """Ciagle odcinki wzdluz linii: przerwy <= max_gap, dlugosc >= min_length,
+        zajetosc >= min_fill. Zwraca liste (start, stop) - indeksy w occupied.
+
+        unknown: miejsca, z ktorych usunieto piksele juz znalezionych linii
+        (skrzyzowania). Nie przerywaja odcinka, ale nie licza sie do zajetosci.
+        """
+        bridged = occupied if unknown is None else occupied | unknown
+        pad = max_gap + 1                          # zeby zamykanie nie obcinalo koncow
+        closed = binary_closing(np.pad(bridged, pad), structure=np.ones(max_gap + 1))[pad:-pad]
+        labels, n = label(closed)
+        segments = []
+        for i in range(1, n + 1):
+            idx = np.nonzero(labels == i)[0]
+            start, stop = idx[0], idx[-1] + 1
+            if stop - start >= min_length and occupied[start:stop].mean() >= min_fill:
+                segments.append((start, stop))
+        return segments
+
 
     @staticmethod
     def pca(image_cut):

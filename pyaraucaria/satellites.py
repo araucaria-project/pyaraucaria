@@ -1,9 +1,9 @@
 """Detection of satellite trails and other straight linear features.
 
-Pipeline (detection runs on a binned, background-flattened copy):
+Pipeline (detection runs on a background-flattened copy of the image):
 
-1. Bin the image, subtract a smooth local background (block medians,
-   bilinear), and threshold a lightly smoothed residual at ``k_input`` sigma.
+1. Subtract a smooth local background (block medians, bilinear), and
+   threshold a lightly smoothed residual at ``k_input`` sigma.
    Stars are *not* removed -- a bright trail is itself detected as a chain of
    "stars". Each pixel votes with weight 1 and the rho bin is 1 px wide, so a
    star contributes only its chord to any line.
@@ -62,19 +62,6 @@ DESCRIPTIONS = {
 
 
 # --- small helpers ---------------------------------------------------------
-
-def _auto_bin(shape):
-    n = max(shape)
-    return 1 if n <= 1024 else 2 if n <= 2048 else 4
-
-
-def _bin(image, b):
-    if b == 1:
-        return image.astype(float)
-    ny, nx = image.shape
-    ny2, nx2 = ny - ny % b, nx - nx % b
-    return image[:ny2, :nx2].astype(float).reshape(ny2 // b, b, nx2 // b, b).mean(axis=(1, 3))
-
 
 def _lerp_axis(centres, values, coords, axis):
     """Piecewise-linear interpolation along ``axis`` with linear extrapolation."""
@@ -260,7 +247,7 @@ def _fwhm_profile(d, v, step=0.5, max_d=None):
 
 # --- main entry point ------------------------------------------------------
 
-def find_satellites(image, bin=None, k_input=2.0, z_min=8.0, nsigma=10.0,
+def find_satellites(image, k_input=2.0, z_min=8.0, nsigma=10.0,
                     min_fraction=0.3, min_length=100.0, width_guess=3.0,
                     bkg_box=64, edge=8, theta_step=0.25, max_candidates=300,
                     axis_tol=1.0, mask_nsigma=0.5, mask_margin=1.5, min_segments=10,
@@ -271,8 +258,6 @@ def find_satellites(image, bin=None, k_input=2.0, z_min=8.0, nsigma=10.0,
     Parameters
     ----------
     image : 2-D array
-    bin : int or None
-        Binning factor for detection; ``None`` -> 1, 2 or 4 by frame size.
     k_input : float
         Threshold (sigma of the smoothed residual) for pixels entering Hough.
     z_min : float
@@ -295,7 +280,7 @@ def find_satellites(image, bin=None, k_input=2.0, z_min=8.0, nsigma=10.0,
     bkg_box : int
         Background block size in pixels.
     edge : int
-        Border (binned pixels) excluded from detection; trails reaching it
+        Border (pixels) excluded from detection; trails reaching it
         are extended to the frame edge.
     theta_step : float
         Hough angle step in degrees (refined locally afterwards).
@@ -338,11 +323,10 @@ def find_satellites(image, bin=None, k_input=2.0, z_min=8.0, nsigma=10.0,
     """
     image = np.asarray(image)
     full_shape = image.shape
-    b = _auto_bin(full_shape) if bin is None else int(bin)
 
-    # --- 1. binned, background-flattened residual and the vote set ---------
-    img = _bin(image, b)
-    resid = img - _background(img, max(8, bkg_box // b))
+    # --- 1. background-flattened residual and the vote set -----------------
+    img = image.astype(float)
+    resid = img - _background(img, max(8, bkg_box))
     smooth = gaussian_filter(resid, 1.0)
     sig_s = mad_std(smooth)
     ny, nx = img.shape
@@ -351,13 +335,12 @@ def find_satellites(image, bin=None, k_input=2.0, z_min=8.0, nsigma=10.0,
     if saturation is not None:
         # saturated cores and bleed columns neither vote nor take part in
         # verification; a saturated trail is still seen through its wings
-        sat_zone = binary_dilation(_bin(image >= saturation, b) > 0,
-                                   iterations=max(1, int(round(4 / b))))
+        sat_zone = binary_dilation(image >= saturation, iterations=4)
     else:
         sat_zone = np.zeros(img.shape, dtype=bool)
     hot = (smooth > k_input * sig_s) & valid & ~sat_zone
     ys, xs = np.nonzero(hot)
-    ws = _component_weights(hot, area_cap=max(9.0, 60.0 / b ** 2))
+    ws = _component_weights(hot, area_cap=60.0)
     ys, xs = ys.astype(float), xs.astype(float)
     p = max(ws.sum() / max(valid.sum(), 1), 1e-6)
 
@@ -370,15 +353,14 @@ def find_satellites(image, bin=None, k_input=2.0, z_min=8.0, nsigma=10.0,
     box = (edge - 0.5, nx - edge - 0.5, edge - 0.5, ny - edge - 0.5)
     t_min, t_max = _chord(rhos[:, None], thetas[None, :], *box)
     chord = np.clip(t_max - t_min, 0, None)
-    min_len_b = min_length / b
-    usable = chord >= min_len_b
+    usable = chord >= min_length
     expected = p * chord
     noise = np.sqrt(p * (1 - p) * chord + 1.0)
 
-    # verification geometry (binned pixels)
-    hw = max(1.5, width_guess / b)
+    # verification geometry (pixels)
+    hw = max(1.5, width_guess)
     gap, flank = 2.0, 4.0
-    seg = max(4.0, 8.0 / b)       # ~8 px (full resolution) per segment, at least 4 binned px
+    seg = 8.0                     # segment length along the line
     step_off = hw + gap + flank + 3.0
     null_offsets = np.array([-1.0, 1.0, -2.0, 2.0]) * step_off
     reach = 2 * step_off + hw + gap + flank + 1.0
@@ -403,7 +385,7 @@ def find_satellites(image, bin=None, k_input=2.0, z_min=8.0, nsigma=10.0,
         if z[ri, ti] < z_min:
             break
         rho, theta = rhos[ri], thetas[ti]
-        cand = dict(z=float(z[ri, ti]), rho_b=float(rho), theta_deg=float(np.rad2deg(theta)),
+        cand = dict(z=float(z[ri, ti]), rho=float(rho), theta_deg=float(np.rad2deg(theta)),
                     outcome="rejected")
         log.append(cand)
 
@@ -447,14 +429,14 @@ def find_satellites(image, bin=None, k_input=2.0, z_min=8.0, nsigma=10.0,
                         i0, i1 = run
                         sv = sig_v[i0:i1]
                         sv = sv[np.isfinite(sv)]
-                        if sv.size >= min_segments and (i1 - i0) * seg >= min_len_b:
+                        if sv.size >= min_segments and (i1 - i0) * seg >= min_length:
                             med = np.median(sv)
                             significance = med / (1.2533 * sig_seg / np.sqrt(sv.size))
                             fraction = np.mean(sv > 2.0 * sig_seg)
                             # a trail is roughly uniform along its length; a
                             # line through a bright star's halo peaks mid-way
                             consistency = np.mean(np.abs(sv - med) <= max(3.0 * sig_seg, 0.5 * abs(med)))
-                            cand.update(length_b=float((i1 - i0) * seg), significance=float(significance),
+                            cand.update(length=float((i1 - i0) * seg), significance=float(significance),
                                         fraction=float(fraction), consistency=float(consistency))
                             if (significance >= nsigma and fraction >= min_fraction
                                     and consistency >= min_consistency):
@@ -469,7 +451,7 @@ def find_satellites(image, bin=None, k_input=2.0, z_min=8.0, nsigma=10.0,
             continue
 
         # --- 4. full-resolution refinement ---------------------------------
-        row = _refine_full(image, b, rho, theta, ext, to_edge, hw, seg, mask_nsigma, mask_margin)
+        row = _refine_full(image, rho, theta, ext, to_edge, hw, seg, mask_nsigma, mask_margin)
         row["significance"] = float(significance)
         row["fraction"] = float(fraction)
         deg = np.rad2deg(row["theta"])
@@ -505,7 +487,7 @@ def find_satellites(image, bin=None, k_input=2.0, z_min=8.0, nsigma=10.0,
     table = Table(rows=[[r[c] for c in COLUMNS] for r in results] if results else None,
                   names=COLUMNS, dtype=[float] * (len(COLUMNS) - 1) + [str])
     # bookkeeping for tuning: did the candidate budget run out?
-    table.meta.update(bin=b, candidates_examined=n_examined,
+    table.meta.update(candidates_examined=n_examined,
                       budget_exhausted=bool(n_examined >= max_candidates), candidates=log)
     mask = np.zeros(full_shape, dtype=bool)
     for r in results:
@@ -529,16 +511,13 @@ def _group_medians(k, v, n):
     return out
 
 
-def _refine_full(image, b, rho_b, theta, ext_b, to_edge, hw_b, seg_b, mask_nsigma, mask_margin):
-    """Refine a binned detection on the full-resolution image."""
+def _refine_full(image, rho, theta, ext, to_edge, hw, seg, mask_nsigma, mask_margin):
+    """Refine a detection: line centre (matched filter, then centroids), width, peak."""
     ny, nx = image.shape
     c, s = np.cos(theta), np.sin(theta)
-    off = (b - 1) / 2.0                       # binned pixel centre in full-res px
-    rho = b * rho_b + off * (c + s)
-    t0 = b * ext_b[0] + off * (c - s)
-    t1 = b * ext_b[1] + off * (c - s)
-    seg = max(8.0, seg_b * b)
-    search = max(6.0, (hw_b + 2) * b)
+    t0, t1 = ext
+    seg = max(8.0, seg)
+    search = max(6.0, hw + 2)
     outer = search + 8.0
     frame = (-0.5, nx - 0.5, -0.5, ny - 0.5)
 
@@ -582,7 +561,7 @@ def _refine_full(image, b, rho_b, theta, ext_b, to_edge, hw_b, seg_b, mask_nsigm
         Vc = np.clip(V[inb] - bkg, -5 * noise, 5 * noise)
         Xi, Yi = X[inb], Y[inb]
         length = max(t1 - t0, 1.0)
-        dth_max = min(np.deg2rad(0.5), 2.0 * b / length)
+        dth_max = min(np.deg2rad(0.5), 2.0 / length)
         step = 0.25
         edges = np.arange(-search, search + step, step)
         nb = max(1, int(round(1.5 / step)))          # +-1.5 px band = 12 bins
@@ -606,7 +585,7 @@ def _refine_full(image, b, rho_b, theta, ext_b, to_edge, hw_b, seg_b, mask_nsigm
         t_ends = pts[:, 0] * -s + pts[:, 1] * c
         t0, t1 = t_ends.min(), t_ends.max()
 
-    window = max(2.0, 0.75 * hw_b * b)
+    window = max(2.0, 0.75 * hw)
     for _ in range(2):                         # centroid refinement, narrow window
         d, t, core, bkgz = geometry(rho, theta, t0, t1, window)
         n_seg = max(1, int((t1 - t0) // seg))
@@ -651,7 +630,7 @@ def _refine_full(image, b, rho_b, theta, ext_b, to_edge, hw_b, seg_b, mask_nsigm
     # width/peak stay NaN when the profile cannot be measured; such a
     # feature cannot be confirmed as a trail (columns/rows are exempt)
     width, peak = _fwhm_profile(d[core], V[core] - bkg, step=0.5, max_d=search)
-    w_eff = width if np.isfinite(width) else float(hw_b * b)
+    w_eff = width if np.isfinite(width) else float(hw)
     half = w_eff
     if np.isfinite(peak) and noise > 0 and peak > mask_nsigma * noise:
         sigma_w = w_eff / 2.3548
