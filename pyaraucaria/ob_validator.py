@@ -10,8 +10,16 @@ from .obs_plan.obs_plan_parser import ObsPlanParser
 class ObsValidator:
 
     def __init__(self, base_schema: dict, command_rules: dict):
-        self.base_schema = base_schema
-        self.command_rules = command_rules
+        # fail here, not on the first validated line with a cryptic NoneType error
+        self.base_schema = self._check_mapping(base_schema, "base_schema")
+        self.command_rules = self._check_mapping(command_rules, "command_rules")
+
+    # schema/rules must be a non-empty dict (an empty yaml file loads as None)
+    @staticmethod
+    def _check_mapping(data, what: str) -> dict:
+        if not isinstance(data, dict) or not data:
+            raise ValueError(f"{what} is empty or not a mapping (got {type(data).__name__})")
+        return data
 
     @staticmethod
     def convert_from_obdict(ob: dict) -> str | None:
@@ -89,7 +97,8 @@ class ObsValidator:
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Schema not found: {file_path}")
         with open(file_path, "r") as f:
-            return yaml.safe_load(f)
+            data = yaml.safe_load(f)
+        return ObsValidator._check_mapping(data, f"Schema {file_path}")
 
     # converts types to declared in schema
     @staticmethod

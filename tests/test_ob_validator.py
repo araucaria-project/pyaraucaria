@@ -1,5 +1,9 @@
+import os
+import tempfile
 import unittest
+from unittest import mock
 
+from pyaraucaria import ob_validator
 from pyaraucaria.ob_validator import ObsValidator
 from pyaraucaria.obs_plan.obs_plan_parser import ObsPlanParser
 
@@ -21,6 +25,36 @@ class TestLoadSchema(unittest.TestCase):
     def test_missing_schema_raises(self):
         with self.assertRaises(FileNotFoundError):
             ObsValidator.load_schema("no_such_schema")
+
+    def test_every_shipped_schema_loads(self):
+        # an empty yaml shipped in the package must not slip through as None
+        schemas_dir = os.path.join(os.path.dirname(ob_validator.__file__), "schemas")
+        names = [n for n in os.listdir(schemas_dir) if n.endswith(".yaml")]
+        self.assertTrue(names)
+        for name in names:
+            with self.subTest(name=name):
+                schema = ObsValidator.load_schema(name)
+                self.assertIsInstance(schema, dict)
+                self.assertTrue(schema)
+
+    def test_empty_schema_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.mkdir(os.path.join(tmp, "schemas"))
+            open(os.path.join(tmp, "schemas", "empty.yaml"), "w").close()
+            with mock.patch.object(ob_validator.os.path, "dirname", return_value=tmp):
+                with self.assertRaisesRegex(ValueError, "empty.yaml"):
+                    ObsValidator.load_schema("empty")
+
+
+class TestInit(unittest.TestCase):
+
+    def test_none_rules_raise_early(self):
+        with self.assertRaisesRegex(ValueError, "command_rules"):
+            ObsValidator(ObsValidator.load_schema("base_schema"), None)
+
+    def test_empty_schema_raises_early(self):
+        with self.assertRaisesRegex(ValueError, "base_schema"):
+            ObsValidator({}, ObsValidator.load_schema("base_rules"))
 
 
 class TestConvertToObdict(unittest.TestCase):
