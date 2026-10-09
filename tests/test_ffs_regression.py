@@ -72,7 +72,7 @@ def run_fitsview(image):
     out["sky"] = ffs.stats["sky"]
     ffs.find_lines()
     out["lines"] = ffs.stats["lines"]
-    out["maska"] = _mask_digest(ffs.maska)
+    out["maska"] = _mask_digest(ffs.masks["threshold"])
     return out
 
 

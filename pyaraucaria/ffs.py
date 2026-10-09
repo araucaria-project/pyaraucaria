@@ -1,23 +1,22 @@
 import numpy as np
-from scipy.signal import find_peaks
-from scipy.ndimage import maximum_filter
+from scipy.ndimage import maximum_filter, median_filter
 from scipy.ndimage import convolve
 from scipy.ndimage import gaussian_filter
 from scipy.ndimage import binary_closing, label
+from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
 
 from astropy.stats import mad_std
 from astropy.table import Table
 
-from pyaraucaria import satellites
 
 
 class FFS:
 
-    def __init__(self, image, gain=1., rn_noise=0.):
+    def __init__(self, image, gain=1., rn_noise=0., saturation = 50000):
         self.image = image
         self.gain = float(gain)
         self.rn_noise = float(rn_noise)
-        self.saturation = 50000
+        self.saturation = saturation
 
         self.min = None
         self.max = None
@@ -61,9 +60,6 @@ class FFS:
         self.lines_theta = None
         self.lines_rho = None
 
-        self.satellites = None
-        self.satellite_mask = None
-
         self.frame_fwhm = None
         self.frame_fwhm_x = None
         self.frame_fwhm_y = None
@@ -74,7 +70,6 @@ class FFS:
         self.frame_ci = None
 
         self.rh = None
-        self.maska  = None
         self.stats = {
             "frame": {},
             "stars": {}
@@ -87,12 +82,48 @@ class FFS:
         self.lines = None              # tabela wykrytych linii (find_lines)
         self.masks = {}                # maski logiczne w rozmiarze obrazu, osobno dla kazdej metody
         self.masks_description = {}
+        self.exclude = set()           # nazwy masek wykluczajacych (zle piksele), patrz bad_mask()
+
+        nonfinite = ~np.isfinite(self.image)
+        if nonfinite.any():            # NaN/inf na wejsciu (np. po redukcji) traktujemy jak zle piksele
+            self.masks["nonfinite"] = nonfinite
+            self.masks_description["nonfinite"] = "Non-finite input pixels (NaN or inf)"
+            self.exclude.add("nonfinite")
+
+        self.maps = {}
+        self.maps_description = {}
+
+    def bad_mask(self, ignore=()):
+        """Suma (OR) masek wykluczajacych, ktorych nazwy sa w self.exclude (poza nazwami z ignore)."""
+        bad = np.zeros(self.image.shape, dtype=bool)
+        for name in self.exclude:
+            if name not in ignore:
+                bad |= self.masks[name]
+        return bad
+
+    def _background(self):
+        """Poziom tla i sigma: (maps["sky"], sigma residuum) jesli jest mapa tla, inaczej (median, q_sigma).
+
+        Sigma z residuum image - sky liczona z kwantyli dobrych pikseli: q_sigma calej klatki
+        zawiera tez rozrzut samego gradientu tla. Wymaga mk_stats().
+        """
+        if "sky" not in self.maps:
+            return self.median, self.q_sigma, "median"
+        bad = self.bad_mask()
+        residual = self.image - self.maps["sky"]
+        good = residual[~bad] if bad.sum() < bad.size else residual.ravel()
+        q16, q84 = np.percentile(good, [15.9, 84.1])
+        return self.maps["sky"], (q84 - q16) / 2.0, "sky map"
 
     def mk_stats(self):
-        img = self.image.ravel()
+        # statystyki z dobrych pikseli (poza bad_mask); min/max ze wszystkich, zeby bylo widac saturacje
+        bad = self.bad_mask()
+        self.n_bad = int(bad.sum())
+        img = self.image[~bad] if self.n_bad < bad.size else self.image.ravel()
 
-        self.min = img.min()
-        self.max = img.max()
+        finite = self.image[~self.masks["nonfinite"]] if "nonfinite" in self.masks else self.image
+        self.min = finite.min()
+        self.max = finite.max()
         self.mean = img.mean()
         self.rms = img.std()
 
@@ -111,7 +142,7 @@ class FFS:
 
         self.noise = np.sqrt(self.median / self.gain + self.rn_noise**2)
 
-        self.maska = self.image > np.median(self.image) + 3 * self.q_sigma
+        self.mk_threshold_mask()
 
         self.stats["frame"] = {
             "min": self.min,
@@ -123,6 +154,7 @@ class FFS:
             "q_sigma_upper": self.q_sigma_upper,
             "q_sigma": self.q_sigma,
             "noise": self.noise,
+            "n_bad": self.n_bad,
         }
 
         self.stats_description["frame"] = {
@@ -135,7 +167,82 @@ class FFS:
             "q_sigma_upper": "Upper 1-sigma estimate from 84.1% - 50% quantile",
             "q_sigma": "Robust sigma estimated from 15.9–84.1% quantiles",
             "noise": "Expected total noise (Poisson + read noise)",
+            "n_bad": "Number of excluded pixels (bad_mask); other statistics except min/max use only the remaining pixels",
         }
+
+    def mk_threshold_mask(self, nsigma=3.0):
+        """Maska pikseli powyzej tla: image > tlo + nsigma * sigma.
+
+        Tlo to self.maps["sky"], jesli juz policzone (sky_map); wtedy sigma liczona jest
+        z kwantyli residuum image - sky. W przeciwnym razie mediana i q_sigma z mk_stats().
+        """
+        level, sigma, level_name = self._background()
+        self.masks["threshold"] = (self.image > level + nsigma * sigma) & ~self.bad_mask()
+        self.masks_description["threshold"] = (
+            f"Pixels above {level_name} + {nsigma} * sigma (sigma = {sigma:.2f} ADU, quantile-based; "
+            f"excluding bad_mask; input mask for line detection)"
+        )
+
+    def mk_saturation_mask(self, saturation=None):
+        """Maska pikseli nasyconych: image >= saturation (domyslnie self.saturation)."""
+        if saturation is None:
+            saturation = self.saturation
+        self.masks["saturation"] = self.image >= saturation
+        self.exclude.add("saturation")
+        self.masks_description["saturation"] = f"Saturated pixels (value >= {saturation} ADU)"
+
+    def mk_columns_map(self, block=64, window=15):
+        """Mapy odchylen kolumn i wierszy (klatki kalibracyjne: zera, darki, flaty, bez gwiazd).
+
+        Od obrazu odejmowana jest mapa tla (sky_map, liczona jesli jej nie ma; liczbe segmentow
+        mozna ustawic wczesniej przez sky_map(n_segments=...)). maps["columns"] to roznica mediany
+        kolumny w bloku block wierszy i mediany window sasiednich kolumn, w ADU, w rozmiarze obrazu.
+        maps["rows"] tak samo dla wierszy. Maski z progiem: mk_bad_columns_mask().
+        """
+        if "sky" not in self.maps:
+            self.sky_map()
+        resid = np.where(self.bad_mask(), np.nan, self.image - self.maps["sky"])
+        self.maps["columns"] = FFS._column_deviation(resid, block, window)
+        self.maps["rows"] = FFS._column_deviation(resid.T, block, window).T
+        for name, what in (("columns", "column"), ("rows", "row")):
+            self.maps_description[name] = (
+                f"{what.capitalize()} median in blocks of {block} px minus the median of {window} neighbouring "
+                f"{what}s, sky map subtracted (ADU)"
+            )
+
+    def mk_bad_columns_mask(self, threshold):
+        """Maski zlych kolumn i wierszy: |maps["columns"]| > threshold, |maps["rows"]| > threshold (ADU).
+
+        Wymaga mk_columns_map(). Obie maski sa dopisywane do self.exclude.
+        """
+        for name, what in (("columns", "column"), ("rows", "row")):
+            self.masks["bad_" + name] = np.abs(self.maps[name]) > threshold
+            self.masks_description["bad_" + name] = (
+                f"Bad {what}s: |maps['{name}']| > {threshold} ADU (mk_bad_columns_mask)"
+            )
+            self.exclude.add("bad_" + name)
+
+    def mk_pixels_map(self, size=5):
+        """Mapa odchylen pojedynczych pikseli: image - median_filter(image, size x size), w ADU.
+
+        Dla klatek kalibracyjnych (najlepiej master; na pojedynczym darku hot piksel i CR wygladaja
+        tak samo). Maski z progiem: mk_hot_pixels_mask(), mk_cold_pixels_mask().
+        """
+        image = self.image.astype(float)
+        self.maps["pixels"] = image - median_filter(image, size=size)
+        self.maps_description["pixels"] = f"Pixel value minus the median of its {size}x{size} neighbourhood (ADU)"
+
+    def mk_hot_pixels_mask(self, threshold):
+        """Maska hot pikseli: maps["pixels"] > threshold (ADU). Wymaga mk_pixels_map()."""
+        self.masks["hot_pixels"] = self.maps["pixels"] > threshold
+        self.masks_description["hot_pixels"] = f"Hot pixels: maps['pixels'] > {threshold} ADU (mk_hot_pixels_mask)"
+        self.exclude.add("hot_pixels")
+
+    def mk_cold_pixels_mask(self, threshold):
+        """Maska cold pikseli: maps["pixels"] < -threshold (ADU). Wymaga mk_pixels_map()."""
+        self.masks["cold_pixels"] = self.maps["pixels"] < -threshold
+        self.masks_description["cold_pixels"] = f"Cold pixels: maps['pixels'] < -{threshold} ADU (mk_cold_pixels_mask)"
+        self.exclude.add("cold_pixels")
 
     def find_stars(self, threshold=5, method="sigma quantile", fwhm=10,
                    min_smoothed_sigma=None, rank_by="raw",
@@ -214,21 +321,30 @@ class FFS:
         )
         self.fs_rank_by = rank_by
 
+        # poziom tla: mapa tla jesli policzona (sky_map), inaczej mediana
+        level, q_sigma, _ = self._background()
+
         if self.fs_method == "rms Poisson":
             self.fs_sigma = self.noise
         elif self.fs_method == "rms":
             self.fs_sigma = self.rms
         elif self.fs_method == "sigma quantile":
-            self.fs_sigma = self.q_sigma
+            self.fs_sigma = q_sigma
         else:
             raise ValueError(f"Invalid method type {self.fs_method}")
 
-        mask1 = self.image > self.median + self.fs_threshold * self.fs_sigma
         # Cast to float first: gaussian_filter preserves the input dtype, so on
         # integer FITS data (uint16/int16) the smoothed image — and every test
         # built on it (min_smoothed_sigma, rank_by="smoothed") — would be
         # truncated to integers.
-        data2 = gaussian_filter(self.image.astype(float), sigma=self.fs_kernel_sigma)
+        image = self.image.astype(float)
+        # zle piksele (bad_mask, NaN) wypelniamy tlem, zeby nie byly kandydatami i nie psuly
+        # wygladzania; saturacji nie, bo nasycone gwiazdy maja zostac w coo/adu
+        bad = self.bad_mask(ignore=("saturation",))
+        image[bad] = level[bad] if np.ndim(level) else level
+
+        mask1 = image > level + self.fs_threshold * self.fs_sigma
+        data2 = gaussian_filter(image, sigma=self.fs_kernel_sigma)
         mask2 = data2 == maximum_filter(data2, size=3)
         mask = mask1 & mask2
 
@@ -250,7 +366,6 @@ class FFS:
         # needed for max_concentration filter and rank_by="aperture".
         # Computed once for both, since both are cheap (~50 ops/cand).
         ap_radius = self.fs_aperture_radius
-        bg_level = float(self.median)
         H, W = self.image.shape
         n_cand = len(coo)
         aperture_excess = np.zeros(n_cand, dtype=float)
@@ -261,9 +376,10 @@ class FFS:
             y1 = min(H, y + ap_radius + 1)
             x0 = max(0, x - ap_radius)
             x1 = min(W, x + ap_radius + 1)
-            patch = self.image[y0:y1, x0:x1]
-            aperture_excess[i] = float(patch.sum() - bg_level * patch.size)
-            peak_excess[i] = float(self.image[y, x] - bg_level)
+            bg_patch = level[y0:y1, x0:x1] if np.ndim(level) else level
+            bg_peak = level[y, x] if np.ndim(level) else level
+            aperture_excess[i] = float(np.sum(image[y0:y1, x0:x1] - bg_patch))
+            peak_excess[i] = float(image[y, x] - bg_peak)
 
         # Concentration-index cull — single-pixel artifacts have all
         # their signal in the central pixel (peak/aperture ≈ 1.0); real
@@ -325,8 +441,12 @@ class FFS:
 
         self.stars = Table(self.stats["stars"])
 
-    def calc_frame_fwhm(self,threshold=5, fwhm=10, box=10, N_stars=20, clip=4):
+    def calc_frame_fwhm(self,threshold=10, fwhm=10, box=10, N_stars=20, clip=4):
+        self.mk_saturation_mask()
         self.mk_stats()
+        self.sky_map()
+        self.mk_threshold_mask()
+        self.find_lines()
         self.find_stars(threshold=threshold, fwhm=fwhm)
         self.star_info(box=box,N_stars=N_stars)
         self.calc_star_stats(clip=clip)
@@ -427,6 +547,7 @@ class FFS:
 
         # Measurements of accepted stars only; `keep` holds their indices in
         # self.coo so every output row stays aligned with its source.
+        bad = self.bad_mask()
         keep = []
         rows = []
 
@@ -446,6 +567,9 @@ class FFS:
             cut = self.image[y0:y1, x0:x1]
 
             if cut.size == 0:
+                continue
+
+            if bad[y0:y1, x0:x1].any():  # zle piksele w wycinku psuja pomiar (fotometria: photutils)
                 continue
 
             top = cut[:1, :]
@@ -579,21 +703,47 @@ class FFS:
 
         })
 
-    def sky_gradient(self,n_segments=10):
+    def sky_map(self,n_segments=10):
+        self.sky_gradient(n_segments=n_segments)
+
+        points = np.column_stack((self.stats["sky"]["surface_x"], self.stats["sky"]["surface_y"]))
+        values = self.stats["sky"]["surface_val"]
+
+        ny, nx = self.image.shape
+        yy, xx = np.mgrid[0:ny, 0:nx]
+
+        sky_map = LinearNDInterpolator(points, values)(xx, yy)
+
+        # poza otoczka wypukla srodkow segmentow (brzegi kadru) LinearNDInterpolator daje NaN
+        outside = np.isnan(sky_map)
+        if outside.any():
+            sky_map[outside] = NearestNDInterpolator(points, values)(xx[outside], yy[outside])
+
+        self.maps["sky"] = sky_map
+        self.maps_description["sky"] = (
+            "Sky background map: linear interpolation (Delaunay triangulation) of segment medians; "
+            "outside the convex hull of segment centres filled with the nearest segment median"
+        )
+
+    def sky_gradient(self,n_segments=10, min_good_fraction=0.5):
         image = self.image
         segments = FFS.make_segments(image, n_segments=n_segments)
+        bad_segments = FFS.make_segments(self.bad_mask(), n_segments=n_segments)
 
         x = []
         y = []
         back = []
         back_mad = []
-        for s in segments:
+        for s, b in zip(segments, bad_segments):
+            good = s["subframe"][~b["subframe"]]
+            if good.size < min_good_fraction * s["subframe"].size:
+                continue                   # za malo dobrych pikseli (bad_mask) w segmencie
             x_tmp = (s["x"][0] + s["x"][1]) // 2
             y_tmp = (s["y"][0] + s["y"][1]) // 2
             x.append(x_tmp)
             y.append(y_tmp)
-            back.append(np.median(s["subframe"]))
-            back_mad.append(mad_std(s["subframe"]))
+            back.append(np.median(good))
+            back_mad.append(mad_std(good))
 
         x = np.array(x)
         y = np.array(y)
@@ -644,6 +794,7 @@ class FFS:
             "surface_bkg": self.sky_surface_bkg,
             "surface_x": self.sky_surface_x,
             "surface_y": self.sky_surface_y,
+            "surface_val": back,
         }
 
         self.sky = Table([self.sky_surface_x,self.sky_surface_y,self.sky_surface_bkg], names=["sky_surface_x","sky_surface_y","sky_surface_bkg"])
@@ -676,30 +827,17 @@ class FFS:
             "surface_y": (
                 "Y-coordinate grid used for evaluating the sky background surface "
                 "(pixel indices, 0-based)"
-            )
+            ),
+            "surface_val": (
+                "Median of each segment at (surface_x, surface_y), in ADU"
+            ),
         }
 
 
 
-    def find_satellites(self, **kwargs):
-        """Detect satellite trails and other straight linear features.
-
-        Thin wrapper around :func:`pyaraucaria.satellites.find_satellites`
-        (see there for parameters). Stores ``self.satellites`` (Table, one
-        row per feature), ``self.satellite_mask`` (bool, True on satellite
-        pixels -- for photutils ``mask=``) and ``self.stats["satellites"]``.
-        ``saturation`` defaults to ``self.saturation``. Does not need
-        ``mk_stats()``.
-        """
-        kwargs.setdefault("saturation", self.saturation)
-        self.satellites, self.satellite_mask = satellites.find_satellites(self.image, **kwargs)
-        self.stats["satellites"] = {c: np.asarray(self.satellites[c]) for c in satellites.COLUMNS}
-        self.stats_description["satellites"] = dict(satellites.DESCRIPTIONS)
-        return self.satellites
-
     def find_lines(self, min_length=30, fwhm=4.0, max_gap=5, min_fill=0.5, half_width=3.0,
                    max_candidates=100, steps=None, max_shift=1.0):
-        """Detekcja sladow (linii) na podstawie transformaty Hougha maski self.maska.
+        """Detekcja sladow (linii) na podstawie transformaty Hougha maski self.masks["threshold"].
 
         Kandydaci to komorki akumulatora z najwieksza liczba glosow. Kandydat jest
         linia, jesli wzdluz niej piksele maski tworza ciagly odcinek: przerwy
@@ -712,7 +850,7 @@ class FFS:
         rh, theta = self.rh, self.hough_theta
         rh0 = -int(rh[0])                     # koszyk k <-> rho = k - rh0
         cos_t, sin_t = np.cos(theta), np.sin(theta)
-        ys, xs = np.nonzero(self.maska)
+        ys, xs = np.nonzero(self.masks["threshold"])
         xs = xs.astype(float)
         ys = ys.astype(float)
 
@@ -720,8 +858,8 @@ class FFS:
         # half_width od lini
 
         acc = self.accumulator.copy()
-        work = self.maska.copy()       # maska, z ktorej usuwamy piksele przyjetych linii
-        removed = np.zeros_like(work)  # piksele usuniete razem z przyjetymi liniami
+        work = self.masks["threshold"].copy()       # maska, z ktorej usuwamy piksele przyjetych linii
+        removed = self.bad_mask()      # piksele "nieznane": zle (bad_mask) i usuniete razem z przyjetymi liniami
         lines_rho, lines_theta, lines_val = [], [], []
         lines_x0, lines_y0, lines_x1, lines_y1 = [], [], [], []
 
@@ -782,12 +920,13 @@ class FFS:
         self.lines = Table(self.stats["lines"])
         mask = np.zeros(self.image.shape, dtype=bool)
         for row in self.lines:
-            FFS._paint_segment(mask, row["x0"], row["y0"], row["x1"], row["y1"],
-                               row["rho"], row["theta"], half_width)
+            mask |= FFS.line_to_mask(mask.shape, row["rho"], row["theta"], half_width,
+                              row["x0"], row["y0"], row["x1"], row["y1"])
         self.masks["lines"] = mask
         self.masks_description["lines"] = (
             f"Pixels within {half_width} px of the detected line segments (find_lines)"
         )
+        self.exclude.add("lines")
 
         self.stats_description["lines"] = {
 
@@ -813,36 +952,21 @@ class FFS:
             "y1": "Y of the second end of the detected line segment (pixels, 0-based)",
         }
 
-    @staticmethod
-    def _paint_segment(mask, x0, y0, x1, y1, rho, theta, half_width):
-        # zaznacza w masce piksele w odleglosci <= half_width od odcinka (x0, y0)-(x1, y1)
-        # lezacego na linii x*cos(theta) + y*sin(theta) = rho
-        ny, nx = mask.shape
-        c, s = np.cos(theta), np.sin(theta)
-        pad = half_width + 1
-        xa, xb = int(max(0, min(x0, x1) - pad)), int(min(nx, max(x0, x1) + pad + 1))
-        ya, yb = int(max(0, min(y0, y1) - pad)), int(min(ny, max(y0, y1) + pad + 1))
-        yy, xx = np.mgrid[ya:yb, xa:xb]
-        dist = np.abs(xx * c + yy * s - rho)            # odleglosc od linii
-        pos = -xx * s + yy * c                         # polozenie wzdluz linii
-        p0, p1 = sorted([-x0 * s + y0 * c, -x1 * s + y1 * c])
-        mask[ya:yb, xa:xb] |= (dist <= half_width) & (pos >= p0 - half_width) & (pos <= p1 + half_width)
-
     def hough_transform(self, steps=None, max_shift=1.0):
-        """Transformata Hougha maski self.maska.
+        """Transformata Hougha maski self.masks["threshold"].
 
         Zapisuje self.accumulator (koszyki rho x katy theta), self.rh (rho koszykow,
         krok 1 px) i self.hough_theta. steps=None dobiera liczbe katow tak, zeby
         najdluzsza linia (przekatna) nie odjechala na koncach o wiecej niz max_shift px.
         """
         # Ensure that the mask has been computed or set before use
-        if not hasattr(self, "maska") or self.maska is None:
+        if "threshold" not in self.masks:
             raise RuntimeError(
-                "Attribute 'maska' is not initialized. Call 'mk_stats()' first "
-                "or set 'self.maska' to a boolean mask array before calling "
-                "'hough_transform()'."
+                "self.masks['threshold'] is not set. Call 'mk_stats()' or "
+                "'mk_threshold_mask()' first, or set it to a boolean mask array before "
+                "calling 'hough_transform()'."
             )
-        ys, xs = np.nonzero(self.maska)  # piksele ktore biora udzial w zabawie
+        ys, xs = np.nonzero(self.masks["threshold"])  # piksele ktore biora udzial w zabawie
         xs = xs.astype(float)
         ys = ys.astype(float)
 
@@ -1019,13 +1143,6 @@ class FFS:
         cy = int(image_cut.shape[1]/2)
 
         if cx > 1 and cy > 1:
-            x_max, y_max = np.unravel_index(np.argmax(image_cut), image_cut.shape)
-            I_max = image_cut[x_max, y_max]
-
-            bck = image_cut.copy().astype(float)
-            bck[x_max,y_max] = np.nan
-
-            I_bck = np.nanmean(image_cut)
             I_std = np.nanstd(image_cut)
 
             # Zabezpieczenie przed dzieleniem przez zero
@@ -1045,21 +1162,12 @@ class FFS:
 
             cpe = I_peak / flux
 
-            # # opcja mozliwa
-            # noise = mad_std(image_cut)
-            # cpe2 = I_max / (I_bck + noise)
-            #
-            # # opcja bledna
-            # cpe3 = (I_max - I_bck) / I_std
-
-            # DUPA
-            #print(cpe,cpe2,cpe3)
-
         return cpe
 
 
 #########################################
 
+    @staticmethod
     def fwhm(image_cut):
         if image_cut.size == 0:
             return np.nan, np.nan
@@ -1097,6 +1205,7 @@ class FFS:
 
         return fwhm_x, fwhm_y
 
+    @staticmethod
     def fwhm_1d(line):
         line = np.asarray(line, dtype=float)
 
@@ -1160,60 +1269,6 @@ class FFS:
         return fwhm
 
     ###########################################
-
-    @staticmethod
-    def fwhm_old(image_cut):
-        cx, cy = FFS.centroid(image_cut)
-        if cx is None:
-            return np.nan, np.nan
-
-        cx_i = int(round(cx))
-        cy_i = int(round(cy))
-
-        line_x = image_cut[cy_i, :]
-        line_y = image_cut[:, cx_i]
-
-        fwhm_x = FFS.fwhm_1d_old(line_x)
-        fwhm_y = FFS.fwhm_1d_old(line_y)
-
-        return fwhm_x,fwhm_y
-
-    @staticmethod
-    def fwhm_1d_old(line):
-
-        if np.all(line <= 0):
-            return np.nan
-
-        imax = np.argmax(line)
-
-        # idziemy w lewo od maksimum
-        left = imax
-        while left > 0 and line[left] > 0:
-            left -= 1
-
-        # idziemy w prawo
-        right = imax
-        while right < len(line) - 1 and line[right] > 0:
-            right += 1
-
-        if right - left < 2:
-            return np.nan
-
-        # interpolacja lewego
-        y1, y2 = line[left], line[left + 1]
-        if y2 != y1:
-            xl = left + (0 - y1) / (y2 - y1)
-        else:
-            xl = left
-
-        # interpolacja prawego
-        y1, y2 = line[right - 1], line[right]
-        if y2 != y1:
-            xr = right - 1 + (0 - y1) / (y2 - y1)
-        else:
-            xr = right
-
-        return xr - xl
 
 ################################################
 
@@ -1293,26 +1348,6 @@ class FFS:
         a0, a1, a2, a3, a4, a5 = coeff
         return a0 + a1 * x + a2 * y + a3 * x ** 2 + a4 * x * y + a5 * y ** 2
 
-    # @staticmethod
-    # def hough_to_xy(rho, theta, image_shape):
-    #
-    #     ny, nx = image_shape
-    #
-    #     cos_t = np.cos(theta)
-    #     sin_t = np.sin(theta)
-    #
-    #     # if line is not vertical
-    #     if abs(sin_t) > 1e-8:
-    #         x_vals = np.linspace(0, nx, nx)
-    #         #x_vals = np.array([0, nx - 1])
-    #         y_vals = (rho - x_vals * cos_t) / sin_t
-    #     else:
-    #         # vertical line
-    #         x_vals = np.full(2, rho / cos_t)
-    #         y_vals = np.array([0, ny - 1])
-    #
-    #     return (x_vals[0], y_vals[0]), (x_vals[1], y_vals[1])
-
     @staticmethod
     def line_filter(image,kernel1_size=3,kernel2_size=7,th1=3,th2=3):
 
@@ -1372,3 +1407,62 @@ class FFS:
         kernel = np.fromfunction(lambda x, y: (1 / (2 * np.pi * sigma ** 2)) * np.exp(
             -((x - (size - 1) / 2) ** 2 + (y - (size - 1) / 2) ** 2) / (2 * sigma ** 2)), (size, size))
         return kernel / np.sum(kernel)
+
+    @staticmethod
+    def _column_deviation(resid, block, window):
+        # mediana kazdej kolumny w blokach po block wierszy minus mediana window sasiednich kolumn
+        ny, nx = resid.shape
+        nb = max(1, ny // block)
+        rows = np.arange(ny) * nb // ny                     # numer bloku kazdego wiersza
+        prof = np.array([np.nanmedian(resid[rows == i], axis=0) for i in range(nb)])
+        dev = prof - median_filter(prof, size=(1, window), mode="nearest")
+        return dev[rows]
+
+    @staticmethod
+    def line_to_mask(shape, rho, theta, half_width=0.5, x0=None, y0=None, x1=None, y1=None):
+        """Maska pikseli linii x*cos(theta) + y*sin(theta) = rho (konwencja find_lines, x = kolumna, y = wiersz).
+
+        Zaznacza piksele w odleglosci <= half_width od linii. Gdy podane sa konce odcinka
+        (x0, y0, x1, y1), tylko odcinek (z zapasem half_width na koncach), bez nich cala linia
+        przez kadr. Zwraca maske bool o ksztalcie shape; np.nonzero(maska) daje (y, x) pikseli.
+        """
+        mask = np.zeros(shape, dtype=bool)
+        ny, nx = shape
+        c, s = np.cos(theta), np.sin(theta)
+        if x0 is None:
+            ends = FFS._frame_crossings(shape, rho, theta)
+            if ends is None:
+                return mask                    # linia nie przechodzi przez kadr
+            x0, y0, x1, y1 = ends
+        pad = half_width + 1
+        xa, xb = int(max(0, min(x0, x1) - pad)), int(min(nx, max(x0, x1) + pad + 1))
+        ya, yb = int(max(0, min(y0, y1) - pad)), int(min(ny, max(y0, y1) + pad + 1))
+        yy, xx = np.mgrid[ya:yb, xa:xb]
+        dist = np.abs(xx * c + yy * s - rho)            # odleglosc od linii
+        pos = -xx * s + yy * c                         # polozenie wzdluz linii
+        p0, p1 = sorted([-x0 * s + y0 * c, -x1 * s + y1 * c])
+        mask[ya:yb, xa:xb] = (dist <= half_width) & (pos >= p0 - half_width) & (pos <= p1 + half_width)
+        return mask
+
+    @staticmethod
+    def _frame_crossings(shape, rho, theta):
+        # konce odcinka, w ktorym linia przecina kadr [0, nx-1] x [0, ny-1]; None gdy go omija
+        ny, nx = shape
+        c, s = np.cos(theta), np.sin(theta)
+        pts = []
+        if abs(s) > 1e-12:                     # przeciecia z lewa i prawa krawedzia
+            for x in (0, nx - 1):
+                y = (rho - x * c) / s
+                if 0 <= y <= ny - 1:
+                    pts.append((x, y))
+        if abs(c) > 1e-12:                     # przeciecia z gorna i dolna krawedzia
+            for y in (0, ny - 1):
+                x = (rho - y * s) / c
+                if 0 <= x <= nx - 1:
+                    pts.append((x, y))
+        if not pts:
+            return None
+        # najdalsza para punktow (w rogach te same punkty pojawiaja sie dwa razy)
+        (xa, ya), (xb, yb) = max(((p, q) for p in pts for q in pts),
+                                 key=lambda pq: (pq[0][0] - pq[1][0]) ** 2 + (pq[0][1] - pq[1][1]) ** 2)
+        return xa, ya, xb, yb

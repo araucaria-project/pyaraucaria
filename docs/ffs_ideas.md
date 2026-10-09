@@ -63,7 +63,8 @@ detekcji, `Background2D` do tła, GalSim HSM do momentów). Wartość FFS to szy
 klatki w jednym wywołaniu dla obserwatorium + maski dla photutils.
 
 Najmocniejsze/oryginalne elementy:
-- `satellites.py`: binomialna istotność względem długości cięciwy (`p·L`), akceptacja
+- `satellites.py` (usunięty 2026-10-09, jest w historii gita; pomysły do ewentualnego
+  przeniesienia do `find_lines`): binomialna istotność względem długości cięciwy (`p·L`), akceptacja
   po medianie segmentów (odporna na gwiazdy), empiryczny szum z równoległych linii,
   klasyfikacja kolumn/wierszy.
 - `theta_spread` (statystyka kołowa, okres π) — rzadko spotykana, oddziela prowadzenie/
@@ -85,7 +86,7 @@ Najmocniejsze/oryginalne elementy:
 2. **Centroidy subpikselowe** w tabeli gwiazd (`adaptive_moments` je liczy, nie zapisuje).
 3. **Mapa tła + rms** (patrz plan globalnego binowania/tła); potem lokalny próg
    w `find_stars`.
-4. Maska nasyconych pikseli i przelewów (kolumny z `satellites.py` → `self.masks`).
+4. Maska przelewów (bleed) od nasyconych gwiazd; maska nasyconych pikseli jest (`mk_saturation_mask`).
 5. Maska promieni kosmicznych (astroscrappy lub laplasjan — `laplace_kernel` istnieje).
 6. Metoda składająca wszystkie maski w jedną (`|` po `self.masks`).
 7. Wejście z NaN/maską; `saturation` jako parametr konstruktora.
@@ -102,8 +103,6 @@ Sprawdzić, co przekazuje TOI.
 
 ### Przed publikacją
 
-- Usunąć `fwhm_old`, `fwhm_1d_old`, zakomentowane warianty w `cpe`.
 - Ujednolicić komentarze/docstringi (angielski).
-- Brakujące `@staticmethod` przy `fwhm`, `fwhm_1d`.
 - Pozycjonowanie: PyPI (samodzielnie lub w pyaraucaria) + notka RNAAS o detekcji
   satelitów; JOSS dopiero po warstwie masek i tła.
