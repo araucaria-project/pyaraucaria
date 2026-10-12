@@ -13,12 +13,67 @@ from astropy.table import Table
 
 
 class FFS:
+    """Fast FITS Statistics: szybkie statystyki klatki, tlo, detekcja gwiazd i sladow, maski.
 
-    def __init__(self, image, gain=1., rn_noise=0., saturation = 50000):
+    FFS szacuje (QC, maski dla fotometrii), nie zastepuje photutils.
+
+    Parametry konstruktora
+    ----------------------
+    image : 2D array
+        Obraz w ADU.
+    gain, rn_noise : float
+        Gain [e-/ADU] i szum odczytu (uzywane przez find_stars(method="rms Poisson")).
+    saturation : float
+        Poziom saturacji [ADU].
+    bin : int
+        Binning bin x bin (srednia) do uzytku wewnetrznego. Domyslnie 1 = bez binowania.
+    autobin : bool
+        True: bin dobierany automatycznie tak, zeby dluzszy bok obrazu zbinowanego byl
+        <= FFS.AUTOBIN_LIMIT (2500 px), np. 4096 x 4096 -> bin 2. Argument bin jest wtedy ignorowany.
+
+    UWAGA - binning i pamiec
+    ------------------------
+    Domyslnie (bin=1, autobin=False) obraz NIE jest binowany. Na duzych klatkach
+    (np. 4096 x 4096) find_lines() - wolane tez przez calc_frame_fwhm() - potrzebuje
+    wtedy ponad 10 GB RAM i moze zabraknac pamieci. Dla klatek wiekszych niz ~2500 px
+    uzywaj autobin=True (albo bin >= 2). Binowanie jest decyzja uzytkownika - FFS nie
+    wlacza go sam.
+
+    Co jest liczone na obrazie zbinowanym (self.binned_image): mapa tla (sky_map), maska
+    threshold, linie (find_lines, hough_transform) i detekcja gwiazd (find_stars). Na
+    oryginale: saturacja, kosmiki (mk_cosmics_mask), pomiar gwiazd (star_info: FWHM,
+    eliptycznosc), classify_lines, mapy kalibracyjne. Wszystko, co dostaje uzytkownik
+    (wspolrzedne gwiazd i linii, FWHM, maski w self.masks, mapy w self.maps), jest w ukladzie
+    i rozmiarze oryginalu, a parametry w pikselach (fwhm, min_length, max_gap, box, ...)
+    podaje sie w pikselach oryginalu. Wyjatki: find_lines(half_width, max_shift) sa w pikselach
+    obrazu zbinowanego. Wewnetrzne, w rozmiarze zbinowanym: self.binned_image,
+    self.binned_masks, self.accumulator / self.rh / self.hough_theta.
+
+    Maski i mapy
+    ------------
+    self.masks: maski bool w rozmiarze obrazu, osobno dla kazdej metody (opis w
+    self.masks_description). Maski, ktorych nazwy sa w self.exclude, sa pomijane w
+    statystykach, tle i detekcji (bad_mask()). self.maps: mapy (np. "sky") w rozmiarze obrazu.
+
+    Sigma tla w find_stars(method=...): "sigma quantile" (domyslnie) - mad_std residuum
+    image - sky (_background); "rms" - odchylenie standardowe dobrych pikseli (mk_stats);
+    "rms Poisson" - sqrt(median / gain + rn_noise^2) (mk_stats).
+    """
+
+    AUTOBIN_LIMIT = 2500   # autobin: najmniejszy bin, przy ktorym dluzszy bok obrazu zbinowanego <= limit
+
+    def __init__(self, image, gain=1., rn_noise=0., saturation = 50000, bin=1, autobin=False):
         self.image = image
         self.gain = float(gain)
         self.rn_noise = float(rn_noise)
         self.saturation = saturation
+
+        # binning tylko do uzytku wewnetrznego (tlo, detekcja, linie); wyniki dla uzytkownika
+        # sa w wymiarach oryginalu. autobin=True dobiera bin sam, ignorujac argument bin.
+        if autobin:
+            bin = int(np.ceil(max(np.shape(image)) / FFS.AUTOBIN_LIMIT))
+        self.bin = max(1, int(bin))
+        self.binned_image = FFS.bin_image(image, self.bin)
 
         self.min = None
         self.max = None
@@ -83,6 +138,7 @@ class FFS:
 
         self.lines = None              # tabela wykrytych linii (find_lines)
         self.masks = {}                # maski logiczne w rozmiarze obrazu, osobno dla kazdej metody
+        self.binned_masks = {}         # maski wewnetrzne w rozmiarze binned_image (np. wejscie do Hougha)
         self.masks_description = {}
         self.exclude = set()           # nazwy masek wykluczajacych (zle piksele), patrz bad_mask()
 
@@ -103,19 +159,25 @@ class FFS:
                 bad |= self.masks[name]
         return bad
 
-    def _background(self):
+    def _background(self, binned=False):
         """Poziom tla i sigma: (maps["sky"], sigma residuum). Mapa tla liczona, jesli jej jeszcze nie ma.
 
         Sigma to mad_std residuum image - sky dobrych pikseli: q_sigma calej klatki zawiera tez
         rozrzut samego gradientu tla, a MAD jest odporniejszy na gwiazdy niz kwantyle 15.9/84.1
         (gesty kadr: kwantyle zawyzaja sigma kilkukrotnie).
+        binned=True: tlo i sigma dla binned_image (zbinowana mapa tla; sigma jest mniejsza,
+        bo binning usrednia szum).
         """
         if "sky" not in self.maps:
             self.sky_map()
-        bad = self.bad_mask()
-        residual = self.image - self.maps["sky"]
+        if binned:
+            image, sky = self.binned_image, FFS.bin_image(self.maps["sky"], self.bin)
+            bad = self.to_binned_mask(self.bad_mask())
+        else:
+            image, sky, bad = self.image, self.maps["sky"], self.bad_mask()
+        residual = image - sky
         good = residual[~bad] if bad.sum() < bad.size else residual.ravel()
-        return self.maps["sky"], mad_std(good), "sky map"
+        return sky, mad_std(good), "sky map"
 
     def mk_stats(self):
         # statystyki z dobrych pikseli (poza bad_mask); min/max ze wszystkich, zeby bylo widac saturacje
@@ -143,8 +205,6 @@ class FFS:
         self.sigma_quantile = self.q_sigma
 
         self.noise = np.sqrt(self.median / self.gain + self.rn_noise**2)
-
-        self.mk_threshold_mask()
 
         self.stats["frame"] = {
             "min": self.min,
@@ -176,12 +236,16 @@ class FFS:
         """Maska pikseli powyzej tla: image > tlo + nsigma * sigma.
 
         Tlo to self.maps["sky"] (liczone przez _background(), jesli go nie ma), sigma to
-        mad_std residuum image - sky.
+        mad_std residuum image - sky. Liczona na binned_image (binned_masks["threshold"],
+        wejscie do Hougha); masks["threshold"] to ta sama maska w rozmiarze oryginalu.
         """
-        level, sigma, level_name = self._background()
-        self.masks["threshold"] = (self.image > level + nsigma * sigma) & ~self.bad_mask()
+        level, sigma, level_name = self._background(binned=True)
+        bad = self.to_binned_mask(self.bad_mask())
+        self.binned_masks["threshold"] = (self.binned_image > level + nsigma * sigma) & ~bad
+        self.masks["threshold"] = self.to_original_mask(self.binned_masks["threshold"])
         self.masks_description["threshold"] = (
             f"Pixels above {level_name} + {nsigma} * sigma (sigma = {sigma:.2f} ADU, robust; "
+            f"computed on the image binned {self.bin}x{self.bin}; "
             f"excluding bad_mask; input mask for line detection)"
         )
 
@@ -246,6 +310,25 @@ class FFS:
         self.masks_description["cold_pixels"] = f"Cold pixels: maps['pixels'] < -{threshold} ADU (mk_cold_pixels_mask)"
         self.exclude.add("cold_pixels")
 
+    def _refine_on_original(self, coo):
+        """Pozycje (y, x) z obrazu zbinowanego -> najjasniejszy dobry piksel oryginalu w otoczeniu
+        bloku (3x3 bloki). Zwraca (coo, adu) w oryginale; adu to wartosc piksela oryginalu
+        (srednia bloku nasyconej gwiazdy spada ponizej saturacji). Duplikaty usuwane, kolejnosc
+        zachowana."""
+        b = self.bin
+        ny, nx = self.image.shape
+        bad = self.bad_mask(ignore=("saturation",))
+        out = np.empty_like(coo)
+        for i, (yb, xb) in enumerate(coo):
+            y0, y1 = max(0, (yb - 1) * b), min(ny, (yb + 2) * b)
+            x0, x1 = max(0, (xb - 1) * b), min(nx, (xb + 2) * b)
+            cut = np.where(bad[y0:y1, x0:x1], -np.inf, self.image[y0:y1, x0:x1])
+            dy, dx = np.unravel_index(np.nanargmax(cut), cut.shape)
+            out[i] = (y0 + dy, x0 + dx)
+        _, first = np.unique(out, axis=0, return_index=True)
+        out = out[np.sort(first)]
+        return out, self.image[out[:, 0], out[:, 1]]
+
     def mk_cosmics_mask(self, nsig=5.0, contrast=3.0):
         """Maska kosmikow (pojedyncze piksele ostrzejsze niz PSF), dla klatek naukowych.
 
@@ -274,7 +357,9 @@ class FFS:
                    min_smoothed_sigma=None, rank_by="raw",
                    max_concentration=None, aperture_radius=None,
                    min_pixels_above_threshold=None):
-        """Detect star peaks in ``self.image``.
+        """Detect star peaks. Detection runs on ``self.binned_image`` (= ``self.image``
+        for bin=1); the returned ``self.coo`` (y, x) and ``self.adu`` are in the original
+        image: each detection is moved to the brightest good original pixel near its block.
 
         Parameters
         ----------
@@ -283,7 +368,7 @@ class FFS:
         method : str
             How background sigma is estimated — see class docs.
         fwhm : float
-            Adopted PSF FWHM (pixels). Drives the Gaussian kernel sigma
+            Adopted PSF FWHM (original pixels). Drives the Gaussian kernel sigma
             used to smooth the image before the local-maximum test.
         min_smoothed_sigma : float | None
             When set, also require the *smoothed-image* peak to exceed
@@ -303,7 +388,7 @@ class FFS:
             guiders — cuts single-pixel artifacts regardless of how
             bright they are. Aperture from ``aperture_radius``.
         aperture_radius : int | None
-            Half-width in pixels of the square aperture used for both
+            Half-width in original pixels of the square aperture used for both
             ``max_concentration`` and ``rank_by="aperture"``. ``None``
             picks ``max(2, round(2 * fwhm))`` — wide enough to capture
             most of an in-focus PSF.
@@ -347,13 +432,20 @@ class FFS:
         )
         self.fs_rank_by = rank_by
 
-        # poziom tla: mapa tla jesli policzona (sky_map), inaczej mediana
-        level, q_sigma, _ = self._background()
+        # detekcja na obrazie zbinowanym: fwhm i aperture_radius (podane w pikselach oryginalu,
+        # tak tez zapisane w fs_*) przeliczone na piksele zbinowane; wynikowe coo/adu w oryginale
+        b = self.bin
+        kernel_sigma = self.fs_kernel_sigma / b
+        ap_radius = max(1, int(round(self.fs_aperture_radius / b)))
 
+        # tlo i sigma obrazu zbinowanego (mapa tla, mad_std residuum)
+        level, q_sigma, _ = self._background(binned=True)
+
+        # rms/noise z mk_stats() sa dla oryginalu; binning srednia zmniejsza szum ~ bin razy
         if self.fs_method == "rms Poisson":
-            self.fs_sigma = self.noise
+            self.fs_sigma = self.noise / b
         elif self.fs_method == "rms":
-            self.fs_sigma = self.rms
+            self.fs_sigma = self.rms / b
         elif self.fs_method == "sigma quantile":
             self.fs_sigma = q_sigma
         else:
@@ -363,14 +455,14 @@ class FFS:
         # integer FITS data (uint16/int16) the smoothed image — and every test
         # built on it (min_smoothed_sigma, rank_by="smoothed") — would be
         # truncated to integers.
-        image = self.image.astype(float)
+        image = self.binned_image.astype(float)
         # zle piksele (bad_mask, NaN) wypelniamy tlem, zeby nie byly kandydatami i nie psuly
         # wygladzania; saturacji nie, bo nasycone gwiazdy maja zostac w coo/adu
-        bad = self.bad_mask(ignore=("saturation",))
+        bad = self.to_binned_mask(self.bad_mask(ignore=("saturation",)))
         image[bad] = level[bad] if np.ndim(level) else level
 
         mask1 = image > level + self.fs_threshold * self.fs_sigma
-        data2 = gaussian_filter(image, sigma=self.fs_kernel_sigma)
+        data2 = gaussian_filter(image, sigma=kernel_sigma)
         mask2 = data2 == maximum_filter(data2, size=3)
         mask = mask1 & mask2
 
@@ -386,13 +478,12 @@ class FFS:
             mask = mask & mask3
 
         coo = np.column_stack(np.nonzero(mask))
-        val = self.image[mask]
+        val = self.binned_image[mask]
 
         # Per-candidate aperture statistics (background-subtracted) —
         # needed for max_concentration filter and rank_by="aperture".
         # Computed once for both, since both are cheap (~50 ops/cand).
-        ap_radius = self.fs_aperture_radius
-        H, W = self.image.shape
+        H, W = image.shape
         n_cand = len(coo)
         aperture_excess = np.zeros(n_cand, dtype=float)
         peak_excess = np.zeros(n_cand, dtype=float)
@@ -423,7 +514,7 @@ class FFS:
         # Pixel-count cull — count mask1 pixels inside each candidate's
         # aperture box. A PSF spans many; an isolated noise spike spans 1.
         if min_pixels_above_threshold is not None and len(coo) > 0:
-            min_px = int(min_pixels_above_threshold)
+            min_px = max(1, int(round(int(min_pixels_above_threshold) / b ** 2)))   # piksele zbinowane
             counts = np.zeros(len(coo), dtype=int)
             for i in range(len(coo)):
                 yi, xi = int(coo[i, 0]), int(coo[i, 1])
@@ -447,6 +538,8 @@ class FFS:
             sorted_i = np.argsort(sort_keys)[::-1]
             self.coo = coo[sorted_i]
             self.adu = val[sorted_i]
+            if b > 1:
+                self.coo, self.adu = self._refine_on_original(self.coo)
 
             self.stats["stars"] = {
                 "x": self.coo[:, 1],
@@ -468,6 +561,15 @@ class FFS:
         self.stars = Table(self.stats["stars"])
 
     def calc_frame_fwhm(self,threshold=10, fwhm=10, box=10, N_stars=20, clip=4):
+        """Pelna analiza klatki: maski (saturacja, kosmiki, threshold), tlo, linie, gwiazdy,
+        FWHM i ksztalt -> self.stats["frame"] (fwhm, ellipticity, used_stars, ...).
+
+        threshold i fwhm ida do find_stars(), box i N_stars do star_info(), clip do calc_star_stats().
+        used_stars mowi, z ilu gwiazd policzono statystyki (0 -> NaN).
+
+        UWAGA: binning ustawia sie w konstruktorze. Bez niego (domyslnie) duze klatki, np.
+        4096 x 4096, moga wyczerpac pamiec w find_lines() - uzyj FFS(image, autobin=True).
+        """
         self.mk_saturation_mask()
         self.mk_stats()
         self.sky_map()
@@ -553,6 +655,12 @@ class FFS:
         })
 
     def star_info(self, box=10, N_stars=None):
+        """Pomiar gwiazd z find_stars() na oryginale (bez binowania): wycinek +-box px wokol
+        kazdej pozycji, FWHM, eliptycznosc, theta, CPE, CI -> self.stars / stats["stars"].
+
+        Mierzy N_stars pierwszych (najjasniejszych) gwiazd, pomijajac nasycone i te z
+        pikselami bad_mask w wycinku. Ostrzega, gdy mediana FWHM > 0.8 * box (wycinek obcina profil).
+        """
 
         n = len(self.coo)
 
@@ -741,6 +849,9 @@ class FFS:
         })
 
     def sky_map(self,n_segments=10):
+        """Mapa tla maps["sky"] w rozmiarze oryginalu: mediany n_segments x n_segments segmentow
+        (liczone na binned_image, bez bad_mask) interpolowane liniowo miedzy srodkami segmentow;
+        poza nimi (pas przy brzegach) wartosc najblizszego segmentu. Wola sky_gradient()."""
         self.sky_gradient(n_segments=n_segments)
 
         points = np.column_stack((self.stats["sky"]["surface_x"], self.stats["sky"]["surface_y"]))
@@ -763,9 +874,11 @@ class FFS:
         )
 
     def sky_gradient(self,n_segments=10, min_good_fraction=0.5):
-        image = self.image
+        # mediany segmentow liczone na obrazie zbinowanym; srodki segmentow (i wspolczynniki
+        # wielomianu) przeliczone na wspolrzedne oryginalu
+        image = self.binned_image
         segments = FFS.make_segments(image, n_segments=n_segments)
-        bad_segments = FFS.make_segments(self.bad_mask(), n_segments=n_segments)
+        bad_segments = FFS.make_segments(self.to_binned_mask(self.bad_mask()), n_segments=n_segments)
 
         x = []
         y = []
@@ -782,8 +895,8 @@ class FFS:
             back.append(np.median(good))
             back_mad.append(mad_std(good))
 
-        x = np.array(x)
-        y = np.array(y)
+        x = np.rint(self.to_original_coord(x)).astype(int)   # calkowite, jak przed binowaniem
+        y = np.rint(self.to_original_coord(y)).astype(int)
         back = np.array(back)
 
         A = np.vstack([np.ones_like(x), x, y, x ** 2, x * y, y ** 2]).T
@@ -874,20 +987,33 @@ class FFS:
 
     def find_lines(self, min_length=30, fwhm=4.0, max_gap=5, min_fill=0.5, half_width=3.0,
                    max_candidates=100, steps=None, max_shift=1.0):
-        """Detekcja sladow (linii) na podstawie transformaty Hougha maski self.masks["threshold"].
+        """Detekcja sladow (linii) na podstawie transformaty Hougha maski self.binned_masks["threshold"].
 
         Kandydaci to komorki akumulatora z najwieksza liczba glosow. Kandydat jest
         linia, jesli wzdluz niej piksele maski tworza ciagly odcinek: przerwy
         <= max_gap px, dlugosc >= 10 * fwhm, zajetosc >= min_fill. Po przyjeciu
         linii jej piksele (w odleglosci <= half_width) i ich glosy sa usuwane.
         steps i max_shift sa przekazywane do hough_transform().
+
+        Detekcja idzie na obrazie zbinowanym: min_length, fwhm, max_gap i half_width podaje sie
+        w pikselach oryginalu (wewnatrz dzielone przez bin), wyniki (rho, x0..y1, masks["lines"])
+        sa w ukladzie oryginalu. max_shift jest w pikselach obrazu zbinowanego.
         """
         self.hough_transform(steps=steps, max_shift=max_shift)
+
+        # dlugosci (min_length, fwhm, max_gap) przeliczone na piksele obrazu zbinowanego;
+        # half_width (pas usuwania przyjetej linii, tolerancja jak max_shift) zostaje w pikselach
+        # zbinowanych - po podzieleniu przez bin konce dlugich sladow wychodzily z pasa
+        b = self.bin
+        min_votes = min_length / b
+        min_segment = 10 * fwhm / b
+        max_gap_b = max(1, int(round(max_gap / b)))
+        half_width_b = half_width
 
         rh, theta = self.rh, self.hough_theta
         rh0 = -int(rh[0])                     # koszyk k <-> rho = k - rh0
         cos_t, sin_t = np.cos(theta), np.sin(theta)
-        ys, xs = np.nonzero(self.masks["threshold"])
+        ys, xs = np.nonzero(self.binned_masks["threshold"])
         xs = xs.astype(float)
         ys = ys.astype(float)
 
@@ -895,22 +1021,23 @@ class FFS:
         # half_width od lini
 
         acc = self.accumulator.copy()
-        work = self.masks["threshold"].copy()       # maska, z ktorej usuwamy piksele przyjetych linii
-        removed = self.bad_mask()      # piksele "nieznane": zle (bad_mask) i usuniete razem z przyjetymi liniami
+        work = self.binned_masks["threshold"].copy()   # maska, z ktorej usuwamy piksele przyjetych linii
+        # piksele "nieznane": zle (bad_mask) i usuniete razem z przyjetymi liniami
+        removed = self.to_binned_mask(self.bad_mask())
         lines_rho, lines_theta, lines_val = [], [], []
         lines_x0, lines_y0, lines_x1, lines_y1 = [], [], [], []
 
         for _ in range(max_candidates):
             ri_max, ti_max = np.unravel_index(np.argmax(acc), acc.shape)
             val = acc[ri_max, ti_max]
-            if val < min_length:
+            if val < min_votes:
                 break
             rho, t = rh[ri_max], theta[ti_max]
 
             # czy wzdluz linii piksele maski tworza ciagly odcinek?
             pos, occupied = FFS._line_profile(work, rho, t)
             _, unknown = FFS._line_profile(removed, rho, t)   # skrzyzowania z juz znalezionymi liniami
-            segments = FFS._line_segments(occupied, max_gap, 10 * fwhm, min_fill, unknown)
+            segments = FFS._line_segments(occupied, max_gap_b, min_segment, min_fill, unknown)
             if not segments:
                 # odrzucony: wylaczamy te komorke i jej sasiadow, piksele zostaja
                 acc[max(0, ri_max - 2):ri_max + 3, max(0, ti_max - 1):ti_max + 2] = -1
@@ -930,11 +1057,19 @@ class FFS:
             lines_y1.append(rho * s + p1 * c)
 
             # usuwamy glosy pikseli tej linii i same piksele (tez z maski roboczej)
-            on_line = np.abs(xs * c + ys * s - rho) <= half_width
+            on_line = np.abs(xs * c + ys * s - rho) <= half_width_b
             FFS._hough_votes(acc, xs[on_line], ys[on_line], cos_t, sin_t, rh0, weight=-1)
             work[ys[on_line].astype(int), xs[on_line].astype(int)] = False
             removed[ys[on_line].astype(int), xs[on_line].astype(int)] = True
             xs, ys = xs[~on_line], ys[~on_line]
+
+        # z ukladu zbinowanego do oryginalu: x_o = b*x + h, y_o = b*y + h (h = (b-1)/2), wiec
+        # x_o*cos + y_o*sin = b*rho + h*(cos + sin); theta sie nie zmienia
+        lines_theta = np.array(lines_theta)
+        h = (b - 1) / 2.0
+        lines_rho = b * np.array(lines_rho) + h * (np.cos(lines_theta) + np.sin(lines_theta))
+        lines_x0, lines_y0 = self.to_original_coord(lines_x0), self.to_original_coord(lines_y0)
+        lines_x1, lines_y1 = self.to_original_coord(lines_x1), self.to_original_coord(lines_y1)
 
         self.lines_rho = np.array(lines_rho)
         self.lines_theta = np.array(lines_theta)
@@ -1084,24 +1219,21 @@ class FFS:
         })
 
     def hough_transform(self, steps=None, max_shift=1.0):
-        """Transformata Hougha maski self.masks["threshold"].
+        """Transformata Hougha maski self.binned_masks["threshold"] (obraz zbinowany).
 
         Zapisuje self.accumulator (koszyki rho x katy theta), self.rh (rho koszykow,
-        krok 1 px) i self.hough_theta. steps=None dobiera liczbe katow tak, zeby
-        najdluzsza linia (przekatna) nie odjechala na koncach o wiecej niz max_shift px.
+        krok 1 px) i self.hough_theta - wszystko w ukladzie obrazu zbinowanego.
+        Maska threshold liczona (mk_threshold_mask() z domyslnym nsigma), jesli jej nie ma.
+        steps=None dobiera liczbe katow tak, zeby najdluzsza linia (przekatna) nie
+        odjechala na koncach o wiecej niz max_shift px (zbinowanych).
         """
-        # Ensure that the mask has been computed or set before use
-        if "threshold" not in self.masks:
-            raise RuntimeError(
-                "self.masks['threshold'] is not set. Call 'mk_stats()' or "
-                "'mk_threshold_mask()' first, or set it to a boolean mask array before "
-                "calling 'hough_transform()'."
-            )
-        ys, xs = np.nonzero(self.masks["threshold"])  # piksele ktore biora udzial w zabawie
+        if "threshold" not in self.binned_masks:   # maska liczona sama, jesli jej jeszcze nie ma
+            self.mk_threshold_mask()
+        ys, xs = np.nonzero(self.binned_masks["threshold"])  # piksele ktore biora udzial w zabawie
         xs = xs.astype(float)
         ys = ys.astype(float)
 
-        ny, nx = self.image.shape
+        ny, nx = self.binned_image.shape
         rh0 = int((ny ** 2 + nx ** 2) ** 0.5)
 
         if steps is None:
@@ -1462,6 +1594,52 @@ class FFS:
         cy = np.sum(y * I) / Itot
 
         return cx, cy
+
+    @staticmethod
+    def bin_image(image, bin):
+        """Binning bin x bin srednia (ADU w tej samej skali co oryginal; NaN w bloku daje NaN).
+
+        Niepelne bloki na koncu (gdy wymiar nie dzieli sie przez bin) sa odcinane.
+        bin=1 zwraca obraz bez zmian (bez kopii).
+        """
+        if bin == 1:
+            return image
+        ny, nx = image.shape
+        ny, nx = ny // bin * bin, nx // bin * bin
+        return image[:ny, :nx].reshape(ny // bin, bin, nx // bin, bin).mean(axis=(1, 3))
+
+    # Przeliczenia obraz zbinowany <-> oryginal (self.bin). Przy bin=1 wszystko jest tozsamoscia.
+    # Piksel zbinowany i obejmuje piksele oryginalu i*bin ... i*bin + bin - 1, jego srodek
+    # to i*bin + (bin - 1) / 2. Dlugosci (np. FWHM) skaluja sie po prostu przez bin.
+
+    def to_original_coord(self, c):
+        """Wspolrzedna (x lub y, skalar lub tablica) z obrazu zbinowanego do oryginalu."""
+        return np.asarray(c, dtype=float) * self.bin + (self.bin - 1) / 2.0
+
+    def to_binned_coord(self, c):
+        """Wspolrzedna (x lub y, skalar lub tablica) z oryginalu do obrazu zbinowanego."""
+        return (np.asarray(c, dtype=float) - (self.bin - 1) / 2.0) / self.bin
+
+    def to_original_mask(self, mask):
+        """Maska (lub mapa) z obrazu zbinowanego do wymiarow oryginalu: piksel -> blok bin x bin.
+
+        Wiersze/kolumny odciete przy binowaniu (niepelne bloki) dostaja wartosc sasiedniego bloku.
+        """
+        if self.bin == 1:
+            return mask
+        out = np.repeat(np.repeat(mask, self.bin, axis=0), self.bin, axis=1)
+        ny, nx = self.image.shape
+        return np.pad(out, ((0, ny - out.shape[0]), (0, nx - out.shape[1])), mode="edge")
+
+    def to_binned_mask(self, mask):
+        """Maska z oryginalu do obrazu zbinowanego: piksel zbinowany zamaskowany, gdy zamaskowany
+        jest ktorykolwiek piksel jego bloku (OR). Niepelne bloki na koncu sa odcinane."""
+        if self.bin == 1:
+            return mask
+        b = self.bin
+        ny, nx = mask.shape
+        ny, nx = ny // b * b, nx // b * b
+        return mask[:ny, :nx].reshape(ny // b, b, nx // b, b).any(axis=(1, 3))
 
     @staticmethod
     def make_segments(image, n_segments=10, overlap=0):
