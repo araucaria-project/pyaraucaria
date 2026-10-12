@@ -104,14 +104,14 @@ class FFS:
         return bad
 
     def _background(self):
-        """Poziom tla i sigma: (maps["sky"], sigma residuum) jesli jest mapa tla, inaczej (median, q_sigma).
+        """Poziom tla i sigma: (maps["sky"], sigma residuum). Mapa tla liczona, jesli jej jeszcze nie ma.
 
         Sigma to mad_std residuum image - sky dobrych pikseli: q_sigma calej klatki zawiera tez
         rozrzut samego gradientu tla, a MAD jest odporniejszy na gwiazdy niz kwantyle 15.9/84.1
-        (gesty kadr: kwantyle zawyzaja sigma kilkukrotnie). Wymaga mk_stats().
+        (gesty kadr: kwantyle zawyzaja sigma kilkukrotnie).
         """
         if "sky" not in self.maps:
-            return self.median, self.q_sigma, "median"
+            self.sky_map()
         bad = self.bad_mask()
         residual = self.image - self.maps["sky"]
         good = residual[~bad] if bad.sum() < bad.size else residual.ravel()
@@ -175,8 +175,8 @@ class FFS:
     def mk_threshold_mask(self, nsigma=3.0):
         """Maska pikseli powyzej tla: image > tlo + nsigma * sigma.
 
-        Tlo to self.maps["sky"], jesli juz policzone (sky_map); wtedy sigma liczona jest
-        jako mad_std residuum image - sky. W przeciwnym razie mediana i q_sigma z mk_stats().
+        Tlo to self.maps["sky"] (liczone przez _background(), jesli go nie ma), sigma to
+        mad_std residuum image - sky.
         """
         level, sigma, level_name = self._background()
         self.masks["threshold"] = (self.image > level + nsigma * sigma) & ~self.bad_mask()

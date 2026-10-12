@@ -25,10 +25,12 @@ class TestFindStarsBackground(unittest.TestCase):
         self.image = f.image + 3.0 * xx        # ~1500 ADU gradient across the frame
 
     def test_sky_map_recovers_stars_on_gradient(self):
+        # bez jawnego sky_map(): _background() liczy mape tla sam
         ffs = FFS(self.image)
         ffs.mk_stats()
         ffs.find_stars(threshold=5, fwhm=4)
-        n_median = matched(ffs.coo, self.truth)
+        self.assertIn("sky", ffs.maps)
+        coo_auto = ffs.coo
 
         ffs = FFS(self.image)
         ffs.mk_stats()
@@ -36,7 +38,7 @@ class TestFindStarsBackground(unittest.TestCase):
         ffs.find_stars(threshold=5, fwhm=4)
         n_sky = matched(ffs.coo, self.truth)
 
-        self.assertGreater(n_sky, n_median)
+        np.testing.assert_array_equal(coo_auto, ffs.coo)
         self.assertGreaterEqual(n_sky, 45)
         self.assertLessEqual(len(ffs.coo) - n_sky, 2)
 
