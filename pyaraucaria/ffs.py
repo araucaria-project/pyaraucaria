@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 from scipy.ndimage import maximum_filter, median_filter
 from scipy.ndimage import convolve
@@ -244,6 +246,30 @@ class FFS:
         self.masks_description["cold_pixels"] = f"Cold pixels: maps['pixels'] < -{threshold} ADU (mk_cold_pixels_mask)"
         self.exclude.add("cold_pixels")
 
+    def mk_cosmics_mask(self, nsig=5.0, contrast=3.0):
+        """Maska kosmikow (pojedyncze piksele ostrzejsze niz PSF), dla klatek naukowych.
+
+        Piksel jest kosmikiem, gdy:
+        1. image - mediana 3x3 > nsig * sigma (wystaje ponad sasiadow ponad szum),
+        2. image - tlo > contrast * (mediana 3x3 - tlo) (ostrzejszy niz gwiazda: w gwiezdzie
+           o FWHM >= 2.5 px mediana sasiadow to ok. polowa szczytu, czyli stosunek ~2).
+        Mianownik w 2. jest ograniczony od dolu przez sigma. Tlo i sigma z _background()
+        (mapa tla, jesli policzona). Gwiazdy o FWHM < ~2.5 px moga zostac czesciowo
+        zamaskowane; slady kosmikow szersze niz 1-2 px sa wylapywane tylko czesciowo.
+        """
+        level, sigma, _ = self._background()
+        image = self.image.astype(float)
+        med3 = median_filter(image, size=3)
+        self.masks["cosmics"] = (
+            ((image - med3) > nsig * sigma)
+            & ((image - level) > contrast * np.maximum(med3 - level, sigma))
+        )
+        self.masks_description["cosmics"] = (
+            f"Cosmic rays: image - median3x3 > {nsig} sigma and image - sky > {contrast} * (median3x3 - sky) "
+            f"(mk_cosmics_mask)"
+        )
+        self.exclude.add("cosmics")
+
     def find_stars(self, threshold=5, method="sigma quantile", fwhm=10,
                    min_smoothed_sigma=None, rank_by="raw",
                    max_concentration=None, aperture_radius=None,
@@ -445,8 +471,10 @@ class FFS:
         self.mk_saturation_mask()
         self.mk_stats()
         self.sky_map()
+        self.mk_cosmics_mask()
         self.mk_threshold_mask()
         self.find_lines()
+        self.classify_lines()
         self.find_stars(threshold=threshold, fwhm=fwhm)
         self.star_info(box=box,N_stars=N_stars)
         self.calc_star_stats(clip=clip)
@@ -542,8 +570,9 @@ class FFS:
         if N_stars is None:
             N_stars = n
 
-        if len(self.coo) < 5:
-            return
+        # find_stars bez detekcji zostawia listy; mierzymy nawet jedna gwiazde (used_stars mowi ile)
+        self.coo = np.asarray(self.coo, dtype=int).reshape(-1, 2)
+        self.adu = np.asarray(self.adu, dtype=float)
 
         # Measurements of accepted stars only; `keep` holds their indices in
         # self.coo so every output row stays aligned with its source.
@@ -643,6 +672,14 @@ class FFS:
 
 
         self.stars = Table(self.stats["stars"])
+
+        # wycinek ma +-box px; przy FWHM porownywalnym z box obcina skrzydla i zaniza FWHM
+        # (synth.: -4% przy FWHM = box, < 1% przy FWHM = 0.8 box)
+        if len(self.fwhm) and np.nanmedian(self.fwhm) > 0.8 * box:
+            warnings.warn(
+                f"FFS.star_info: median FWHM {np.nanmedian(self.fwhm):.1f} px is comparable to box={box}; "
+                f"FWHM may be underestimated, use a larger box (e.g. box >= {int(np.ceil(1.5 * np.nanmedian(self.fwhm)))})"
+            )
 
         self.stats_description["stars"].update({
 
@@ -879,8 +916,9 @@ class FFS:
                 acc[max(0, ri_max - 2):ri_max + 3, max(0, ti_max - 1):ti_max + 2] = -1
                 continue
 
-            # przyjety: zapisujemy linie i konce najdluzszego odcinka
-            start, stop = max(segments, key=lambda seg: seg[1] - seg[0])
+            # przyjety: zapisujemy linie od poczatku pierwszego do konca ostatniego odcinka
+            # (wspolliniowe fragmenty przerwanego sladu to jeden slad)
+            start, stop = segments[0][0], segments[-1][1]
             c, s = np.cos(t), np.sin(t)
             p0, p1 = pos[start], pos[stop - 1]
             lines_rho.append(rho)
@@ -951,6 +989,99 @@ class FFS:
             "x1": "X of the second end of the detected line segment (pixels, 0-based)",
             "y1": "Y of the second end of the detected line segment (pixels, 0-based)",
         }
+
+    def classify_lines(self, half_width=3.0, margin=10, min_side=10, min_decay=2.0):
+        """Oddziela promienie dyfrakcyjne jasnych gwiazd od sladow. Wymaga find_lines().
+
+        Etap 1: czy na odcinku (z zapasem margin px na koncach) lezy gwiazda nasycona
+        (image >= self.saturation)? Jesli nie - slad.
+        Etap 2: czy jasnosc (image - tlo) wzdluz linii maleje z odlegloscia od gwiazdy?
+        Po kazdej stronie gwiazdy, na ktorej odcinek ma >= min_side px, liczymy
+        mediana blizszej polowy / mediana dalszej polowy. Promien, gdy po kazdej stronie
+        >= min_decay. Gdy zadnej strony nie da sie zmierzyc, decyduje etap 1 (promien).
+
+        Dopisuje do self.lines (i stats["lines"]) kolumny spike, star_x, star_y, decay
+        oraz tworzy masks["spikes"] (piksele promieni, <= half_width od odcinka).
+        masks["lines"] sie nie zmienia.
+        """
+        level, _, _ = self._background()
+        sat = self.image >= self.saturation
+        resid = (self.image - level).astype(float)
+        resid[sat | self.bad_mask(ignore=("saturation", "lines", "spikes"))] = np.nan
+
+        spike, star_x, star_y, decay = [], [], [], []
+        for row in self.lines:
+            rho, t = row["rho"], row["theta"]
+            c, s = np.cos(t), np.sin(t)
+            p0, p1 = sorted([-row["x0"] * s + row["y0"] * c, -row["x1"] * s + row["y1"] * c])
+
+            # etap 1: nasycona gwiazda na odcinku (najdluzszy ciag nasyconych pikseli)
+            pos, occupied = FFS._line_profile(sat, rho, t)
+            near = occupied & (pos >= p0 - margin) & (pos <= p1 + margin)
+            if not near.any():
+                spike.append(False)
+                star_x.append(np.nan)
+                star_y.append(np.nan)
+                decay.append(np.nan)
+                continue
+            labels, _ = label(near)
+            idx = np.nonzero(labels == np.argmax(np.bincount(labels)[1:]) + 1)[0]
+            pc = pos[idx].mean()
+            star_x.append(rho * c - pc * s)
+            star_y.append(rho * s + pc * c)
+
+            # etap 2: spadek jasnosci z odlegloscia od gwiazdy, osobno po obu stronach
+            vals = FFS._line_values(resid, rho, t, pos)
+            ratios = []
+            for side in (-1, 1):
+                d = side * (pos - pc)
+                ok = (d > 0) & (pos >= p0) & (pos <= p1) & np.isfinite(vals)
+                if ok.sum() < min_side:
+                    continue
+                d, v = d[ok], vals[ok]
+                half = (d.min() + d.max()) / 2.0
+                v_near, v_far = np.median(v[d <= half]), np.median(v[d > half])
+                if v_far > 0:
+                    ratios.append(v_near / v_far)
+                else:                              # dalsza polowa juz na poziomie tla
+                    ratios.append(np.inf if v_near > 0 else np.nan)
+            spike.append(all(r >= min_decay for r in ratios))   # pusta lista -> etap 1
+            decay.append(min(ratios) if ratios else np.nan)
+
+        for name, values in (("spike", spike), ("star_x", star_x), ("star_y", star_y), ("decay", decay)):
+            self.stats["lines"][name] = np.array(values)
+            self.lines[name] = np.array(values)
+
+        # maski od nowa: promienie do masks["spikes"], w masks["lines"] zostaja tylko slady
+        spikes = np.zeros(self.image.shape, dtype=bool)
+        lines = np.zeros(self.image.shape, dtype=bool)
+        for row in self.lines:
+            m = FFS.line_to_mask(spikes.shape, row["rho"], row["theta"], half_width,
+                                 row["x0"], row["y0"], row["x1"], row["y1"])
+            if row["spike"]:
+                spikes |= m
+            else:
+                lines |= m
+        self.masks["spikes"] = spikes
+        self.masks_description["spikes"] = (
+            f"Pixels within {half_width} px of lines classified as diffraction spikes (classify_lines)"
+        )
+        self.exclude.add("spikes")
+        self.masks["lines"] = lines
+        self.masks_description["lines"] = (
+            f"Pixels within {half_width} px of the detected line segments, "
+            f"without diffraction spikes (find_lines, classify_lines)"
+        )
+
+        self.stats_description["lines"].update({
+            "spike": "True if the line is a diffraction spike of a saturated star (classify_lines)",
+            "star_x": "X of the saturated star on the line (pixels, 0-based); NaN if none",
+            "star_y": "Y of the saturated star on the line (pixels, 0-based); NaN if none",
+            "decay": (
+                "Smallest (over both sides of the star) ratio of median brightness in the nearer "
+                "and the farther half of the segment; NaN if not measured"
+            ),
+        })
 
     def hough_transform(self, steps=None, max_shift=1.0):
         """Transformata Hougha maski self.masks["threshold"].
@@ -1024,6 +1155,24 @@ class FFS:
             ok = (xi >= 0) & (xi < nx) & (yi >= 0) & (yi < ny)
             occupied[ok] |= mask[yi[ok], xi[ok]]
         return pos, occupied
+
+    @staticmethod
+    def _line_values(image, rho, theta, pos):
+        """Wartosci obrazu w polozeniach pos wzdluz linii: mediana 3 pikseli w poprzek linii
+        (NaN w obrazie pomijane; NaN gdy wszystkie 3 to NaN lub poza kadrem)."""
+        ny, nx = image.shape
+        c, s = np.cos(theta), np.sin(theta)
+        x = rho * c - pos * s
+        y = rho * s + pos * c
+        vals = np.full((3, len(pos)), np.nan)
+        for k, d in enumerate((-1, 0, 1)):         # 3 piksele w poprzek linii
+            xi = np.rint(x + d * c).astype(int)
+            yi = np.rint(y + d * s).astype(int)
+            ok = (xi >= 0) & (xi < nx) & (yi >= 0) & (yi < ny)
+            vals[k, ok] = image[yi[ok], xi[ok]]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)   # All-NaN slice
+            return np.nanmedian(vals, axis=0)
 
     @staticmethod
     def _line_segments(occupied, max_gap=5, min_length=40, min_fill=0.5, unknown=None):
