@@ -106,16 +106,16 @@ class FFS:
     def _background(self):
         """Poziom tla i sigma: (maps["sky"], sigma residuum) jesli jest mapa tla, inaczej (median, q_sigma).
 
-        Sigma z residuum image - sky liczona z kwantyli dobrych pikseli: q_sigma calej klatki
-        zawiera tez rozrzut samego gradientu tla. Wymaga mk_stats().
+        Sigma to mad_std residuum image - sky dobrych pikseli: q_sigma calej klatki zawiera tez
+        rozrzut samego gradientu tla, a MAD jest odporniejszy na gwiazdy niz kwantyle 15.9/84.1
+        (gesty kadr: kwantyle zawyzaja sigma kilkukrotnie). Wymaga mk_stats().
         """
         if "sky" not in self.maps:
             return self.median, self.q_sigma, "median"
         bad = self.bad_mask()
         residual = self.image - self.maps["sky"]
         good = residual[~bad] if bad.sum() < bad.size else residual.ravel()
-        q16, q84 = np.percentile(good, [15.9, 84.1])
-        return self.maps["sky"], (q84 - q16) / 2.0, "sky map"
+        return self.maps["sky"], mad_std(good), "sky map"
 
     def mk_stats(self):
         # statystyki z dobrych pikseli (poza bad_mask); min/max ze wszystkich, zeby bylo widac saturacje
@@ -176,12 +176,12 @@ class FFS:
         """Maska pikseli powyzej tla: image > tlo + nsigma * sigma.
 
         Tlo to self.maps["sky"], jesli juz policzone (sky_map); wtedy sigma liczona jest
-        z kwantyli residuum image - sky. W przeciwnym razie mediana i q_sigma z mk_stats().
+        jako mad_std residuum image - sky. W przeciwnym razie mediana i q_sigma z mk_stats().
         """
         level, sigma, level_name = self._background()
         self.masks["threshold"] = (self.image > level + nsigma * sigma) & ~self.bad_mask()
         self.masks_description["threshold"] = (
-            f"Pixels above {level_name} + {nsigma} * sigma (sigma = {sigma:.2f} ADU, quantile-based; "
+            f"Pixels above {level_name} + {nsigma} * sigma (sigma = {sigma:.2f} ADU, robust; "
             f"excluding bad_mask; input mask for line detection)"
         )
 

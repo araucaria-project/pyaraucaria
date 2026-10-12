@@ -3244,8 +3244,8 @@
     "y1": []
    },
    "maska": {
-    "count": 2493,
-    "sha256": "c4445ac700e976aaf3ab76faad8c5fe7dcc17d2dea368c40e453df87e4d21a77"
+    "count": 2501,
+    "sha256": "45b893ac45066bda8b806fbf4b86302b6487e2011c535880a91c86e8e94b281f"
    },
    "sky": {
     "surface_bkg": [
@@ -3988,8 +3988,8 @@
     "y1": []
    },
    "maska": {
-    "count": 2630,
-    "sha256": "499dd8b90f8daf05f9df925db818d961005acdd72dc13066a7a31da93754a36f"
+    "count": 2629,
+    "sha256": "711cf986a0c4e613b8bad11a06615d0551af64d47affd51d898552fd0c2f44b3"
    },
    "sky": {
     "surface_bkg": [
@@ -4732,8 +4732,8 @@
     "y1": []
    },
    "maska": {
-    "count": 412,
-    "sha256": "22058ef6ac1c10f76053fba0f831ae5b6bdc46ecd7a30eecf0c98cba184bc621"
+    "count": 414,
+    "sha256": "01839aa223a5581ca61ffa7b3f62c53592e3a18d27f9c95c07a014b2f4270c1d"
    },
    "sky": {
     "surface_bkg": [
@@ -5203,8 +5203,8 @@
     "y1": []
    },
    "maska": {
-    "count": 504,
-    "sha256": "033b0a7b86d978f95bda7e0dcd9640ed9da7d412e851e538eb1abff945b73328"
+    "count": 495,
+    "sha256": "4cbb123d32376817769265796a1563b1511b1d8640157afccea16104990d7776"
    },
    "sky": {
     "surface_bkg": [
@@ -5674,8 +5674,8 @@
     "y1": []
    },
    "maska": {
-    "count": 685,
-    "sha256": "80297cd2ba26a620ea003b8688bd0555bad637015269c8a16fb596ff9a023501"
+    "count": 686,
+    "sha256": "5a27d51d97f5773dcd49cacd82810e0f122d8cac4ecfe7ba358e7f9f38af3dcf"
    },
    "sky": {
     "surface_bkg": [
@@ -6211,8 +6211,8 @@
     ]
    },
    "maska": {
-    "count": 4317,
-    "sha256": "d789d0e1d33f18c492884f9c8d01f5dc4994efac3bdfd9c3ada6dc7c71769495"
+    "count": 4329,
+    "sha256": "30527a4181ba7315b9452be3f757e011352e47dbe19d9e1b57c5f40bb14f3ac1"
    },
    "sky": {
     "surface_bkg": [
@@ -6969,8 +6969,8 @@
     ]
    },
    "maska": {
-    "count": 4315,
-    "sha256": "fbd762b183d47289749a571c85b9429edf3d8f45e9889b06aff8b53e99766308"
+    "count": 4339,
+    "sha256": "d7f3cdd3e6e0b37bdbb33d7a326ffa707d5813ba28fe1729fe51e5a45f4626bd"
    },
    "sky": {
     "surface_bkg": [
