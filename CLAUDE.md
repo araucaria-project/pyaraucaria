@@ -40,7 +40,7 @@ Things that require reading multiple files to understand:
 
 - **Time/coordinate modules share a `_ensure_time` helper pattern.** Modules that accept flexible time inputs (e.g. `coordinates.py`, `ephemeris.py`) each define a local `_ensure_time` that normalizes `None`/`Time`/raw values into an astropy `Time`. `coordinates.py` is deliberately dependency-light and fast for sexagesimal↔decimal conversion; `ephemeris.py` is the astropy/astroplan-heavy layer (`Sun`, `Moon`, `Stars` classes, altitude-crossing events, vectorized batch ephemeris).
 
-- **`ffs.py` (Fast FITS Statistics) is the largest, performance-sensitive module** — star detection and image statistics used by the `find_stars` CLI. See `examples/ffs_example.ipynb` and `examples/ffs_qc.ipynb`.
+- **`ffs.py` (Fast FITS Statistics) is the largest, performance-sensitive module** — star detection and image statistics used by the `find_stars` CLI. See `examples/ffs.ipynb` (quick / full pipeline / calibration) and `examples/ffs_line_kernels.ipynb` (ring vs Hessian line kernels).
 
 ## Conventions
 

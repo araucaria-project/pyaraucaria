@@ -38,10 +38,10 @@ class FFS:
 
     Notes
     -----
-    Binning and memory: by default (bin=1, autobin=False) the image is NOT binned. On large
-    frames (e.g. 4096 x 4096) find_lines() - also called by calc_frame_fwhm() - then needs
-    more than 10 GB of RAM. Use autobin=True (or bin >= 2) for frames larger than ~2500 px.
-    Binning is the user's decision - FFS never switches it on by itself.
+    Binning: by default (bin=1, autobin=False) the image is NOT binned. Binning speeds up the
+    sky map, threshold mask, lines and star detection on large frames (4096 x 4096
+    calc_frame_fwhm(): bin 1 ~12 s / 1.6 GB RAM, bin 2 ~9 s / 1.3 GB). Binning is the user's
+    decision - FFS never switches it on by itself.
 
     Computed on the binned image (self.binned_image): sky map (sky_map), threshold mask,
     lines (find_lines, hough_transform) and star detection (find_stars). Computed on the
@@ -357,7 +357,7 @@ class FFS:
         )
 
     def mk_saturation_mask(self, saturation=None):
-        """Mask of saturated pixels: image >= saturation -> masks["saturation"] (excluding mask).
+        """Mask of saturated pixels: image >= saturation -> masks["saturation"] (in FFS.BAD_PIXELS).
 
         Parameters
         ----------
@@ -399,7 +399,7 @@ class FFS:
             )
 
     def mk_bad_columns_mask(self, threshold):
-        """Masks of bad columns and rows -> masks["bad_columns"], masks["bad_rows"] (excluding masks).
+        """Masks of bad columns and rows -> masks["bad_columns"], masks["bad_rows"] (in FFS.BAD_PIXELS).
 
         Requires mk_columns_map().
 
@@ -430,7 +430,7 @@ class FFS:
         self.maps_description["pixels"] = f"Pixel value minus the median of its {size}x{size} neighbourhood (ADU)"
 
     def mk_hot_pixels_mask(self, threshold):
-        """Mask of hot pixels: maps["pixels"] > threshold -> masks["hot_pixels"] (excluding mask).
+        """Mask of hot pixels: maps["pixels"] > threshold -> masks["hot_pixels"] (in FFS.BAD_PIXELS).
 
         Requires mk_pixels_map().
 
@@ -443,7 +443,7 @@ class FFS:
         self.masks_description["hot_pixels"] = f"Hot pixels: maps['pixels'] > {threshold} ADU (mk_hot_pixels_mask)"
 
     def mk_cold_pixels_mask(self, threshold):
-        """Mask of cold pixels: maps["pixels"] < -threshold -> masks["cold_pixels"] (excluding mask).
+        """Mask of cold pixels: maps["pixels"] < -threshold -> masks["cold_pixels"] (in FFS.BAD_PIXELS).
 
         Requires mk_pixels_map().
 
@@ -475,7 +475,7 @@ class FFS:
         return out, self.image[out[:, 0], out[:, 1]]
 
     def mk_cosmics_mask(self, nsig=5.0, contrast=3.0):
-        """Mask of cosmic rays (single pixels sharper than the PSF) -> masks["cosmics"] (excluding mask).
+        """Mask of cosmic rays (single pixels sharper than the PSF) -> masks["cosmics"] (in FFS.BAD_PIXELS).
 
         For science frames. A pixel is a cosmic ray when:
         1. image - median3x3 > nsig * sigma (it sticks out above its neighbours beyond noise),
@@ -757,8 +757,7 @@ class FFS:
         parameters except the ones below. used_stars tells how many stars the statistics
         come from (0 -> NaN).
 
-        Binning is set in the constructor. Without it (default) large frames, e.g.
-        4096 x 4096, may run out of memory in find_lines() - use FFS(image, autobin=True).
+        Binning is set in the constructor (FFS(image, autobin=True) for large frames).
 
         Parameters
         ----------
@@ -821,8 +820,9 @@ class FFS:
         mk = np.isfinite(self.fwhm)
 
         if clip:
-            fwhm = np.where(self.fwhm > 0, np.log(self.fwhm), np.nan)
-            cpe = np.where(self.cpe > 0, np.log(self.cpe), np.nan)
+            with np.errstate(invalid="ignore", divide="ignore"):   # NaN wiersze niezmierzonych gwiazd
+                fwhm = np.where(self.fwhm > 0, np.log(self.fwhm), np.nan)
+                cpe = np.where(self.cpe > 0, np.log(self.cpe), np.nan)
             ell = self.ellipticity
 
             valid = np.isfinite(fwhm) & np.isfinite(cpe) & np.isfinite(ell)

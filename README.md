@@ -75,12 +75,11 @@ ffs.lines          # detected trails (astropy Table)
 ffs.masks          # boolean masks, original image size
 ```
 
-> **Binning and memory.** By default (`bin=1, autobin=False`) the image is **not** binned. On large frames
-> (e.g. 4096×4096) `find_lines()`, which `calc_frame_fwhm()` also calls, then needs more than 10 GB of RAM.
-> Use `autobin=True` (bin chosen so the longer side is ≤ 2500 px) or `bin=2` or more. Binning is used internally
-> only (background, line and star detection). Coordinates, FWHM, masks and maps are always returned in the
-> original image size, and pixel parameters are given in original pixels. Examples: `examples/ffs_quick.ipynb`,
-> `ffs_full.ipynb`, `ffs_calibration.ipynb`.
+> **Binning.** By default (`bin=1, autobin=False`) the image is **not** binned. `autobin=True` (bin chosen so the
+> longer side is ≤ 2500 px) or `bin=2` or more speeds up large frames (4096×4096 `calc_frame_fwhm()`: bin 1 ~12 s /
+> 1.6 GB RAM, bin 2 ~9 s / 1.3 GB). Binning is used internally only (background, line and star detection). Coordinates, FWHM, masks and maps are always returned in the
+> original image size, and pixel parameters are given in original pixels. Example: `examples/ffs.ipynb` (quick FWHM,
+> full pipeline, calibration frames).
 
 ### Focus
 `pyaraucaria.focus` implements various telescope focusing algorithms (RMS, FWHM, Lorentzian, Laplacian).
