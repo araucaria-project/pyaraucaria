@@ -158,7 +158,7 @@
     ]
    ],
    "kernel_sigma": 4.246284501061571,
-   "sigma": 23.19453493518903
+   "sigma": 23.19000864494682
   },
   "find_stars_default:elliptical": {
    "adu": [
@@ -316,19 +316,19 @@
     ]
    ],
    "kernel_sigma": 4.246284501061571,
-   "sigma": 23.25030653392535
+   "sigma": 23.266296607400626
   },
   "find_stars_default:empty": {
    "adu": [],
    "coo": [],
    "kernel_sigma": 4.246284501061571,
-   "sigma": 22.802480809465
+   "sigma": 22.80228373778706
   },
   "find_stars_default:gradient": {
    "adu": [],
    "coo": [],
    "kernel_sigma": 4.246284501061571,
-   "sigma": 33.06285485916502
+   "sigma": 32.64184220958615
   },
   "find_stars_default:sparse": {
    "adu": [
@@ -351,7 +351,7 @@
     ]
    ],
    "kernel_sigma": 4.246284501061571,
-   "sigma": 22.81809916806272
+   "sigma": 22.819077130069857
   },
   "find_stars_default:typical": {
    "adu": [
@@ -1049,7 +1049,7 @@
     ]
    ],
    "kernel_sigma": 4.246284501061571,
-   "sigma": 33.066954223649816
+   "sigma": 32.97528298914157
   },
   "find_stars_default:typical_uint16": {
    "adu": [
@@ -1747,7 +1747,7 @@
     ]
    ],
    "kernel_sigma": 4.246284501061571,
-   "sigma": 33.024237651418865
+   "sigma": 32.99460796907297
   },
   "find_stars_filters:clean": {
    "aperture": {
@@ -2236,8 +2236,8 @@
      3664.3485256093522,
      3552.965385876942,
      3424.4212488510875,
-     2963.7699106926816,
      2789.272746905458,
+     2963.7699106926816,
      2752.3304838976433,
      2814.354288400168,
      2621.8248686185407,
@@ -2311,12 +2311,12 @@
       338
      ],
      [
-      420,
-      356
-     ],
-     [
       45,
       155
+     ],
+     [
+      420,
+      356
      ],
      [
       112,
@@ -2815,8 +2815,8 @@
      1846.8771236876016,
      1748.8757326146147,
      1795.0943619552954,
-     1688.7804619256326,
      1734.8105652738884,
+     1688.7804619256326,
      1749.335249600471,
      1714.0636847916555
     ],
@@ -2942,12 +2942,12 @@
       468
      ],
      [
-      83,
-      234
-     ],
-     [
       144,
       23
+     ],
+     [
+      83,
+      234
      ],
      [
       104,
@@ -3345,8 +3345,8 @@
      1847,
      1749,
      1795,
-     1689,
      1735,
+     1689,
      1749,
      1714
     ],
@@ -3472,12 +3472,12 @@
       468
      ],
      [
-      83,
-      234
-     ],
-     [
       144,
       23
+     ],
+     [
+      83,
+      234
      ],
      [
       104,
@@ -3844,8 +3844,8 @@
   },
   "fitsview:clean": {
    "frame": {
-    "bkg_frame_gradient": 0.6253056377697135,
-    "bkg_max_amplitude": 0.7396659958111513,
+    "bkg_frame_gradient": 2.8131800360272616,
+    "bkg_max_amplitude": 0.915426942746933,
     "ci": 0.9348417241763525,
     "cpe": 0.05351261364576258,
     "ellipticity": 0.005947110498193409,
@@ -3884,8 +3884,8 @@
     "y1": []
    },
    "maska": {
-    "count": 2501,
-    "sha256": "45b893ac45066bda8b806fbf4b86302b6487e2011c535880a91c86e8e94b281f"
+    "count": 2505,
+    "sha256": "ed2029bc85a773d0f0e579844c5cbd29f43031ff9597cc18f54090de94c8bf1d"
    },
    "sky": {
     "surface_bkg": [
@@ -4718,8 +4718,8 @@
   },
   "fitsview:elliptical": {
    "frame": {
-    "bkg_frame_gradient": 0.8101125515808576,
-    "bkg_max_amplitude": 0.8808330872375336,
+    "bkg_frame_gradient": 2.3634189433777766,
+    "bkg_max_amplitude": 1.0398312805980936,
     "ci": 0.9126971848443288,
     "cpe": 0.049357548689211536,
     "ellipticity": 0.3015244110319275,
@@ -4758,8 +4758,8 @@
     "y1": []
    },
    "maska": {
-    "count": 2629,
-    "sha256": "711cf986a0c4e613b8bad11a06615d0551af64d47affd51d898552fd0c2f44b3"
+    "count": 2624,
+    "sha256": "b437caa49ad1800b90334daa7b750cbfd4821aeef2686c47ee20c8188c4c9044"
    },
    "sky": {
     "surface_bkg": [
@@ -5592,8 +5592,8 @@
   },
   "fitsview:empty": {
    "frame": {
-    "bkg_frame_gradient": 0.29015751529436784,
-    "bkg_max_amplitude": 0.29015751529436784,
+    "bkg_frame_gradient": 0.4339762823657398,
+    "bkg_max_amplitude": 0.3409670749650786,
     "ci": NaN,
     "cpe": NaN,
     "ellipticity": NaN,
@@ -5632,8 +5632,8 @@
     "y1": []
    },
    "maska": {
-    "count": 414,
-    "sha256": "01839aa223a5581ca61ffa7b3f62c53592e3a18d27f9c95c07a014b2f4270c1d"
+    "count": 413,
+    "sha256": "328f5fa3d4567b16eb35b489c702ddf69c2cee6206eef476aff9b70040fe9126"
    },
    "sky": {
     "surface_bkg": [
@@ -6063,8 +6063,8 @@
   },
   "fitsview:gradient": {
    "frame": {
-    "bkg_frame_gradient": 362.2081488784755,
-    "bkg_max_amplitude": 362.2081488784755,
+    "bkg_frame_gradient": 765.7073474609983,
+    "bkg_max_amplitude": 405.88394210475644,
     "ci": NaN,
     "cpe": NaN,
     "ellipticity": NaN,
@@ -6103,8 +6103,8 @@
     "y1": []
    },
    "maska": {
-    "count": 495,
-    "sha256": "4cbb123d32376817769265796a1563b1511b1d8640157afccea16104990d7776"
+    "count": 380,
+    "sha256": "53d085270eff422995c205355d11dc72931380d9d50f54aefcbbc74de116214c"
    },
    "sky": {
     "surface_bkg": [
@@ -6534,8 +6534,8 @@
   },
   "fitsview:sparse": {
    "frame": {
-    "bkg_frame_gradient": 0.4269246285897452,
-    "bkg_max_amplitude": 0.5551893964097872,
+    "bkg_frame_gradient": 1.9727666390173764,
+    "bkg_max_amplitude": 0.6748090579575887,
     "ci": 0.9404870828810927,
     "cpe": 0.05198335988570992,
     "ellipticity": 0.011559645947509356,
@@ -6574,8 +6574,8 @@
     "y1": []
    },
    "maska": {
-    "count": 686,
-    "sha256": "5a27d51d97f5773dcd49cacd82810e0f122d8cac4ecfe7ba358e7f9f38af3dcf"
+    "count": 689,
+    "sha256": "fd5c215c990969ca7fedd3cb3e44e8cb5a56ad29cc26ec1cbeebf981d7e56801"
    },
    "sky": {
     "surface_bkg": [
@@ -7057,8 +7057,8 @@
   },
   "fitsview:typical": {
    "frame": {
-    "bkg_frame_gradient": 230.6741713675391,
-    "bkg_max_amplitude": 230.6741713675391,
+    "bkg_frame_gradient": 190.73364127956464,
+    "bkg_max_amplitude": 256.2580750802698,
     "ci": 0.9234146494747004,
     "cpe": 0.05342934203961286,
     "ellipticity": 0.007858462005965183,
@@ -7111,8 +7111,8 @@
     ]
    },
    "maska": {
-    "count": 4329,
-    "sha256": "30527a4181ba7315b9452be3f757e011352e47dbe19d9e1b57c5f40bb14f3ac1"
+    "count": 4332,
+    "sha256": "8565f8ad4464ad0311d480f29a63f266fd1016bbade2fba90d8505ceaf04145e"
    },
    "sky": {
     "surface_bkg": [
@@ -8101,8 +8101,8 @@
   },
   "fitsview:typical_uint16": {
    "frame": {
-    "bkg_frame_gradient": 230.54806443629252,
-    "bkg_max_amplitude": 230.54806443629252,
+    "bkg_frame_gradient": 191.53458883811462,
+    "bkg_max_amplitude": 256.1167778113544,
     "ci": 0.9232885665493032,
     "cpe": 0.05341359508986901,
     "ellipticity": 0.007628019847633061,
@@ -8155,8 +8155,8 @@
     ]
    },
    "maska": {
-    "count": 4339,
-    "sha256": "d7f3cdd3e6e0b37bdbb33d7a326ffa707d5813ba28fe1729fe51e5a45f4626bd"
+    "count": 4328,
+    "sha256": "88a372928cbda9299bcd3efb2bd3c3527e581f15bcb2e3a54eef8c7a087ffc0b"
    },
    "sky": {
     "surface_bkg": [
@@ -9208,8 +9208,8 @@
   },
   "toi:clean": {
    "frame": {
-    "bkg_frame_gradient": 0.36317600552962404,
-    "bkg_max_amplitude": 0.5171315801643459,
+    "bkg_frame_gradient": 1.8541577153620525,
+    "bkg_max_amplitude": 0.693192567271069,
     "ci": 0.9272076818912922,
     "cpe": 0.053669213962293634,
     "ellipticity": 0.006356988313419465,
@@ -9865,8 +9865,8 @@
   },
   "toi:elliptical": {
    "frame": {
-    "bkg_frame_gradient": 0.7389856713681979,
-    "bkg_max_amplitude": 0.8163682181413492,
+    "bkg_frame_gradient": 2.4594435377580193,
+    "bkg_max_amplitude": 1.0438510224971083,
     "ci": 0.9029010561915948,
     "cpe": 0.04853034458453743,
     "ellipticity": 0.30071908390349456,
@@ -10522,8 +10522,8 @@
   },
   "toi:empty": {
    "frame": {
-    "bkg_frame_gradient": 0.22438308201554946,
-    "bkg_max_amplitude": 0.22438308201554946,
+    "bkg_frame_gradient": 0.5688082430686262,
+    "bkg_max_amplitude": 0.2718886653468644,
     "ci": NaN,
     "cpe": NaN,
     "ellipticity": NaN,
@@ -10776,8 +10776,8 @@
   },
   "toi:gradient": {
    "frame": {
-    "bkg_frame_gradient": 342.13429932662245,
-    "bkg_max_amplitude": 342.13429932662245,
+    "bkg_frame_gradient": 764.9597308942972,
+    "bkg_max_amplitude": 406.0766125613685,
     "ci": NaN,
     "cpe": NaN,
     "ellipticity": NaN,
@@ -11030,8 +11030,8 @@
   },
   "toi:sparse": {
    "frame": {
-    "bkg_frame_gradient": 0.4243507907727917,
-    "bkg_max_amplitude": 0.46785102585948835,
+    "bkg_frame_gradient": 1.6778357298418256,
+    "bkg_max_amplitude": 0.5996827807075533,
     "ci": 0.9375920722027754,
     "cpe": 0.053229953058255536,
     "ellipticity": 0.011553800403400816,
@@ -11336,8 +11336,8 @@
   },
   "toi:typical": {
    "frame": {
-    "bkg_frame_gradient": 219.59070853935475,
-    "bkg_max_amplitude": 219.59070853935475,
+    "bkg_frame_gradient": 185.3588624316669,
+    "bkg_max_amplitude": 255.60558556631065,
     "ci": 0.8961301120820435,
     "cpe": 0.05230703958675924,
     "ellipticity": 0.013364824861310187,
@@ -12097,8 +12097,8 @@
   },
   "toi:typical_uint16": {
    "frame": {
-    "bkg_frame_gradient": 219.9297074298148,
-    "bkg_max_amplitude": 219.9297074298148,
+    "bkg_frame_gradient": 185.62554254147787,
+    "bkg_max_amplitude": 256.0001833636344,
     "ci": 0.9009751207372642,
     "cpe": 0.052244581259710134,
     "ellipticity": 0.012076771839728884,

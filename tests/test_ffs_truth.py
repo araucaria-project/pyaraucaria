@@ -267,8 +267,10 @@ class TestSkyGradient(QuietTestCase):
         x, y = np.asarray(ffs.sky_surface_x), np.asarray(ffs.sky_surface_y)
         model = f.truth["sky_model"][y, x]
         np.testing.assert_allclose(ffs.sky_surface_bkg, model, atol=3.0)
-        self.assertAlmostEqual(ffs.max_amplitude, model.max() - model.min(),
-                               delta=0.02 * (model.max() - model.min()))
+        # amplitude over the whole frame, not only at segment centres
+        full = f.truth["sky_model"]
+        self.assertAlmostEqual(ffs.max_amplitude, full.max() - full.min(),
+                               delta=0.02 * (full.max() - full.min()))
 
     def test_n_segments_honoured(self):
         ffs = FFS(scenario("gradient").image)

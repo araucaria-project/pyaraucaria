@@ -4,8 +4,9 @@ import numpy as np
 from scipy.ndimage import maximum_filter, median_filter
 from scipy.ndimage import convolve
 from scipy.ndimage import gaussian_filter
-from scipy.ndimage import binary_closing, label
+from scipy.ndimage import binary_closing, label, map_coordinates
 from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
+from scipy.special import erf
 
 from astropy.stats import mad_std
 from astropy.io import fits
@@ -75,6 +76,9 @@ class FFS:
         "theta_spread": "FFTHSPR", "cpe": "FFCPE", "shape": "FFSHAPE", "ci": "FFCI",
         "used_stars": "FFNSTARS",
         "bkg_max_amplitude": "FFBKGAMP", "bkg_frame_gradient": "FFBKGGRD",
+        "psf_e1": "FFPSFE1", "psf_e2": "FFPSFE2", "psf_e_mean": "FFPSFE", "psf_theta_mean": "FFPSFTH",
+        "psf_e_t": "FFPSFET", "psf_e_x": "FFPSFEX",
+        "psf_fwhm_tilt": "FFFWTILT", "psf_fwhm_tilt_angle": "FFFWTANG", "psf_fwhm_curv": "FFFWCURV",
     }
     # klucze strukturalne naglowka oryginalu, nie kopiowane do PRIMARY (NAXISn osobno)
     FITS_STRUCTURAL = {"SIMPLE", "BITPIX", "EXTEND", "BZERO", "BSCALE", "PCOUNT", "GCOUNT",
@@ -168,6 +172,7 @@ class FFS:
         }
 
         self.lines = None              # tabela wykrytych linii (find_lines)
+        self.psf_grid = None           # tabela PSF w wezlach rzadkiej siatki - "wasy" (mk_star_maps)
         self.masks = {}                # maski logiczne w rozmiarze obrazu, osobno dla kazdej metody
         self.binned_masks = {}         # maski wewnetrzne w rozmiarze binned_image (np. wejscie do Hougha)
         self.masks_description = {}
@@ -194,7 +199,8 @@ class FFS:
         PRIMARY: no data; a copy of header (if given, e.g. the original frame header),
         FFS parameters and the scalar frame statistics under short FF* keys (FFS.FITS_KEYS).
         Then one float32 ImageHDU per map (EXTNAME = map name in upper case), MASKS - int32
-        bit mask (bit i = mask MASKi from its header) and the tables STARS, LINES, SKYSURF (sky_gradient). Missing products are skipped.
+        bit mask (bit i = mask MASKi from its header) and the tables STARS, LINES, SKYSURF (sky_gradient),
+        PSFGRID (mk_star_maps). Missing products are skipped.
         """
         primary = fits.PrimaryHDU()
         if header is not None:
@@ -233,7 +239,8 @@ class FFS:
             hdu.data = bits
             hdus.append(hdu)
 
-        for name, table in (("STARS", self.stars), ("LINES", self.lines), ("SKYSURF", self.sky)):
+        for name, table in (("STARS", self.stars), ("LINES", self.lines), ("SKYSURF", self.sky),
+                            ("PSFGRID", self.psf_grid)):
             if table is not None:
                 hdu = fits.table_to_hdu(Table(table))
                 hdu.name = name
@@ -495,6 +502,38 @@ class FFS:
         self.masks_description["cosmics"] = (
             f"Cosmic rays: image - median3x3 > {nsig} sigma and image - sky > {contrast} * (median3x3 - sky) "
             f"(mk_cosmics_mask)"
+        )
+
+    def mk_stars_mask(self, k=3.0, fwhm=None):
+        """Mask of stars: discs of radius k * fwhm around all detections in self.coo -> masks["stars"].
+
+        For statistics and background (in FFS.SOURCES); not used in star detection and
+        measurement. Requires find_stars(); all detections are masked, also saturated and
+        not measured ones (star_info keeps them with NaN).
+
+        Parameters
+        ----------
+        k : float
+            Disc radius in units of fwhm.
+        fwhm : float | None
+            FWHM in pixels; None = self.frame_fwhm (calc_star_stats / calc_frame_fwhm).
+        """
+        if fwhm is None:
+            fwhm = self.frame_fwhm
+        if fwhm is None or not np.isfinite(fwhm):
+            raise ValueError("mk_stars_mask: no fwhm (run calc_frame_fwhm or give fwhm)")
+        r = k * fwhm
+        ri = int(np.ceil(r))
+        ny, nx = self.image.shape
+        mask = np.zeros((ny, nx), dtype=bool)
+        for y, x in np.asarray(self.coo, dtype=int).reshape(-1, 2):
+            y0, y1 = max(0, y - ri), min(ny, y + ri + 1)
+            x0, x1 = max(0, x - ri), min(nx, x + ri + 1)
+            yy, xx = np.ogrid[y0:y1, x0:x1]
+            mask[y0:y1, x0:x1] |= (yy - y) ** 2 + (xx - x) ** 2 <= r ** 2
+        self.masks["stars"] = mask
+        self.masks_description["stars"] = (
+            f"Stars: discs of radius {k} * FWHM = {r:.1f} px around {len(self.coo)} detections (mk_stars_mask)"
         )
 
     def find_stars(self, threshold=5, method="sigma quantile", fwhm=10,
@@ -829,6 +868,169 @@ class FFS:
             "used_stars": "How many star were used to evaluate thos statistics"
         })
 
+    def mk_star_maps(self, scale=0.2, grid=10, min_stars=5, nodes=65):
+        """Star maps: PSF from the stars measured by star_info() -> maps["psf_fwhm"],
+        maps["psf_ellipticity"], maps["psf_theta"], maps["psf_weight"]; star density from all
+        detections in self.coo -> maps["star_density"]; and self.psf_grid (table for a whisker plot).
+
+        No model: at every point a Gaussian-weighted mean of the stars, weight exp(-d^2 / 2 s^2),
+        s = scale * longer frame side. theta has period pi, so the components e1 = e cos 2theta,
+        e2 = e sin 2theta are averaged and ellipticity = hypot(e1, e2), theta = atan2(e2, e1) / 2
+        (radians, from the x axis). Random orientations average out, so the ellipticity map shows
+        the coherent part of the elongation. psf_weight is the sum of the weights (about the number
+        of stars within ~s); where it is small the map is extrapolated from far stars.
+        star_density: Gaussian kernel density of all detections (also saturated and not measured),
+        same s, in stars per 100 x 100 px; near the frame edges divided by the part of the kernel
+        inside the frame (otherwise the density would drop at the edges). Depends on the detection
+        threshold of find_stars().
+        The means are computed on nodes x nodes points and linearly interpolated to the image size.
+
+        Parameters
+        ----------
+        scale : float
+            Kernel sigma as a fraction of the longer frame side.
+        grid : int
+            The whisker table self.psf_grid has grid x grid points (centres of grid x grid cells).
+        min_stars : int
+            Minimal number of measured stars; fewer -> ValueError.
+        nodes : int
+            Number of nodes along each axis of the coarse grid.
+        """
+        ok = np.isfinite(self.fwhm) & np.isfinite(self.ellipticity) & np.isfinite(self.theta)
+        if ok.sum() < min_stars:
+            raise ValueError(f"mk_star_maps: {ok.sum()} measured stars, at least {min_stars} needed (run star_info)")
+        py, px = self.coo[ok, 0].astype(float), self.coo[ok, 1].astype(float)
+        e, t = self.ellipticity[ok], self.theta[ok]
+        values = np.column_stack((self.fwhm[ok], e * np.cos(2 * t), e * np.sin(2 * t)))
+
+        ny, nx = self.image.shape
+        s = scale * max(nx, ny)
+
+        # wezly rzadkiej siatki (z krawedziami kadru) -> pelny rozmiar interpolacja liniowa;
+        # theta liczona dopiero z e1, e2 w pelnym rozmiarze (kat ma okres pi)
+        gx, gy = np.meshgrid(np.linspace(0, nx - 1, nodes), np.linspace(0, ny - 1, nodes))
+        means, weight = FFS._kernel_smooth(px, py, values, gx, gy, s)
+        density = self._star_density(gx, gy, s)
+        yy, xx = np.mgrid[0:ny, 0:nx]
+        coords = np.array([yy * (nodes - 1) / max(ny - 1, 1), xx * (nodes - 1) / max(nx - 1, 1)])
+        fwhm, e1, e2, w, dens = (map_coordinates(a, coords, order=1)
+                                 for a in (means[..., 0], means[..., 1], means[..., 2], weight, density))
+
+        self.maps["psf_fwhm"] = fwhm
+        self.maps["psf_ellipticity"] = np.hypot(e1, e2)
+        self.maps["psf_theta"] = 0.5 * np.arctan2(e2, e1)
+        self.maps["psf_weight"] = w
+        self.maps["star_density"] = dens
+        kernel = f"Gaussian-weighted mean of {ok.sum()} stars, sigma {s:.0f} px (mk_star_maps)"
+        self.maps_description["psf_fwhm"] = f"PSF FWHM (px): {kernel}"
+        self.maps_description["psf_ellipticity"] = f"PSF ellipticity hypot(e1, e2), coherent part: {kernel}"
+        self.maps_description["psf_theta"] = f"PSF position angle atan2(e2, e1) / 2 (rad, from x axis): {kernel}"
+        self.maps_description["psf_weight"] = f"Sum of kernel weights (about the number of stars within sigma): {kernel}"
+        self.maps_description["star_density"] = (
+            f"Star density (detections per 100 x 100 px): Gaussian kernel density of {len(self.coo)} detections, "
+            f"sigma {s:.0f} px, edge corrected (mk_star_maps)"
+        )
+
+        cx = (np.arange(grid) + 0.5) * nx / grid
+        cy = (np.arange(grid) + 0.5) * ny / grid
+        gx, gy = np.meshgrid(cx, cy)
+        means, weight = FFS._kernel_smooth(px, py, values, gx, gy, s)
+        self.psf_grid = Table({
+            "x": gx.ravel(), "y": gy.ravel(),
+            "fwhm": means[..., 0].ravel(),
+            "ellipticity": np.hypot(means[..., 1], means[..., 2]).ravel(),
+            "theta": 0.5 * np.arctan2(means[..., 2], means[..., 1]).ravel(),
+            "weight": weight.ravel(),
+            "density": self._star_density(gx, gy, s).ravel(),
+        })
+
+    def _star_density(self, gx, gy, s):
+        """Gaussian kernel density of all detections (self.coo) at points gx, gy, stars per 100 x 100 px,
+        divided by the part of the kernel inside the frame."""
+        ny, nx = self.image.shape
+        coo = np.asarray(self.coo, dtype=float).reshape(-1, 2)
+        if len(coo) == 0:
+            return np.zeros(gx.shape)
+        ones = np.ones((len(coo), 1))
+        _, W = FFS._kernel_smooth(coo[:, 1], coo[:, 0], ones, gx, gy, s)
+        inside_x = 0.5 * (erf(gx / (np.sqrt(2) * s)) + erf((nx - 1 - gx) / (np.sqrt(2) * s)))
+        inside_y = 0.5 * (erf(gy / (np.sqrt(2) * s)) + erf((ny - 1 - gy) / (np.sqrt(2) * s)))
+        return W / (2 * np.pi * s ** 2) / (inside_x * inside_y) * 1e4
+
+    def calc_star_field_stats(self, min_stars=5):
+        """Global PSF field statistics from the stars measured by star_info() -> stats["frame"].
+
+        Ellipticity components of each star: e1 = e cos 2theta, e2 = e sin 2theta. Relative to
+        the frame centre (phi - position angle of the star seen from the centre):
+        - psf_e1, psf_e2, psf_e_mean, psf_theta_mean: mean e1, e2 and the common elongation
+          (all stars elongated in one direction: tracking, wind),
+        - psf_e_t = mean of -(e1 cos 2phi + e2 sin 2phi): > 0 tangential pattern (field rotation,
+          astigmatism), < 0 radial pattern,
+        - psf_e_x = mean of (e1 sin 2phi - e2 cos 2phi): pattern rotated by 45 deg (swirl).
+        FWHM fitted with a + b x + c y + d r^2 (x, y, r from the frame centre):
+        - psf_fwhm_tilt = hypot(b, c) * longer frame side: FWHM change across the frame
+          (px per frame, e.g. detector tilt), psf_fwhm_tilt_angle = atan2(c, b): direction of
+          growing FWHM (rad, from the x axis),
+        - psf_fwhm_curv = d * (half diagonal)^2: FWHM change from the centre to a corner
+          (px, e.g. field curvature).
+        The optical axis is assumed at the frame centre.
+
+        Parameters
+        ----------
+        min_stars : int
+            Minimal number of measured stars; fewer -> ValueError.
+        """
+        ok = np.isfinite(self.fwhm) & np.isfinite(self.ellipticity) & np.isfinite(self.theta)
+        if ok.sum() < min_stars:
+            raise ValueError(f"calc_star_field_stats: {ok.sum()} measured stars, at least {min_stars} needed (run star_info)")
+        ny, nx = self.image.shape
+        x = self.coo[ok, 1] - (nx - 1) / 2
+        y = self.coo[ok, 0] - (ny - 1) / 2
+        e, t, fwhm = self.ellipticity[ok], self.theta[ok], self.fwhm[ok]
+
+        e1, e2 = e * np.cos(2 * t), e * np.sin(2 * t)
+        phi = np.arctan2(y, x)
+        c2, s2 = np.cos(2 * phi), np.sin(2 * phi)
+        m1, m2 = np.mean(e1), np.mean(e2)
+
+        r2 = x ** 2 + y ** 2
+        A = np.column_stack((np.ones_like(x), x, y, r2))
+        (_, b, c, d), *_ = np.linalg.lstsq(A, fwhm, rcond=None)
+
+        psf = {
+            "psf_e1": m1,
+            "psf_e2": m2,
+            "psf_e_mean": np.hypot(m1, m2),
+            "psf_theta_mean": 0.5 * np.arctan2(m2, m1),
+            "psf_e_t": np.mean(-(e1 * c2 + e2 * s2)),
+            "psf_e_x": np.mean(e1 * s2 - e2 * c2),
+            "psf_fwhm_tilt": np.hypot(b, c) * max(nx, ny),
+            "psf_fwhm_tilt_angle": np.arctan2(c, b),
+            "psf_fwhm_curv": d * ((nx - 1) ** 2 + (ny - 1) ** 2) / 4,
+        }
+        self.stats["frame"].update(psf)
+        self.stats_description["frame"].update({
+            "psf_e1": "Mean e1 = e cos 2theta of the measured stars",
+            "psf_e2": "Mean e2 = e sin 2theta of the measured stars",
+            "psf_e_mean": "Common elongation hypot(mean e1, mean e2) (tracking, wind)",
+            "psf_theta_mean": "Direction of the common elongation (rad, from the x axis)",
+            "psf_e_t": "Mean tangential ellipticity around the frame centre (> 0 tangential, < 0 radial)",
+            "psf_e_x": "Mean cross ellipticity around the frame centre (45 deg swirl)",
+            "psf_fwhm_tilt": "FWHM change across the frame from a linear + r^2 fit (px per frame)",
+            "psf_fwhm_tilt_angle": "Direction of growing FWHM (rad, from the x axis)",
+            "psf_fwhm_curv": "FWHM change from the frame centre to a corner, r^2 term (px)",
+        })
+
+    @staticmethod
+    def _kernel_smooth(px, py, values, gx, gy, s):
+        """Gaussian-weighted means of values (n_stars x n_columns) at points gx, gy (any shape)
+        -> (means of shape gx.shape + (n_columns,), sum of weights of shape gx.shape)."""
+        d2 = (gx.reshape(-1, 1) - px) ** 2 + (gy.reshape(-1, 1) - py) ** 2
+        w = np.exp(-0.5 * d2 / s ** 2)
+        W = w.sum(axis=1)
+        means = (w @ values) / W[:, None]
+        return means.reshape(gx.shape + (values.shape[1],)), W.reshape(gx.shape)
+
     def star_info(self, box=10, N_stars=None, exclude=EXCLUDE_MEASURE):
         """Measure the stars found by find_stars() on the original image (no binning): a box of
         +-box px around each position, FWHM, ellipticity, theta, CPE, CI -> self.stars / stats["stars"].
@@ -1031,8 +1233,11 @@ class FFS:
         """Sky background map -> maps["sky"], original size.
 
         Medians of n_segments x n_segments segments (on the binned image, without bad_mask())
-        linearly interpolated between segment centres; outside them (a band at the edges) the
-        value of the nearest segment. Calls sky_gradient(), so also fills its statistics.
+        linearly interpolated between segment centres. The band between the outermost centres
+        and the frame edges is linearly extrapolated: points on the frame edges get values
+        extrapolated from the two nearest segments of their row / column (corners from the edge
+        points), then all points are interpolated together. No model (polynomial) in the map.
+        Calls sky_gradient(), so also fills its statistics.
 
         Parameters
         ----------
@@ -1043,29 +1248,52 @@ class FFS:
         """
         self.sky_gradient(n_segments=n_segments, exclude=exclude)
 
-        points = np.column_stack((self.stats["sky"]["surface_x"], self.stats["sky"]["surface_y"]))
-        values = self.stats["sky"]["surface_val"]
-
         ny, nx = self.image.shape
+
+        # siatka srodkow segmentow (NaN - segment pominiety) obramowana krawedziami kadru:
+        # najpierw kolumny x = 0 i nx-1 (ekstrapolacja wzdluz wierszy), potem wiersze y = 0
+        # i ny-1 (wzdluz kolumn, razem z nowymi kolumnami, co daje narozniki)
+        sx = np.asarray(self.stats["sky"]["surface_x"])
+        sy = np.asarray(self.stats["sky"]["surface_y"])
+        xs = np.unique(sx)
+        ys = np.unique(sy)
+        X = np.concatenate(([0], xs, [nx - 1]))
+        Y = np.concatenate(([0], ys, [ny - 1]))
+        grid = np.full((len(Y), len(X)), np.nan)
+        grid[np.searchsorted(ys, sy) + 1, np.searchsorted(xs, sx) + 1] = self.stats["sky"]["surface_val"]
+        for i in range(1, len(Y) - 1):
+            grid[i, 0] = FFS._extrapolate(X[1:-1], grid[i, 1:-1], X[0])
+            grid[i, -1] = FFS._extrapolate(X[1:-1], grid[i, 1:-1], X[-1])
+        for j in range(len(X)):
+            grid[0, j] = FFS._extrapolate(Y[1:-1], grid[1:-1, j], Y[0])
+            grid[-1, j] = FFS._extrapolate(Y[1:-1], grid[1:-1, j], Y[-1])
+
+        gx, gy = np.meshgrid(X, Y)
+        ok = np.isfinite(grid)
+        points = np.column_stack((gx[ok], gy[ok]))
+        values = grid[ok]
+
         yy, xx = np.mgrid[0:ny, 0:nx]
 
         sky_map = LinearNDInterpolator(points, values)(xx, yy)
 
-        # poza otoczka wypukla srodkow segmentow (brzegi kadru) LinearNDInterpolator daje NaN
+        # poza otoczka wypukla punktow (tylko gdy brakuje skrajnych segmentow) LinearNDInterpolator daje NaN
         outside = np.isnan(sky_map)
         if outside.any():
             sky_map[outside] = NearestNDInterpolator(points, values)(xx[outside], yy[outside])
 
         self.maps["sky"] = sky_map
         self.maps_description["sky"] = (
-            "Sky background map: linear interpolation (Delaunay triangulation) of segment medians; "
-            "outside the convex hull of segment centres filled with the nearest segment median"
+            "Sky background map: linear interpolation (Delaunay triangulation) of segment medians, "
+            "linearly extrapolated to the frame edges"
         )
 
     def sky_gradient(self,n_segments=10, min_good_fraction=0.5, exclude=EXCLUDE_ALL):
         """Sky gradient: medians of n_segments x n_segments segments fitted with a 2nd order
         polynomial surface -> stats["frame"] (bkg_max_amplitude, bkg_frame_gradient,
         sky_surface_coeff), stats["sky"] and self.sky (table of segment centres and fitted values).
+        bkg_max_amplitude: max - min of the model over the frame (ADU); bkg_frame_gradient: max
+        slope of the model over the frame times the longer frame side (ADU per frame).
 
         Parameters
         ----------
@@ -1104,30 +1332,21 @@ class FFS:
         A = np.vstack([np.ones_like(x), x, y, x ** 2, x * y, y ** 2]).T
         coeff, *_ = np.linalg.lstsq(A, back, rcond=None)
 
-        x0 = min(x)
-        y0 = min(y)
-        xk = max(x)
-        yk = max(y)
+        bk = [FFS.polysurf(xi, yi, coeff) for xi, yi in zip(x, y)]
 
-        le = []
-        re = []
-        ue = []
-        de = []
+        # parametry z modelu na calym kadrze (oryginal): amplituda = max - min na siatce
+        # 101 x 101 (lapie tez ekstremum wewnatrz, np. srodek winietowania); gradient
+        # wielomianu 2. stopnia jest liniowy, wiec max |grad| jest w ktoryms narozniku
+        ny, nx = self.image.shape
+        gx, gy = np.meshgrid(np.linspace(0, nx - 1, 101), np.linspace(0, ny - 1, 101))
+        surf = FFS.polysurf(gx, gy, coeff)
+        max_amplitude = surf.max() - surf.min()
 
-        bk = []
-
-        for xi, yi in zip(x, y):
-            bk.append(FFS.polysurf(xi, yi, coeff))
-            le.append(FFS.polysurf(x0, yi, coeff))
-            re.append(FFS.polysurf(xk, yi, coeff))
-            ue.append(FFS.polysurf(xi, yk, coeff))
-            de.append(FFS.polysurf(xi, y0, coeff))
-
-        max_amplitude = max(bk) - min(bk)
-        # co to po co to
-        # max(le) - min(re)
-        frame_gradient = max(max((max(le) - min(re)), (max(re) - min(le))),
-                             max((max(ue) - min(de)), (max(de) - min(ue))))
+        a0, a1, a2, a3, a4, a5 = coeff
+        corners = np.array([[0, 0], [nx - 1, 0], [0, ny - 1], [nx - 1, ny - 1]], dtype=float)
+        dx = a1 + 2 * a3 * corners[:, 0] + a4 * corners[:, 1]
+        dy = a2 + a4 * corners[:, 0] + 2 * a5 * corners[:, 1]
+        frame_gradient = np.hypot(dx, dy).max() * max(nx, ny)   # ADU na kadr
 
         self.max_amplitude = max_amplitude
         self.frame_gradient = frame_gradient
@@ -1155,11 +1374,11 @@ class FFS:
         self.stats_description["frame"].update({
 
             "bkg_max_amplitude": (
-                "Maximum amplitude of the background signal across the image (in ADU)"
+                "Max - min of the sky model (2nd order polynomial) over the frame (ADU)"
             ),
 
             "bkg_frame_gradient": (
-                "Background gradient across the image frame (in ADU)"
+                "Max slope |grad| of the sky model over the frame times the longer frame side (ADU per frame)"
             ),
 
             "sky_surface_coeff": (
@@ -1976,6 +2195,22 @@ class FFS:
         kernel = np.fromfunction(lambda x, y: (1 / (2 * np.pi * sigma ** 2)) * np.exp(
             -((x - (size - 1) / 2) ** 2 + (y - (size - 1) / 2) ** 2) / (2 * sigma ** 2)), (size, size))
         return kernel / np.sum(kernel)
+
+    @staticmethod
+    def _extrapolate(coords, values, edge):
+        """Value at edge linearly extrapolated from the two finite values nearest to it
+        (one finite value - that value; none - NaN). coords sorted ascending."""
+        ok = np.isfinite(values)
+        c, v = coords[ok], values[ok]
+        if len(c) == 0:
+            return np.nan
+        if len(c) == 1:
+            return v[0]
+        if edge <= c[0]:
+            (c1, v1), (c2, v2) = (c[0], v[0]), (c[1], v[1])
+        else:
+            (c1, v1), (c2, v2) = (c[-1], v[-1]), (c[-2], v[-2])
+        return v1 + (edge - c1) * (v2 - v1) / (c2 - c1)
 
     @staticmethod
     def _column_deviation(resid, block, window):
