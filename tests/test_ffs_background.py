@@ -51,9 +51,8 @@ class TestFindStarsBackground(unittest.TestCase):
         ffs.masks["hot"] = np.zeros(img.shape, bool)
         for y, x in hot:
             ffs.masks["hot"][y, x] = True
-        ffs.exclude.add("hot")
-        ffs.mk_stats()
-        ffs.find_stars(threshold=5, fwhm=4)
+        ffs.mk_stats(exclude=FFS.EXCLUDE_ALL + ("hot",))
+        ffs.find_stars(threshold=5, fwhm=4, exclude=FFS.EXCLUDE_DETECTION + ("hot",))
         found = {tuple(c) for c in ffs.coo.tolist()}
         self.assertFalse(found & set(hot))
 
@@ -74,13 +73,13 @@ class TestFindStarsBackground(unittest.TestCase):
         y, x = ffs.coo[0]
         ffs.masks["bad"] = np.zeros(img.shape, bool)
         ffs.masks["bad"][y, x + 3] = True           # one bad pixel next to the brightest star
-        ffs.exclude.add("bad")
         n_before = len(ffs.coo)
-        ffs.star_info(box=8)
-        # rejected stars are dropped from coo; the others are measured
-        self.assertNotIn([y, x], ffs.coo.tolist())
-        self.assertGreater(len(ffs.coo), n_before // 2)
-        self.assertTrue(np.all(np.isfinite(ffs.fwhm)))
+        ffs.star_info(box=8, exclude=FFS.EXCLUDE_MEASURE + ("bad",))
+        # rejected stars stay in coo with NaN; the others are measured
+        self.assertEqual(len(ffs.coo), n_before)
+        self.assertEqual(ffs.coo[0].tolist(), [y, x])
+        self.assertTrue(np.isnan(ffs.fwhm[0]))
+        self.assertGreater(np.isfinite(ffs.fwhm).sum(), n_before // 2)
 
 
 if __name__ == "__main__":

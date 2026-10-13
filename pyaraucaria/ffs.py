@@ -8,59 +8,90 @@ from scipy.ndimage import binary_closing, label
 from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
 
 from astropy.stats import mad_std
+from astropy.io import fits
 from astropy.table import Table
 
 
 
 class FFS:
-    """Fast FITS Statistics: szybkie statystyki klatki, tlo, detekcja gwiazd i sladow, maski.
+    """Fast FITS Statistics: quick frame statistics, sky background, star and trail detection, masks.
 
-    FFS szacuje (QC, maski dla fotometrii), nie zastepuje photutils.
+    FFS gives estimates (quality control, masks for photometry); it does not replace photutils.
 
-    Parametry konstruktora
-    ----------------------
+    Parameters
+    ----------
     image : 2D array
-        Obraz w ADU.
-    gain, rn_noise : float
-        Gain [e-/ADU] i szum odczytu (uzywane przez find_stars(method="rms Poisson")).
+        Image in ADU.
+    gain : float
+        Gain in e-/ADU. Used by find_stars(method="rms Poisson").
+    rn_noise : float
+        Read-out noise. Used by find_stars(method="rms Poisson").
     saturation : float
-        Poziom saturacji [ADU].
+        Saturation level in ADU. Pixels at or above it are saturated (mk_saturation_mask);
+        diffraction spikes are recognised only on saturated stars (classify_lines).
     bin : int
-        Binning bin x bin (srednia) do uzytku wewnetrznego. Domyslnie 1 = bez binowania.
+        Internal bin x bin binning (mean). 1 = no binning. Ignored when autobin is True.
     autobin : bool
-        True: bin dobierany automatycznie tak, zeby dluzszy bok obrazu zbinowanego byl
-        <= FFS.AUTOBIN_LIMIT (2500 px), np. 4096 x 4096 -> bin 2. Argument bin jest wtedy ignorowany.
+        Choose bin automatically so that the longer side of the binned image is
+        <= FFS.AUTOBIN_LIMIT (2500 px), e.g. 4096 x 4096 -> bin 2. Recommended for large frames.
 
-    UWAGA - binning i pamiec
-    ------------------------
-    Domyslnie (bin=1, autobin=False) obraz NIE jest binowany. Na duzych klatkach
-    (np. 4096 x 4096) find_lines() - wolane tez przez calc_frame_fwhm() - potrzebuje
-    wtedy ponad 10 GB RAM i moze zabraknac pamieci. Dla klatek wiekszych niz ~2500 px
-    uzywaj autobin=True (albo bin >= 2). Binowanie jest decyzja uzytkownika - FFS nie
-    wlacza go sam.
+    Notes
+    -----
+    Binning and memory: by default (bin=1, autobin=False) the image is NOT binned. On large
+    frames (e.g. 4096 x 4096) find_lines() - also called by calc_frame_fwhm() - then needs
+    more than 10 GB of RAM. Use autobin=True (or bin >= 2) for frames larger than ~2500 px.
+    Binning is the user's decision - FFS never switches it on by itself.
 
-    Co jest liczone na obrazie zbinowanym (self.binned_image): mapa tla (sky_map), maska
-    threshold, linie (find_lines, hough_transform) i detekcja gwiazd (find_stars). Na
-    oryginale: saturacja, kosmiki (mk_cosmics_mask), pomiar gwiazd (star_info: FWHM,
-    eliptycznosc), classify_lines, mapy kalibracyjne. Wszystko, co dostaje uzytkownik
-    (wspolrzedne gwiazd i linii, FWHM, maski w self.masks, mapy w self.maps), jest w ukladzie
-    i rozmiarze oryginalu, a parametry w pikselach (fwhm, min_length, max_gap, box, ...)
-    podaje sie w pikselach oryginalu. Wyjatki: find_lines(half_width, max_shift) sa w pikselach
-    obrazu zbinowanego. Wewnetrzne, w rozmiarze zbinowanym: self.binned_image,
-    self.binned_masks, self.accumulator / self.rh / self.hough_theta.
+    Computed on the binned image (self.binned_image): sky map (sky_map), threshold mask,
+    lines (find_lines, hough_transform) and star detection (find_stars). Computed on the
+    original: saturation, cosmics (mk_cosmics_mask), star measurements (star_info: FWHM,
+    ellipticity), classify_lines, calibration maps. Everything returned to the user (star
+    and line coordinates, FWHM, masks in self.masks, maps in self.maps) is in the frame and
+    size of the original, and pixel parameters (fwhm, min_length, max_gap, box, ...) are
+    given in original pixels. Exceptions: find_lines(half_width, max_shift) are in binned
+    pixels. Internal, binned size: self.binned_image, self.binned_masks,
+    self.accumulator / self.rh / self.hough_theta.
 
-    Maski i mapy
-    ------------
-    self.masks: maski bool w rozmiarze obrazu, osobno dla kazdej metody (opis w
-    self.masks_description). Maski, ktorych nazwy sa w self.exclude, sa pomijane w
-    statystykach, tle i detekcji (bad_mask()). self.maps: mapy (np. "sky") w rozmiarze obrazu.
+    Masks and maps: self.masks holds boolean masks of the image size, one per method
+    (described in self.masks_description). Each method takes exclude - the names of the masks
+    whose pixels it skips (bad_mask()); masks that do not exist yet are ignored. The defaults
+    are built from FFS.BAD_PIXELS and FFS.SOURCES, e.g. a stars mask is skipped in statistics
+    and background but not in star detection. self.maps holds maps (e.g. "sky") of the image
+    size, described in self.maps_description.
 
-    Sigma tla w find_stars(method=...): "sigma quantile" (domyslnie) - mad_std residuum
-    image - sky (_background); "rms" - odchylenie standardowe dobrych pikseli (mk_stats);
+    Background sigma in find_stars(method=...): "sigma quantile" (default) - mad_std of the
+    residual image - sky (_background); "rms" - standard deviation of good pixels (mk_stats);
     "rms Poisson" - sqrt(median / gain + rn_noise^2) (mk_stats).
     """
 
     AUTOBIN_LIMIT = 2500   # autobin: najmniejszy bin, przy ktorym dluzszy bok obrazu zbinowanego <= limit
+
+    # save_mef: krotkie (<= 8 znakow) klucze FITS dla skalarow z stats["frame"]
+    FITS_KEYS = {
+        "min": "FFMIN", "max": "FFMAX", "mean": "FFMEAN", "median": "FFMEDIAN", "rms": "FFRMS",
+        "q_sigma_lower": "FFQSIGL", "q_sigma_upper": "FFQSIGU", "q_sigma": "FFQSIG",
+        "noise": "FFNOISE", "n_bad": "FFNBAD",
+        "fwhm": "FFFWHM", "fwhm_x": "FFFWHMX", "fwhm_y": "FFFWHMY", "ellipticity": "FFELLIP",
+        "theta_spread": "FFTHSPR", "cpe": "FFCPE", "shape": "FFSHAPE", "ci": "FFCI",
+        "used_stars": "FFNSTARS",
+        "bkg_max_amplitude": "FFBKGAMP", "bkg_frame_gradient": "FFBKGGRD",
+    }
+    # klucze strukturalne naglowka oryginalu, nie kopiowane do PRIMARY (NAXISn osobno)
+    FITS_STRUCTURAL = {"SIMPLE", "BITPIX", "EXTEND", "BZERO", "BSCALE", "PCOUNT", "GCOUNT",
+                       "XTENSION", "EXTNAME", "CHECKSUM", "DATASUM"}
+
+    # nazwy masek do domyslnych list exclude: zle piksele i zrodla (slady, spajki, gwiazdy)
+    BAD_PIXELS = ("nonfinite", "saturation", "cosmics", "hot_pixels", "cold_pixels",
+                  "bad_columns", "bad_rows")
+    SOURCES = ("lines", "spikes", "stars")
+    EXCLUDE_ALL = BAD_PIXELS + SOURCES
+    # detekcja gwiazd: bez saturacji i gwiazd (nasycone gwiazdy maja zostac w coo)
+    EXCLUDE_DETECTION = ("nonfinite", "cosmics", "hot_pixels", "cold_pixels",
+                         "bad_columns", "bad_rows", "lines", "spikes")
+    # pomiar gwiazd: bez gwiazd
+    EXCLUDE_MEASURE = BAD_PIXELS + ("lines", "spikes")
+    # klasyfikacja linii: bez saturacji i linii (to je badamy) i gwiazd
+    EXCLUDE_LINES = ("nonfinite", "cosmics", "hot_pixels", "cold_pixels", "bad_columns", "bad_rows")
 
     def __init__(self, image, gain=1., rn_noise=0., saturation = 50000, bin=1, autobin=False):
         self.image = image
@@ -140,26 +171,77 @@ class FFS:
         self.masks = {}                # maski logiczne w rozmiarze obrazu, osobno dla kazdej metody
         self.binned_masks = {}         # maski wewnetrzne w rozmiarze binned_image (np. wejscie do Hougha)
         self.masks_description = {}
-        self.exclude = set()           # nazwy masek wykluczajacych (zle piksele), patrz bad_mask()
 
         nonfinite = ~np.isfinite(self.image)
         if nonfinite.any():            # NaN/inf na wejsciu (np. po redukcji) traktujemy jak zle piksele
             self.masks["nonfinite"] = nonfinite
             self.masks_description["nonfinite"] = "Non-finite input pixels (NaN or inf)"
-            self.exclude.add("nonfinite")
 
         self.maps = {}
         self.maps_description = {}
 
-    def bad_mask(self, ignore=()):
-        """Suma (OR) masek wykluczajacych, ktorych nazwy sa w self.exclude (poza nazwami z ignore)."""
+    def bad_mask(self, exclude=EXCLUDE_ALL):
+        """Union (OR) of the masks named in exclude; names of masks that do not exist are ignored."""
         bad = np.zeros(self.image.shape, dtype=bool)
-        for name in self.exclude:
-            if name not in ignore:
+        for name in exclude:
+            if name in self.masks:
                 bad |= self.masks[name]
         return bad
 
-    def _background(self, binned=False):
+    def save_mef(self, path, header=None, overwrite=False):
+        """Save maps, masks and tables to one multi-extension FITS file.
+
+        PRIMARY: no data; a copy of header (if given, e.g. the original frame header),
+        FFS parameters and the scalar frame statistics under short FF* keys (FFS.FITS_KEYS).
+        Then one float32 ImageHDU per map (EXTNAME = map name in upper case), MASKS - int32
+        bit mask (bit i = mask MASKi from its header) and the tables STARS, LINES, SKYSURF (sky_gradient). Missing products are skipped.
+        """
+        primary = fits.PrimaryHDU()
+        if header is not None:
+            # bez kluczy strukturalnych oryginalu (NAXISn, BZERO...) - PRIMARY nie ma danych
+            for card in header.cards:
+                if card.keyword not in FFS.FITS_STRUCTURAL and not card.keyword.startswith("NAXIS"):
+                    primary.header.append(card)
+
+        params = {"FFBIN": (self.bin, "FFS internal binning"),
+                  "FFGAIN": (self.gain, "FFS gain [e-/ADU]"),
+                  "FFRN": (self.rn_noise, "FFS read-out noise"),
+                  "FFSATUR": (self.saturation, "FFS saturation level [ADU]")}
+        for key, (value, comment) in params.items():
+            primary.header[key] = (value, comment)
+
+        # tylko skonczone skalary - NaN/inf nie sa dozwolone w naglowku FITS
+        descr = self.stats_description["frame"]
+        for name, value in self.stats["frame"].items():
+            if name in FFS.FITS_KEYS and np.isscalar(value) and np.isfinite(value):
+                primary.header[FFS.FITS_KEYS[name]] = (value, FFS._fits_text(descr.get(name, ""))[:46])
+
+        hdus = [primary]
+        for name, data in self.maps.items():
+            hdu = fits.ImageHDU(np.asarray(data, dtype=np.float32), name=name.upper())
+            hdu.header["COMMENT"] = FFS._fits_text(self.maps_description.get(name, ""))
+            hdus.append(hdu)
+
+        if self.masks:
+            if len(self.masks) > 31:
+                raise ValueError(f"save_mef: {len(self.masks)} masks do not fit in int32 (max 31)")
+            bits = np.zeros(self.image.shape, dtype=np.int32)
+            hdu = fits.ImageHDU(name="MASKS")
+            for i, (name, mask) in enumerate(self.masks.items()):
+                bits |= mask.astype(np.int32) << i
+                hdu.header[f"MASK{i}"] = (name, FFS._fits_text(self.masks_description.get(name, ""))[:46])
+            hdu.data = bits
+            hdus.append(hdu)
+
+        for name, table in (("STARS", self.stars), ("LINES", self.lines), ("SKYSURF", self.sky)):
+            if table is not None:
+                hdu = fits.table_to_hdu(Table(table))
+                hdu.name = name
+                hdus.append(hdu)
+
+        fits.HDUList(hdus).writeto(path, overwrite=overwrite)
+
+    def _background(self, binned=False, exclude=EXCLUDE_ALL):
         """Poziom tla i sigma: (maps["sky"], sigma residuum). Mapa tla liczona, jesli jej jeszcze nie ma.
 
         Sigma to mad_std residuum image - sky dobrych pikseli: q_sigma calej klatki zawiera tez
@@ -172,16 +254,26 @@ class FFS:
             self.sky_map()
         if binned:
             image, sky = self.binned_image, FFS.bin_image(self.maps["sky"], self.bin)
-            bad = self.to_binned_mask(self.bad_mask())
+            bad = self.to_binned_mask(self.bad_mask(exclude))
         else:
-            image, sky, bad = self.image, self.maps["sky"], self.bad_mask()
+            image, sky, bad = self.image, self.maps["sky"], self.bad_mask(exclude)
         residual = image - sky
         good = residual[~bad] if bad.sum() < bad.size else residual.ravel()
         return sky, mad_std(good), "sky map"
 
-    def mk_stats(self):
+    def mk_stats(self, exclude=EXCLUDE_ALL):
+        """Basic frame statistics -> self.stats["frame"] (min, max, mean, median, rms, quantile sigmas, noise).
+
+        Computed from good pixels (outside bad_mask(exclude)); min and max from all finite pixels,
+        so that saturation stays visible.
+
+        Parameters
+        ----------
+        exclude : sequence of str
+            Names of the masks whose pixels are skipped (bad_mask); missing masks are ignored.
+        """
         # statystyki z dobrych pikseli (poza bad_mask); min/max ze wszystkich, zeby bylo widac saturacje
-        bad = self.bad_mask()
+        bad = self.bad_mask(exclude)
         self.n_bad = int(bad.sum())
         img = self.image[~bad] if self.n_bad < bad.size else self.image.ravel()
 
@@ -232,15 +324,23 @@ class FFS:
             "n_bad": "Number of excluded pixels (bad_mask); other statistics except min/max use only the remaining pixels",
         }
 
-    def mk_threshold_mask(self, nsigma=3.0):
-        """Maska pikseli powyzej tla: image > tlo + nsigma * sigma.
+    def mk_threshold_mask(self, nsigma=3.0, exclude=EXCLUDE_ALL):
+        """Mask of pixels above the background: image > sky + nsigma * sigma -> masks["threshold"].
 
-        Tlo to self.maps["sky"] (liczone przez _background(), jesli go nie ma), sigma to
-        mad_std residuum image - sky. Liczona na binned_image (binned_masks["threshold"],
-        wejscie do Hougha); masks["threshold"] to ta sama maska w rozmiarze oryginalu.
+        The sky is self.maps["sky"] (computed if missing), sigma is mad_std of the residual
+        image - sky. Computed on the binned image (binned_masks["threshold"] is the input of
+        the Hough transform in find_lines); masks["threshold"] is the same mask in original size.
+
+        Parameters
+        ----------
+        nsigma : float
+            Threshold above the sky map in units of background sigma. Lower values let
+            fainter trails into line detection, but also more noise.
+        exclude : sequence of str
+            Names of the masks whose pixels are skipped (bad_mask); missing masks are ignored.
         """
-        level, sigma, level_name = self._background(binned=True)
-        bad = self.to_binned_mask(self.bad_mask())
+        level, sigma, level_name = self._background(binned=True, exclude=exclude)
+        bad = self.to_binned_mask(self.bad_mask(exclude))
         self.binned_masks["threshold"] = (self.binned_image > level + nsigma * sigma) & ~bad
         self.masks["threshold"] = self.to_original_mask(self.binned_masks["threshold"])
         self.masks_description["threshold"] = (
@@ -250,24 +350,39 @@ class FFS:
         )
 
     def mk_saturation_mask(self, saturation=None):
-        """Maska pikseli nasyconych: image >= saturation (domyslnie self.saturation)."""
+        """Mask of saturated pixels: image >= saturation -> masks["saturation"] (excluding mask).
+
+        Parameters
+        ----------
+        saturation : float | None
+            Saturation level in ADU. None uses self.saturation (constructor).
+        """
         if saturation is None:
             saturation = self.saturation
         self.masks["saturation"] = self.image >= saturation
-        self.exclude.add("saturation")
         self.masks_description["saturation"] = f"Saturated pixels (value >= {saturation} ADU)"
 
-    def mk_columns_map(self, block=64, window=15):
-        """Mapy odchylen kolumn i wierszy (klatki kalibracyjne: zera, darki, flaty, bez gwiazd).
+    def mk_columns_map(self, block=64, window=15, exclude=EXCLUDE_ALL):
+        """Maps of column and row deviations -> maps["columns"], maps["rows"] (calibration frames:
+        bias, dark, flat, no stars).
 
-        Od obrazu odejmowana jest mapa tla (sky_map, liczona jesli jej nie ma; liczbe segmentow
-        mozna ustawic wczesniej przez sky_map(n_segments=...)). maps["columns"] to roznica mediany
-        kolumny w bloku block wierszy i mediany window sasiednich kolumn, w ADU, w rozmiarze obrazu.
-        maps["rows"] tak samo dla wierszy. Maski z progiem: mk_bad_columns_mask().
+        The sky map is subtracted first (sky_map, computed if missing; the number of segments
+        can be set before with sky_map(n_segments=...)). maps["columns"] is the median of a
+        column in a block of rows minus the median of the neighbouring columns, in ADU, image
+        size; maps["rows"] the same for rows. Thresholded masks: mk_bad_columns_mask().
+
+        Parameters
+        ----------
+        block : int
+            Length (in pixels along the column) of the blocks in which column medians are computed.
+        window : int
+            Number of neighbouring columns whose median is the reference.
+        exclude : sequence of str
+            Names of the masks whose pixels are skipped (bad_mask); missing masks are ignored.
         """
         if "sky" not in self.maps:
             self.sky_map()
-        resid = np.where(self.bad_mask(), np.nan, self.image - self.maps["sky"])
+        resid = np.where(self.bad_mask(exclude), np.nan, self.image - self.maps["sky"])
         self.maps["columns"] = FFS._column_deviation(resid, block, window)
         self.maps["rows"] = FFS._column_deviation(resid.T, block, window).T
         for name, what in (("columns", "column"), ("rows", "row")):
@@ -277,47 +392,70 @@ class FFS:
             )
 
     def mk_bad_columns_mask(self, threshold):
-        """Maski zlych kolumn i wierszy: |maps["columns"]| > threshold, |maps["rows"]| > threshold (ADU).
+        """Masks of bad columns and rows -> masks["bad_columns"], masks["bad_rows"] (excluding masks).
 
-        Wymaga mk_columns_map(). Obie maski sa dopisywane do self.exclude.
+        Requires mk_columns_map().
+
+        Parameters
+        ----------
+        threshold : float
+            A pixel is bad when |maps["columns"]| (or |maps["rows"]|) exceeds this value, in ADU.
         """
         for name, what in (("columns", "column"), ("rows", "row")):
             self.masks["bad_" + name] = np.abs(self.maps[name]) > threshold
             self.masks_description["bad_" + name] = (
                 f"Bad {what}s: |maps['{name}']| > {threshold} ADU (mk_bad_columns_mask)"
             )
-            self.exclude.add("bad_" + name)
 
     def mk_pixels_map(self, size=5):
-        """Mapa odchylen pojedynczych pikseli: image - median_filter(image, size x size), w ADU.
+        """Map of single-pixel deviations: image - median_filter(image, size x size) -> maps["pixels"], in ADU.
 
-        Dla klatek kalibracyjnych (najlepiej master; na pojedynczym darku hot piksel i CR wygladaja
-        tak samo). Maski z progiem: mk_hot_pixels_mask(), mk_cold_pixels_mask().
+        For calibration frames (preferably a master; on a single dark a hot pixel and a cosmic
+        ray look the same). Thresholded masks: mk_hot_pixels_mask(), mk_cold_pixels_mask().
+
+        Parameters
+        ----------
+        size : int
+            Size of the median filter box, in pixels.
         """
         image = self.image.astype(float)
         self.maps["pixels"] = image - median_filter(image, size=size)
         self.maps_description["pixels"] = f"Pixel value minus the median of its {size}x{size} neighbourhood (ADU)"
 
     def mk_hot_pixels_mask(self, threshold):
-        """Maska hot pikseli: maps["pixels"] > threshold (ADU). Wymaga mk_pixels_map()."""
+        """Mask of hot pixels: maps["pixels"] > threshold -> masks["hot_pixels"] (excluding mask).
+
+        Requires mk_pixels_map().
+
+        Parameters
+        ----------
+        threshold : float
+            Minimal excess over the local median, in ADU.
+        """
         self.masks["hot_pixels"] = self.maps["pixels"] > threshold
         self.masks_description["hot_pixels"] = f"Hot pixels: maps['pixels'] > {threshold} ADU (mk_hot_pixels_mask)"
-        self.exclude.add("hot_pixels")
 
     def mk_cold_pixels_mask(self, threshold):
-        """Maska cold pikseli: maps["pixels"] < -threshold (ADU). Wymaga mk_pixels_map()."""
+        """Mask of cold pixels: maps["pixels"] < -threshold -> masks["cold_pixels"] (excluding mask).
+
+        Requires mk_pixels_map().
+
+        Parameters
+        ----------
+        threshold : float
+            Minimal deficit below the local median, in ADU.
+        """
         self.masks["cold_pixels"] = self.maps["pixels"] < -threshold
         self.masks_description["cold_pixels"] = f"Cold pixels: maps['pixels'] < -{threshold} ADU (mk_cold_pixels_mask)"
-        self.exclude.add("cold_pixels")
 
-    def _refine_on_original(self, coo):
+    def _refine_on_original(self, coo, exclude=EXCLUDE_DETECTION):
         """Pozycje (y, x) z obrazu zbinowanego -> najjasniejszy dobry piksel oryginalu w otoczeniu
         bloku (3x3 bloki). Zwraca (coo, adu) w oryginale; adu to wartosc piksela oryginalu
         (srednia bloku nasyconej gwiazdy spada ponizej saturacji). Duplikaty usuwane, kolejnosc
         zachowana."""
         b = self.bin
         ny, nx = self.image.shape
-        bad = self.bad_mask(ignore=("saturation",))
+        bad = self.bad_mask(exclude)
         out = np.empty_like(coo)
         for i, (yb, xb) in enumerate(coo):
             y0, y1 = max(0, (yb - 1) * b), min(ny, (yb + 2) * b)
@@ -330,15 +468,22 @@ class FFS:
         return out, self.image[out[:, 0], out[:, 1]]
 
     def mk_cosmics_mask(self, nsig=5.0, contrast=3.0):
-        """Maska kosmikow (pojedyncze piksele ostrzejsze niz PSF), dla klatek naukowych.
+        """Mask of cosmic rays (single pixels sharper than the PSF) -> masks["cosmics"] (excluding mask).
 
-        Piksel jest kosmikiem, gdy:
-        1. image - mediana 3x3 > nsig * sigma (wystaje ponad sasiadow ponad szum),
-        2. image - tlo > contrast * (mediana 3x3 - tlo) (ostrzejszy niz gwiazda: w gwiezdzie
-           o FWHM >= 2.5 px mediana sasiadow to ok. polowa szczytu, czyli stosunek ~2).
-        Mianownik w 2. jest ograniczony od dolu przez sigma. Tlo i sigma z _background()
-        (mapa tla, jesli policzona). Gwiazdy o FWHM < ~2.5 px moga zostac czesciowo
-        zamaskowane; slady kosmikow szersze niz 1-2 px sa wylapywane tylko czesciowo.
+        For science frames. A pixel is a cosmic ray when:
+        1. image - median3x3 > nsig * sigma (it sticks out above its neighbours beyond noise),
+        2. image - sky > contrast * (median3x3 - sky) (sharper than a star: for a star with
+           FWHM >= 2.5 px the median of the neighbours is about half of the peak, ratio ~2).
+        The denominator in 2. is bounded from below by sigma. Sky and sigma from the sky map.
+        Stars with FWHM < ~2.5 px may be partly masked; cosmic-ray tracks wider than 1-2 px
+        are caught only partly.
+
+        Parameters
+        ----------
+        nsig : float
+            Minimal excess over the 3x3 median, in units of background sigma.
+        contrast : float
+            Minimal ratio of the pixel to its 3x3 median (both above the sky); a star gives ~2.
         """
         level, sigma, _ = self._background()
         image = self.image.astype(float)
@@ -351,12 +496,11 @@ class FFS:
             f"Cosmic rays: image - median3x3 > {nsig} sigma and image - sky > {contrast} * (median3x3 - sky) "
             f"(mk_cosmics_mask)"
         )
-        self.exclude.add("cosmics")
 
     def find_stars(self, threshold=5, method="sigma quantile", fwhm=10,
                    min_smoothed_sigma=None, rank_by="raw",
                    max_concentration=None, aperture_radius=None,
-                   min_pixels_above_threshold=None):
+                   min_pixels_above_threshold=None, exclude=EXCLUDE_DETECTION):
         """Detect star peaks. Detection runs on ``self.binned_image`` (= ``self.image``
         for bin=1); the returned ``self.coo`` (y, x) and ``self.adu`` are in the original
         image: each detection is moved to the brightest good original pixel near its block.
@@ -365,8 +509,9 @@ class FFS:
         ----------
         threshold : float
             Detection threshold in units of background sigma (raw image).
-        method : str
-            How background sigma is estimated — see class docs.
+        method : {"sigma quantile", "rms", "rms Poisson"}
+            How background sigma is estimated: "sigma quantile" - mad_std of image - sky map;
+            "rms" - standard deviation of good pixels; "rms Poisson" - sqrt(median / gain + rn_noise^2).
         fwhm : float
             Adopted PSF FWHM (original pixels). Drives the Gaussian kernel sigma
             used to smooth the image before the local-maximum test.
@@ -412,6 +557,10 @@ class FFS:
             the already-computed mask1, just counts pixels per box.
             Default ``None`` disables. Recommended ~5 for typical
             in-focus PSFs.
+        exclude : sequence of str
+            Names of the masks whose pixels are skipped (bad_mask); missing masks are ignored.
+            Without "saturation" and "stars" by default, so that saturated and already
+            masked stars are detected.
         """
 
         self.coo = []
@@ -458,7 +607,7 @@ class FFS:
         image = self.binned_image.astype(float)
         # zle piksele (bad_mask, NaN) wypelniamy tlem, zeby nie byly kandydatami i nie psuly
         # wygladzania; saturacji nie, bo nasycone gwiazdy maja zostac w coo/adu
-        bad = self.to_binned_mask(self.bad_mask(ignore=("saturation",)))
+        bad = self.to_binned_mask(self.bad_mask(exclude))
         image[bad] = level[bad] if np.ndim(level) else level
 
         mask1 = image > level + self.fs_threshold * self.fs_sigma
@@ -539,7 +688,7 @@ class FFS:
             self.coo = coo[sorted_i]
             self.adu = val[sorted_i]
             if b > 1:
-                self.coo, self.adu = self._refine_on_original(self.coo)
+                self.coo, self.adu = self._refine_on_original(self.coo, exclude)
 
             self.stats["stars"] = {
                 "x": self.coo[:, 1],
@@ -561,14 +710,29 @@ class FFS:
         self.stars = Table(self.stats["stars"])
 
     def calc_frame_fwhm(self,threshold=10, fwhm=10, box=10, N_stars=20, clip=4):
-        """Pelna analiza klatki: maski (saturacja, kosmiki, threshold), tlo, linie, gwiazdy,
-        FWHM i ksztalt -> self.stats["frame"] (fwhm, ellipticity, used_stars, ...).
+        """Full frame analysis: masks (saturation, cosmics, threshold), sky, lines, stars,
+        FWHM and shape -> self.stats["frame"] (fwhm, ellipticity, used_stars, ...).
 
-        threshold i fwhm ida do find_stars(), box i N_stars do star_info(), clip do calc_star_stats().
-        used_stars mowi, z ilu gwiazd policzono statystyki (0 -> NaN).
+        Runs mk_saturation_mask, mk_stats, sky_map, mk_cosmics_mask, mk_threshold_mask,
+        find_lines, classify_lines, find_stars, star_info and calc_star_stats with default
+        parameters except the ones below. used_stars tells how many stars the statistics
+        come from (0 -> NaN).
 
-        UWAGA: binning ustawia sie w konstruktorze. Bez niego (domyslnie) duze klatki, np.
-        4096 x 4096, moga wyczerpac pamiec w find_lines() - uzyj FFS(image, autobin=True).
+        Binning is set in the constructor. Without it (default) large frames, e.g.
+        4096 x 4096, may run out of memory in find_lines() - use FFS(image, autobin=True).
+
+        Parameters
+        ----------
+        threshold : float
+            Star detection threshold in units of background sigma (find_stars).
+        fwhm : float
+            Adopted PSF FWHM in pixels (find_stars).
+        box : int
+            Half-size of the measurement box around each star, in pixels (star_info).
+        N_stars : int | None
+            Number of the brightest good stars to measure; None = all (star_info).
+        clip : float
+            Sigma clipping of outlying stars in the frame statistics; 0 = none (calc_star_stats).
         """
         self.mk_saturation_mask()
         self.mk_stats()
@@ -603,8 +767,19 @@ class FFS:
         return 0.5 * np.sqrt(-2.0 * np.log(max(R, 1e-12)))
 
     def calc_star_stats(self,clip=4):
+        """Frame PSF statistics from the stars measured by star_info() -> self.stats["frame"]
+        (fwhm, fwhm_x, fwhm_y, ellipticity, theta_spread, cpe, shape, ci, used_stars).
 
-        mk = np.ones_like(self.fwhm, dtype=bool)
+        Medians over stars; stars whose log(FWHM), log(CPE) or ellipticity deviate by more
+        than clip * mad_std are rejected first (if fewer than 3 stars remain, all valid stars are used).
+
+        Parameters
+        ----------
+        clip : float
+            Sigma clipping level in units of mad_std; 0 = no clipping.
+        """
+
+        mk = np.isfinite(self.fwhm)
 
         if clip:
             fwhm = np.where(self.fwhm > 0, np.log(self.fwhm), np.nan)
@@ -654,12 +829,23 @@ class FFS:
             "used_stars": "How many star were used to evaluate thos statistics"
         })
 
-    def star_info(self, box=10, N_stars=None):
-        """Pomiar gwiazd z find_stars() na oryginale (bez binowania): wycinek +-box px wokol
-        kazdej pozycji, FWHM, eliptycznosc, theta, CPE, CI -> self.stars / stats["stars"].
+    def star_info(self, box=10, N_stars=None, exclude=EXCLUDE_MEASURE):
+        """Measure the stars found by find_stars() on the original image (no binning): a box of
+        +-box px around each position, FWHM, ellipticity, theta, CPE, CI -> self.stars / stats["stars"].
 
-        Mierzy N_stars pierwszych (najjasniejszych) gwiazd, pomijajac nasycone i te z
-        pikselami bad_mask w wycinku. Ostrzega, gdy mediana FWHM > 0.8 * box (wycinek obcina profil).
+        Measures the first (brightest) N_stars stars, skipping saturated ones and those with
+        bad_mask() pixels in the box. All detections stay in self.coo / self.stars; the stars
+        that were not measured have NaN measurements. Warns when the median FWHM > 0.8 * box (the box cuts the profile).
+
+        Parameters
+        ----------
+        box : int
+            Half-size of the measurement box, in pixels. Should be >= 1.5 * FWHM.
+        N_stars : int | None
+            Number of stars to measure; None = all detected stars.
+        exclude : sequence of str
+            Names of the masks whose pixels are skipped (bad_mask); missing masks are ignored.
+            Without "stars" by default, so that the measured stars are not masked.
         """
 
         n = len(self.coo)
@@ -682,15 +868,13 @@ class FFS:
         self.coo = np.asarray(self.coo, dtype=int).reshape(-1, 2)
         self.adu = np.asarray(self.adu, dtype=float)
 
-        # Measurements of accepted stars only; `keep` holds their indices in
-        # self.coo so every output row stays aligned with its source.
-        bad = self.bad_mask()
-        keep = []
-        rows = []
+        # wszystkie detekcje zostaja w coo (np. do maski gwiazd); niezmierzone maja NaN
+        bad = self.bad_mask(exclude)
+        n_measured = 0
 
         for i, (y, x) in enumerate(self.coo):
 
-            if len(keep) >= N_stars:
+            if n_measured >= N_stars:
                 break
 
             if self.adu[i] >= self.saturation:
@@ -754,15 +938,10 @@ class FFS:
             if not (np.isfinite(star_fwhm) and np.isfinite(e) and np.isfinite(ci)):
                 continue
 
-            keep.append(i)
-            rows.append((box_mag, bkg, e, t, star_fwhm, fx, fy, cpe, shape, ci))
-
-        cols = np.array(rows, dtype=float).reshape(-1, 10).T
-        (self.box_mag, self.bkg, self.ellipticity, self.theta, self.fwhm,
-         self.fwhm_x, self.fwhm_y, self.cpe, self.shape, self.ci) = cols
-        keep = np.array(keep, dtype=int)
-        self.coo = self.coo[keep]
-        self.adu = self.adu[keep]
+            n_measured += 1
+            (self.box_mag[i], self.bkg[i], self.ellipticity[i], self.theta[i], self.fwhm[i],
+             self.fwhm_x[i], self.fwhm_y[i], self.cpe[i], self.shape[i], self.ci[i]) = (
+                box_mag, bkg, e, t, star_fwhm, fx, fy, cpe, shape, ci)
 
         self.stats["stars"]["box_mag"] = self.box_mag
         self.stats["stars"]["bkg"] = self.bkg
@@ -848,11 +1027,21 @@ class FFS:
 
         })
 
-    def sky_map(self,n_segments=10):
-        """Mapa tla maps["sky"] w rozmiarze oryginalu: mediany n_segments x n_segments segmentow
-        (liczone na binned_image, bez bad_mask) interpolowane liniowo miedzy srodkami segmentow;
-        poza nimi (pas przy brzegach) wartosc najblizszego segmentu. Wola sky_gradient()."""
-        self.sky_gradient(n_segments=n_segments)
+    def sky_map(self,n_segments=10, exclude=EXCLUDE_ALL):
+        """Sky background map -> maps["sky"], original size.
+
+        Medians of n_segments x n_segments segments (on the binned image, without bad_mask())
+        linearly interpolated between segment centres; outside them (a band at the edges) the
+        value of the nearest segment. Calls sky_gradient(), so also fills its statistics.
+
+        Parameters
+        ----------
+        n_segments : int
+            Number of segments along each axis.
+        exclude : sequence of str
+            Names of the masks whose pixels are skipped (bad_mask); missing masks are ignored.
+        """
+        self.sky_gradient(n_segments=n_segments, exclude=exclude)
 
         points = np.column_stack((self.stats["sky"]["surface_x"], self.stats["sky"]["surface_y"]))
         values = self.stats["sky"]["surface_val"]
@@ -873,12 +1062,25 @@ class FFS:
             "outside the convex hull of segment centres filled with the nearest segment median"
         )
 
-    def sky_gradient(self,n_segments=10, min_good_fraction=0.5):
+    def sky_gradient(self,n_segments=10, min_good_fraction=0.5, exclude=EXCLUDE_ALL):
+        """Sky gradient: medians of n_segments x n_segments segments fitted with a 2nd order
+        polynomial surface -> stats["frame"] (bkg_max_amplitude, bkg_frame_gradient,
+        sky_surface_coeff), stats["sky"] and self.sky (table of segment centres and fitted values).
+
+        Parameters
+        ----------
+        n_segments : int
+            Number of segments along each axis.
+        min_good_fraction : float
+            Segments with a smaller fraction of good pixels (outside bad_mask()) are skipped.
+        exclude : sequence of str
+            Names of the masks whose pixels are skipped (bad_mask); missing masks are ignored.
+        """
         # mediany segmentow liczone na obrazie zbinowanym; srodki segmentow (i wspolczynniki
         # wielomianu) przeliczone na wspolrzedne oryginalu
         image = self.binned_image
         segments = FFS.make_segments(image, n_segments=n_segments)
-        bad_segments = FFS.make_segments(self.to_binned_mask(self.bad_mask()), n_segments=n_segments)
+        bad_segments = FFS.make_segments(self.to_binned_mask(self.bad_mask(exclude)), n_segments=n_segments)
 
         x = []
         y = []
@@ -986,18 +1188,41 @@ class FFS:
 
 
     def find_lines(self, min_length=30, fwhm=4.0, max_gap=5, min_fill=0.5, half_width=3.0,
-                   max_candidates=100, steps=None, max_shift=1.0):
-        """Detekcja sladow (linii) na podstawie transformaty Hougha maski self.binned_masks["threshold"].
+                   max_candidates=100, steps=None, max_shift=1.0, exclude=EXCLUDE_ALL):
+        """Detect trails (lines) with the Hough transform of binned_masks["threshold"]
+        -> self.lines (table: val, rho, theta, x0, y0, x1, y1), stats["lines"], masks["lines"].
 
-        Kandydaci to komorki akumulatora z najwieksza liczba glosow. Kandydat jest
-        linia, jesli wzdluz niej piksele maski tworza ciagly odcinek: przerwy
-        <= max_gap px, dlugosc >= 10 * fwhm, zajetosc >= min_fill. Po przyjeciu
-        linii jej piksele (w odleglosci <= half_width) i ich glosy sa usuwane.
-        steps i max_shift sa przekazywane do hough_transform().
+        Candidates are the accumulator cells with most votes. A candidate is a line when the
+        mask pixels along it form a continuous segment: gaps <= max_gap, length >= 10 * fwhm,
+        fill >= min_fill. Pixels of an accepted line (within half_width) and their votes are
+        removed before the next candidate. Interrupted collinear pieces of one trail become one line.
+        Lines follow x*cos(theta) + y*sin(theta) = rho (x = column, y = row); (x0, y0)-(x1, y1)
+        are the segment ends. Detection runs on the binned image; results are in original pixels.
+        Requires mk_threshold_mask() (computed with default nsigma if missing).
 
-        Detekcja idzie na obrazie zbinowanym: min_length, fwhm, max_gap i half_width podaje sie
-        w pikselach oryginalu (wewnatrz dzielone przez bin), wyniki (rho, x0..y1, masks["lines"])
-        sa w ukladzie oryginalu. max_shift jest w pikselach obrazu zbinowanego.
+        Parameters
+        ----------
+        min_length : float
+            Minimal number of votes (mask pixels on the line) for a candidate, in original pixels.
+        fwhm : float
+            Trail width scale in original pixels; the minimal segment length is 10 * fwhm.
+        max_gap : float
+            Longest allowed gap in a segment, in original pixels.
+        min_fill : float
+            Minimal fraction of the segment covered by mask pixels (0-1).
+        half_width : float
+            Half-width of the band removed around an accepted line (binned pixels) and of the
+            line in masks["lines"] (original pixels).
+        max_candidates : int
+            Maximal number of accumulator maxima checked.
+        steps : int | None
+            Number of theta angles in the Hough transform; None chooses it from max_shift.
+        max_shift : float
+            Maximal shift of the ends of the longest line caused by the theta step, in binned
+            pixels (used when steps is None).
+        exclude : sequence of str
+            Names of the masks whose pixels are unknown (bad_mask), not gaps, when segments
+            are checked; missing masks are ignored.
         """
         self.hough_transform(steps=steps, max_shift=max_shift)
 
@@ -1023,7 +1248,7 @@ class FFS:
         acc = self.accumulator.copy()
         work = self.binned_masks["threshold"].copy()   # maska, z ktorej usuwamy piksele przyjetych linii
         # piksele "nieznane": zle (bad_mask) i usuniete razem z przyjetymi liniami
-        removed = self.to_binned_mask(self.bad_mask())
+        removed = self.to_binned_mask(self.bad_mask(exclude))
         lines_rho, lines_theta, lines_val = [], [], []
         lines_x0, lines_y0, lines_x1, lines_y1 = [], [], [], []
 
@@ -1099,7 +1324,6 @@ class FFS:
         self.masks_description["lines"] = (
             f"Pixels within {half_width} px of the detected line segments (find_lines)"
         )
-        self.exclude.add("lines")
 
         self.stats_description["lines"] = {
 
@@ -1125,24 +1349,37 @@ class FFS:
             "y1": "Y of the second end of the detected line segment (pixels, 0-based)",
         }
 
-    def classify_lines(self, half_width=3.0, margin=10, min_side=10, min_decay=2.0):
-        """Oddziela promienie dyfrakcyjne jasnych gwiazd od sladow. Wymaga find_lines().
+    def classify_lines(self, half_width=3.0, margin=10, min_side=10, min_decay=2.0,
+                       exclude=EXCLUDE_LINES):
+        """Separate diffraction spikes of bright stars from trails. Requires find_lines().
 
-        Etap 1: czy na odcinku (z zapasem margin px na koncach) lezy gwiazda nasycona
-        (image >= self.saturation)? Jesli nie - slad.
-        Etap 2: czy jasnosc (image - tlo) wzdluz linii maleje z odlegloscia od gwiazdy?
-        Po kazdej stronie gwiazdy, na ktorej odcinek ma >= min_side px, liczymy
-        mediana blizszej polowy / mediana dalszej polowy. Promien, gdy po kazdej stronie
-        >= min_decay. Gdy zadnej strony nie da sie zmierzyc, decyduje etap 1 (promien).
+        Step 1: is there a saturated star (image >= self.saturation) on the segment (with a
+        margin at the ends)? If not - a trail.
+        Step 2: does the brightness (image - sky) along the line fall with the distance from
+        the star? On each side of the star where the segment has >= min_side px, the median
+        of the nearer half is divided by the median of the farther half. A spike when the
+        ratio is >= min_decay on every side. When no side can be measured, step 1 decides (spike).
 
-        Dopisuje do self.lines (i stats["lines"]) kolumny spike, star_x, star_y, decay
-        oraz tworzy masks["spikes"] (piksele promieni, <= half_width od odcinka).
-        masks["lines"] sie nie zmienia.
+        Adds columns spike, star_x, star_y, decay to self.lines (and stats["lines"]), creates
+        masks["spikes"] and rebuilds masks["lines"] with trails only.
+
+        Parameters
+        ----------
+        half_width : float
+            Half-width of the lines in masks["spikes"] and masks["lines"], in pixels.
+        margin : float
+            Margin at the segment ends where a saturated star is still looked for, in pixels.
+        min_side : int
+            Minimal segment length on one side of the star needed to measure the decay, in pixels.
+        min_decay : float
+            Minimal near/far brightness ratio for a spike.
+        exclude : sequence of str
+            Names of the masks whose pixels are skipped (bad_mask); missing masks are ignored.
         """
         level, _, _ = self._background()
         sat = self.image >= self.saturation
         resid = (self.image - level).astype(float)
-        resid[sat | self.bad_mask(ignore=("saturation", "lines", "spikes"))] = np.nan
+        resid[sat | self.bad_mask(exclude)] = np.nan
 
         spike, star_x, star_y, decay = [], [], [], []
         for row in self.lines:
@@ -1201,7 +1438,6 @@ class FFS:
         self.masks_description["spikes"] = (
             f"Pixels within {half_width} px of lines classified as diffraction spikes (classify_lines)"
         )
-        self.exclude.add("spikes")
         self.masks["lines"] = lines
         self.masks_description["lines"] = (
             f"Pixels within {half_width} px of the detected line segments, "
@@ -1219,13 +1455,19 @@ class FFS:
         })
 
     def hough_transform(self, steps=None, max_shift=1.0):
-        """Transformata Hougha maski self.binned_masks["threshold"] (obraz zbinowany).
+        """Hough transform of binned_masks["threshold"] (binned image).
 
-        Zapisuje self.accumulator (koszyki rho x katy theta), self.rh (rho koszykow,
-        krok 1 px) i self.hough_theta - wszystko w ukladzie obrazu zbinowanego.
-        Maska threshold liczona (mk_threshold_mask() z domyslnym nsigma), jesli jej nie ma.
-        steps=None dobiera liczbe katow tak, zeby najdluzsza linia (przekatna) nie
-        odjechala na koncach o wiecej niz max_shift px (zbinowanych).
+        Stores self.accumulator (rho bins x theta angles), self.rh (rho of the bins, step 1 px)
+        and self.hough_theta - all in binned image coordinates. The threshold mask is computed
+        (mk_threshold_mask() with default nsigma) if missing.
+
+        Parameters
+        ----------
+        steps : int | None
+            Number of theta angles; None chooses it so that the longest line (diagonal) does
+            not drift at its ends by more than max_shift.
+        max_shift : float
+            Maximal drift of the line ends, in binned pixels (used when steps is None).
         """
         if "threshold" not in self.binned_masks:   # maska liczona sama, jesli jej jeszcze nie ma
             self.mk_threshold_mask()
@@ -1744,6 +1986,12 @@ class FFS:
         prof = np.array([np.nanmedian(resid[rows == i], axis=0) for i in range(nb)])
         dev = prof - median_filter(prof, size=(1, window), mode="nearest")
         return dev[rows]
+
+    @staticmethod
+    def _fits_text(text):
+        """Text for a FITS header: typographic characters -> ASCII, the rest of non-ASCII dropped."""
+        text = text.translate(str.maketrans({"–": "-", "−": "-", "×": "x"}))
+        return text.encode("ascii", "ignore").decode()
 
     @staticmethod
     def line_to_mask(shape, rho, theta, half_width=0.5, x0=None, y0=None, x1=None, y1=None):

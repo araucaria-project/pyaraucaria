@@ -27,8 +27,8 @@ class TestHotColdPixels(unittest.TestCase):
         truth[hot[:, 0], hot[:, 1]] = True
         self.assertTrue(np.array_equal(ffs.masks["hot_pixels"], truth))
         self.assertFalse(ffs.masks["cold_pixels"].any())
-        self.assertIn("hot_pixels", ffs.exclude)
-        self.assertIn("cold_pixels", ffs.exclude)
+        self.assertIn("hot_pixels", FFS.BAD_PIXELS)
+        self.assertIn("cold_pixels", FFS.BAD_PIXELS)
 
     def test_flat_cold_pixels_with_vignetting(self):
         vign = 30000 * (1 - 0.3 * (np.hypot(self.xx - N / 2, self.yy - N / 2) / (N / 2)) ** 2)

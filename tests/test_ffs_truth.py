@@ -221,17 +221,20 @@ class TestStarInfo(QuietTestCase):
         self.assertEqual(len(matched), len(ffs.stars))
 
     def test_saturated_star_skipped_cleanly(self):
-        # A skipped (saturated) star must not leave a NaN row or shift the
-        # remaining rows.
+        # A skipped (saturated) star stays in the table with NaN measurements
+        # (e.g. for the stars mask); the other rows are measured.
         stars = [dict(x=100.2, y=100.7, flux=5e6)]
         stars += [dict(x=60 + 60 * i + 0.3, y=300.4, flux=5e4) for i in range(6)]
         f = make_frame(shape=(400, 500), stars=stars, sky=500, saturation=45000, seed=3)
         ffs = FFS(f.image)
         ffs.saturation = 45000
         ffs.calc_frame_fwhm(threshold=10, fwhm=4, box=10, N_stars=50, clip=4)
-        self.assertTrue(np.all(np.asarray(ffs.stars["max_adu"]) < 45000))
-        self.assertEqual(len(ffs.stars), 6)
-        self.assertTrue(np.all(np.isfinite(ffs.stars["fwhm"])))
+        sat = np.asarray(ffs.stars["max_adu"]) >= 45000
+        fwhm = np.asarray(ffs.stars["fwhm"])
+        self.assertEqual(len(ffs.stars), 7)
+        self.assertEqual(sat.sum(), 1)
+        self.assertTrue(np.all(np.isnan(fwhm[sat])))
+        self.assertTrue(np.all(np.isfinite(fwhm[~sat])))
 
     def test_frame_ellipticity(self):
         # Unweighted moments over the whole box with noise clipped at zero

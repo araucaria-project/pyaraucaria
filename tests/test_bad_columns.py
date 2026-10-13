@@ -34,8 +34,8 @@ class TestBadColumns(unittest.TestCase):
         ffs.mk_columns_map()
         ffs.mk_bad_columns_mask(threshold=5)
         self.assertEqual(found(ffs), ([], []))
-        self.assertIn("bad_columns", ffs.exclude)
-        self.assertIn("bad_rows", ffs.exclude)
+        self.assertIn("bad_columns", FFS.BAD_PIXELS)
+        self.assertIn("bad_rows", FFS.BAD_PIXELS)
 
     def test_bias_columns_and_row(self):
         img = 1000 + self.rng.normal(0, 5, (N, N))
