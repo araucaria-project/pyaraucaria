@@ -272,7 +272,8 @@ class FFS:
         """Basic frame statistics -> self.stats["frame"] (min, max, mean, median, rms, quantile sigmas, noise).
 
         Computed from good pixels (outside bad_mask(exclude)); min and max from all finite pixels,
-        so that saturation stays visible.
+        so that saturation stays visible. Updates stats["frame"]: results of other methods there
+        (fwhm, psf_*, bkg_*) are kept, so mk_stats can be repeated with masks found later.
 
         Parameters
         ----------
@@ -305,7 +306,7 @@ class FFS:
 
         self.noise = np.sqrt(self.median / self.gain + self.rn_noise**2)
 
-        self.stats["frame"] = {
+        self.stats["frame"].update({
             "min": self.min,
             "max": self.max,
             "mean": self.mean,
@@ -316,9 +317,9 @@ class FFS:
             "q_sigma": self.q_sigma,
             "noise": self.noise,
             "n_bad": self.n_bad,
-        }
+        })
 
-        self.stats_description["frame"] = {
+        self.stats_description["frame"].update({
             "min": "Minimal pixel value in the image",
             "max": "Maximum pixel value in the image",
             "mean": "Mean pixel value (arithmetic average)",
@@ -329,7 +330,7 @@ class FFS:
             "q_sigma": "Robust sigma estimated from 15.9–84.1% quantiles",
             "noise": "Expected total noise (Poisson + read noise)",
             "n_bad": "Number of excluded pixels (bad_mask); other statistics except min/max use only the remaining pixels",
-        }
+        })
 
     def mk_threshold_mask(self, nsigma=3.0, exclude=EXCLUDE_ALL):
         """Mask of pixels above the background: image > sky + nsigma * sigma -> masks["threshold"].
