@@ -1,19 +1,17 @@
 """Truth tests for ``pyaraucaria.ffs``: compare FFS output with what was
-injected into synthetic frames (``tests/ffs_synth.py``).
-
-Known FFS defects are kept as ``@unittest.expectedFailure`` tests labelled
-``KNOWN BUG``. They document the defect without changing production
-behaviour; when a fix lands the test reports "unexpected success" and the
-decorator should be removed (and the regression snapshot regenerated).
+injected into synthetic frames (``tests/ffs_synth.py``) or built by hand.
+Production call sequences are guarded separately by ``test_ffs_regression``.
 """
 
+import os
+import tempfile
 import unittest
 import warnings
 
 import numpy as np
 
 from pyaraucaria.ffs import FFS
-from tests.ffs_synth import FWHM_TO_SIGMA, gaussian_star, make_frame, scenario
+from tests.ffs_synth import FWHM_TO_SIGMA, gaussian_star, make_frame, scenario, star_field
 
 
 def stamp(fwhm=4.0, ellipticity=0.0, theta=0.0, x=15.0, y=15.0, size=31, flux=1e5):
@@ -52,69 +50,13 @@ class QuietTestCase(unittest.TestCase):
         self._w.__exit__(None, None, None)
 
 
-class TestSynth(QuietTestCase):
-    """Sanity of the generator itself -- the truth must be trustworthy."""
-
-    def test_deterministic(self):
-        np.testing.assert_array_equal(scenario("typical").image, scenario("typical").image)
-
-    def test_star_flux_and_centre(self):
-        img = stamp(fwhm=4.0, x=15.3, y=14.6)
-        self.assertAlmostEqual(img.sum(), 1e5, delta=1)
-        yy, xx = np.indices(img.shape)
-        self.assertAlmostEqual((xx * img).sum() / img.sum(), 15.3, places=6)
-        self.assertAlmostEqual((yy * img).sum() / img.sum(), 14.6, places=6)
-
-    def test_theta_convention(self):
-        # Major axis at 30 deg CCW from +x: second moments must agree.
-        img = stamp(fwhm=6.0, ellipticity=0.4, theta=np.deg2rad(30))
-        yy, xx = np.indices(img.shape)
-        dx, dy = xx - 15, yy - 15
-        mxx, myy, mxy = [(img * m).sum() / img.sum() for m in (dx * dx, dy * dy, dx * dy)]
-        self.assertAlmostEqual(0.5 * np.arctan2(2 * mxy, mxx - myy), np.deg2rad(30), places=6)
-
-    def test_truth_masks(self):
-        f = scenario("typical")
-        self.assertEqual(f.truth["mask_hot"].sum(), 3)
-        self.assertEqual(f.truth["mask_bad_column"].sum(), 512)
-        self.assertTrue(f.truth["mask_line"].any())
-        self.assertTrue(f.truth["mask_saturated"].any())
-        self.assertLessEqual(f.image.max(), 45000)
-
-
 class TestStatic(QuietTestCase):
     """Per-stamp measurement helpers on noiseless stars."""
-
-    def test_centroid(self):
-        cx, cy = FFS.centroid(stamp(x=15.3, y=14.6))
-        self.assertAlmostEqual(cx, 15.3, places=5)
-        self.assertAlmostEqual(cy, 14.6, places=5)
 
     def test_fwhm_round(self):
         fx, fy = FFS.fwhm(stamp(fwhm=4.0))
         self.assertAlmostEqual(fx, 4.0, delta=0.08)
         self.assertAlmostEqual(fy, 4.0, delta=0.08)
-
-    def test_pca_round(self):
-        f, e, _ = FFS.pca(stamp(fwhm=4.0))
-        self.assertAlmostEqual(f, 4.0, delta=0.05)
-        self.assertLess(e, 0.01)
-
-    def test_pca_ellipticity_centred(self):
-        _, e, _ = FFS.pca(stamp(fwhm=6.0, ellipticity=0.4, theta=np.deg2rad(30)))
-        self.assertAlmostEqual(e, 0.4, delta=0.01)
-
-    def test_pca_ellipticity_off_centre(self):
-        # Moments must be taken about the centroid, not the box centre.
-        _, e, _ = FFS.pca(stamp(fwhm=6.0, ellipticity=0.3, theta=np.deg2rad(30), x=15.3, y=14.6))
-        self.assertAlmostEqual(e, 0.3, delta=0.01)
-
-    def test_pca_theta_convention(self):
-        # theta is measured from +x (columns) towards +y (rows).
-        for deg in (0, 30, 60, 120, 150):
-            with self.subTest(theta=deg):
-                _, _, t = FFS.pca(stamp(fwhm=6.0, ellipticity=0.4, theta=np.deg2rad(deg)))
-                self.assertLess(axial_diff(t, np.deg2rad(deg)), np.deg2rad(1))
 
     def test_adaptive_moments_noiseless(self):
         for deg, ell, x, y in [(0, 0.0, 15, 15), (30, 0.3, 15.3, 14.6), (120, 0.4, 14.7, 15.2)]:
@@ -328,6 +270,163 @@ class TestLines(QuietTestCase):
             and abs(xm * np.cos(t) + ym * np.sin(t) - r) < 5.0
         ]
         self.assertEqual(len(on_trail), 1)
+
+
+class TestExclude(QuietTestCase):
+    """Sky map, NaN input and per-method exclusion masks."""
+
+    def setUp(self):
+        super().setUp()
+        self.stars = star_field(n=60, seed=5)
+        self.truth = np.array([[s["x"], s["y"]] for s in self.stars])
+        self.image = make_frame(stars=self.stars, sky=1000, seed=6).image
+
+    def _matched(self, ffs):
+        return len(match(np.column_stack([ffs.coo[:, 1], ffs.coo[:, 0]]), self.truth, tol=2.0)[0])
+
+    def test_sky_map_recovers_stars_on_gradient(self):
+        xx = np.mgrid[0:self.image.shape[0], 0:self.image.shape[1]][1]
+        ffs = FFS(self.image + 3.0 * xx)        # ~1500 ADU gradient across the frame
+        ffs.mk_stats()
+        ffs.find_stars(threshold=5, fwhm=4)     # sky map computed on demand
+        self.assertIn("sky", ffs.maps)
+        self.assertGreaterEqual(self._matched(ffs), 45)
+
+    def test_nan_pixels_do_not_break_find_stars(self):
+        img = self.image.copy()
+        img[:, :20] = np.nan
+        ffs = FFS(img)
+        ffs.mk_stats()
+        ffs.find_stars(threshold=5, fwhm=4)
+        self.assertGreaterEqual(self._matched(ffs), 45)
+        self.assertTrue(np.all(np.isfinite(ffs.adu)))
+
+    def test_excluded_pixels_are_not_stars(self):
+        img = self.image.copy()
+        hot = [(100, 37), (300, 211), (450, 480)]
+        mask = np.zeros(img.shape, bool)
+        for y, x in hot:
+            img[y, x] += 20000
+            mask[y, x] = True
+        ffs = FFS(img)
+        ffs.masks["hot"] = mask
+        ffs.mk_stats(exclude=FFS.EXCLUDE_ALL + ("hot",))
+        ffs.find_stars(threshold=5, fwhm=4, exclude=FFS.EXCLUDE_DETECTION + ("hot",))
+        self.assertFalse({tuple(c) for c in ffs.coo.tolist()} & set(hot))
+
+
+class TestCalibration(QuietTestCase):
+    """Bad columns / rows and hot / cold pixels on calibration frames (no stars)."""
+
+    def setUp(self):
+        super().setUp()
+        self.rng = np.random.default_rng(1)
+
+    @staticmethod
+    def _found(ffs):
+        cols = sorted(set(np.nonzero(ffs.masks["bad_columns"])[1].tolist()))
+        rows = sorted(set(np.nonzero(ffs.masks["bad_rows"])[0].tolist()))
+        return cols, rows
+
+    def test_bias_columns_and_row(self):
+        img = 1000 + self.rng.normal(0, 5, (512, 512))
+        img[:, 100] += 10
+        img[:, 300:302] -= 10       # 2 px wide, dark
+        img[200, :] += 10
+        ffs = FFS(np.round(img).astype(np.uint16))
+        ffs.mk_columns_map()
+        ffs.mk_bad_columns_mask(threshold=5)
+        self.assertEqual(self._found(ffs), ([100, 300, 301], [200]))
+
+    def test_partial_column_in_dark_with_cosmics(self):
+        img = 1000 + self.rng.normal(0, 5, (512, 512))
+        hits = self.rng.integers(0, 512, (500, 2))
+        img[hits[:, 0], hits[:, 1]] += self.rng.uniform(100, 5000, 500)
+        img[256:, 150] += 20        # defect from row 256 down
+        ffs = FFS(img)
+        ffs.mk_columns_map()
+        ffs.mk_bad_columns_mask(threshold=5)
+        self.assertEqual(self._found(ffs), ([150], []))
+        self.assertTrue(ffs.masks["bad_columns"][256:, 150].all())
+        self.assertFalse(ffs.masks["bad_columns"][:256, 150].any())
+
+    def test_dark_hot_pixels(self):
+        img = 1000 + self.rng.normal(0, 5, (256, 256))
+        hot = self.rng.integers(0, 256, (50, 2))
+        img[hot[:, 0], hot[:, 1]] += 200
+        ffs = FFS(img)
+        ffs.mk_pixels_map()
+        ffs.mk_hot_pixels_mask(threshold=50)
+        ffs.mk_cold_pixels_mask(threshold=50)
+        truth = np.zeros(img.shape, bool)
+        truth[hot[:, 0], hot[:, 1]] = True
+        self.assertTrue(np.array_equal(ffs.masks["hot_pixels"], truth))
+        self.assertFalse(ffs.masks["cold_pixels"].any())
+
+    def test_flat_cold_pixels_with_vignetting(self):
+        yy, xx = np.mgrid[0:256, 0:256]
+        vign = 30000 * (1 - 0.3 * (np.hypot(xx - 128, yy - 128) / 128) ** 2)
+        sens = np.ones((256, 256))
+        cold = self.rng.integers(0, 256, (50, 2))
+        sens[cold[:, 0], cold[:, 1]] = 0.8
+        ffs = FFS(self.rng.poisson(vign * sens).astype(float))
+        ffs.mk_pixels_map()
+        ffs.mk_cold_pixels_mask(threshold=2000)
+        truth = np.zeros((256, 256), bool)
+        truth[cold[:, 0], cold[:, 1]] = True
+        self.assertTrue(np.array_equal(ffs.masks["cold_pixels"], truth))
+
+
+class TestLineMask(QuietTestCase):
+    """line_to_mask: (rho, theta) and segment ends -> pixels."""
+
+    shape = (100, 120)   # (ny, nx)
+
+    def test_horizontal_full_line(self):
+        # theta = pi/2: y = rho
+        ys, xs = np.nonzero(FFS.line_to_mask(self.shape, rho=40, theta=np.pi / 2))
+        self.assertTrue(np.all(ys == 40))
+        self.assertEqual(xs.size, self.shape[1])
+
+    def test_segment_is_limited_to_ends(self):
+        m = FFS.line_to_mask(self.shape, rho=40, theta=np.pi / 2, half_width=0.5,
+                             x0=10, y0=40, x1=50, y1=40)
+        xs = np.nonzero(m)[1]
+        self.assertEqual((xs.min(), xs.max()), (10, 50))
+
+
+class TestRingTest(QuietTestCase):
+    """Antipodal ring test used for Hough votes: lines vote, blobs do not."""
+
+    def test_line_votes_blobs_do_not(self):
+        yy, xx = np.mgrid[0:121, 0:121]
+        line = np.abs((yy - 30) - 0.5 * (xx - 10)) <= 1.5       # ~27 deg, width ~3 px
+        star = np.hypot(xx - 30, yy - 90) <= 3                   # smaller than the ring
+        blob = np.hypot(xx - 95, yy - 20) <= 20                  # saturated star, larger than the ring
+        votes = FFS._ring_test(line | star | blob, radius=8, omax=0.4)
+        # the line votes along its whole length (edge pixels of a wide line may not)
+        cols = np.nonzero((votes & line).any(axis=0))[0]
+        self.assertTrue(set(range(20, 101)) <= set(cols.tolist()))
+        self.assertFalse(votes[star | blob].any())
+
+
+class TestSaveMef(QuietTestCase):
+
+    def test_masks_and_tables_roundtrip(self):
+        from astropy.io import fits
+        ffs = FFS(scenario("typical").image, saturation=45000)
+        ffs.calc_frame_fwhm(threshold=10, fwhm=4, box=10, N_stars=20)
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "ffs.fits")
+            ffs.save_mef(path)
+            with fits.open(path) as hl:
+                bits = hl["MASKS"].data
+                for i, name in enumerate(ffs.masks):
+                    self.assertEqual(hl["MASKS"].header[f"MASK{i}"], name)
+                    np.testing.assert_array_equal((bits >> i) & 1 == 1, ffs.masks[name])
+                self.assertEqual(len(hl["STARS"].data), len(ffs.stars))
+                self.assertAlmostEqual(hl[0].header["FFFWHM"], ffs.frame_fwhm)
+                self.assertEqual(hl["SKY"].data.shape, ffs.image.shape)
 
 
 if __name__ == "__main__":

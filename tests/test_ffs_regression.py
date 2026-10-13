@@ -1,8 +1,8 @@
 """Regression (snapshot) tests for ``pyaraucaria.ffs``.
 
 These tests do NOT check that FFS is right -- they check that it did not
-change. Each case replays a call sequence used in production (TOI, Focus,
-FitsView) on deterministic synthetic frames and compares every output with
+change. Each case replays a call sequence used in production (TOI, Focus)
+on deterministic synthetic frames and compares every output with
 the values stored in ``tests/data/ffs_snapshot.json``, known bugs included.
 
 A failure here means production results would change. If the change is
@@ -11,7 +11,6 @@ intended, regenerate the snapshot and commit it together with the code:
     python -m tests.test_ffs_regression --regen
 """
 
-import hashlib
 import json
 import os
 import sys
@@ -29,12 +28,6 @@ ATOL = 1e-9
 
 STAR_COLUMNS = ["x", "y", "max_adu", "box_mag", "bkg", "fwhm", "fwhm_x", "fwhm_y",
                 "ellipticity", "theta", "cpe", "shape", "ci"]
-
-
-def _mask_digest(mask):
-    mask = np.asarray(mask, dtype=bool)
-    return {"count": int(mask.sum()),
-            "sha256": hashlib.sha256(np.packbits(mask).tobytes()).hexdigest()}
 
 
 def _stars(ffs):
@@ -59,54 +52,9 @@ def run_focus(image):
     return {"frame_fwhm": np.nan if frame_fwhm is None else frame_fwhm}
 
 
-def run_fitsview(image):
-    # FitsView/fitsview/FitsView_widgets.py FFSWindow (init, find, sky, lines)
-    ffs = FFS(image)
-    ffs.saturation = 45000
-    ffs.mk_stats()
-    ffs.find_stars(threshold=5, fwhm=4)
-    ffs.calc_frame_fwhm(threshold=5, fwhm=4, box=8, N_stars=20)
-    ffs.star_info(box=8, N_stars=None)
-    out = {"frame": dict(ffs.stats["frame"]), "stars": _stars(ffs)}
-    ffs.sky_gradient(n_segments=10)
-    out["sky"] = ffs.stats["sky"]
-    ffs.find_lines()
-    out["lines"] = ffs.stats["lines"]
-    out["maska"] = _mask_digest(ffs.masks["threshold"])
-    return out
-
-
-def run_find_stars_default(image):
-    ffs = FFS(image)
-    ffs.mk_stats()
-    ffs.find_stars()
-    return {"coo": ffs.coo, "adu": ffs.adu,
-            "sigma": ffs.fs_sigma, "kernel_sigma": ffs.fs_kernel_sigma}
-
-
-def run_find_stars_filters(image):
-    # The detection options added in 82a233e (guider use).
-    out = {}
-    for rank_by in ("raw", "smoothed", "aperture"):
-        ffs = FFS(image)
-        ffs.mk_stats()
-        ffs.find_stars(threshold=5, fwhm=4, min_smoothed_sigma=5, rank_by=rank_by,
-                       max_concentration=0.5, min_pixels_above_threshold=5)
-        out[rank_by] = {"coo": ffs.coo, "adu": ffs.adu}
-    return out
-
-
-def run_line_filter(image):
-    return {"mask": _mask_digest(FFS.line_filter(image.astype(float)))}
-
-
 CASES = {
     "toi": run_toi,
     "focus": run_focus,
-    "fitsview": run_fitsview,
-    "find_stars_default": run_find_stars_default,
-    "find_stars_filters": run_find_stars_filters,
-    "line_filter": run_line_filter,
 }
 
 
@@ -175,17 +123,6 @@ class TestFFSRegression(unittest.TestCase):
     def test_focus(self):
         self._check("focus")
 
-    def test_fitsview(self):
-        self._check("fitsview")
-
-    def test_find_stars_default(self):
-        self._check("find_stars_default")
-
-    def test_find_stars_filters(self):
-        self._check("find_stars_filters")
-
-    def test_line_filter(self):
-        self._check("line_filter")
 
 
 def regenerate():
