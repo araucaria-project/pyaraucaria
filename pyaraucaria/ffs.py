@@ -1407,12 +1407,14 @@ class FFS:
 
 
     def find_lines(self, min_length=30, fwhm=4.0, max_gap=5, min_fill=0.5, half_width=3.0,
-                   max_candidates=100, steps=None, max_shift=1.0, exclude=EXCLUDE_ALL):
+                   max_candidates=100, steps=None, max_shift=1.0, exclude=EXCLUDE_ALL,
+                   ring_radius=8, ring_omax=0.4):
         """Detect trails (lines) with the Hough transform of binned_masks["threshold"]
         -> self.lines (table: val, rho, theta, x0, y0, x1, y1), stats["lines"], masks["lines"].
 
-        Candidates are the accumulator cells with most votes. A candidate is a line when the
-        mask pixels along it form a continuous segment: gaps <= max_gap, length >= 10 * fwhm,
+        Only line-like pixels vote (ring test, see hough_transform); segments are checked on the
+        full threshold mask. Candidates are the accumulator cells with most votes. A candidate is
+        a line when the mask pixels along it form a continuous segment: gaps <= max_gap, length >= 10 * fwhm,
         fill >= min_fill. Pixels of an accepted line (within half_width) and their votes are
         removed before the next candidate. Interrupted collinear pieces of one trail become one line.
         Lines follow x*cos(theta) + y*sin(theta) = rho (x = column, y = row); (x0, y0)-(x1, y1)
@@ -1442,8 +1444,12 @@ class FFS:
         exclude : sequence of str
             Names of the masks whose pixels are unknown (bad_mask), not gaps, when segments
             are checked; missing masks are ignored.
+        ring_radius : float | None
+            Radius of the ring test in binned pixels; None = all threshold pixels vote (hough_transform).
+        ring_omax : float
+            Maximal fraction of the ring in the mask (hough_transform).
         """
-        self.hough_transform(steps=steps, max_shift=max_shift)
+        self.hough_transform(steps=steps, max_shift=max_shift, ring_radius=ring_radius, ring_omax=ring_omax)
 
         # dlugosci (min_length, fwhm, max_gap) przeliczone na piksele obrazu zbinowanego;
         # half_width (pas usuwania przyjetej linii, tolerancja jak max_shift) zostaje w pikselach
@@ -1457,9 +1463,9 @@ class FFS:
         rh, theta = self.rh, self.hough_theta
         rh0 = -int(rh[0])                     # koszyk k <-> rho = k - rh0
         cos_t, sin_t = np.cos(theta), np.sin(theta)
-        ys, xs = np.nonzero(self.binned_masks["threshold"])
-        xs = xs.astype(float)
-        ys = ys.astype(float)
+        # glosujace piksele (do odejmowania glosow) i wszystkie piksele maski (do usuwania z maski roboczej)
+        vy, vx = (a.astype(float) for a in np.nonzero(self.binned_masks["line_votes"]))
+        ys, xs = (a.astype(float) for a in np.nonzero(self.binned_masks["threshold"]))
 
         # znajdujemy maksimum, jak jest powyzej th, a nastepnie usuwamy z glosowania piksele ktore sa w odleglosci
         # half_width od lini
@@ -1501,8 +1507,10 @@ class FFS:
             lines_y1.append(rho * s + p1 * c)
 
             # usuwamy glosy pikseli tej linii i same piksele (tez z maski roboczej)
+            on_votes = np.abs(vx * c + vy * s - rho) <= half_width_b
+            FFS._hough_votes(acc, vx[on_votes], vy[on_votes], cos_t, sin_t, rh0, weight=-1)
+            vx, vy = vx[~on_votes], vy[~on_votes]
             on_line = np.abs(xs * c + ys * s - rho) <= half_width_b
-            FFS._hough_votes(acc, xs[on_line], ys[on_line], cos_t, sin_t, rh0, weight=-1)
             work[ys[on_line].astype(int), xs[on_line].astype(int)] = False
             removed[ys[on_line].astype(int), xs[on_line].astype(int)] = True
             xs, ys = xs[~on_line], ys[~on_line]
@@ -1673,12 +1681,18 @@ class FFS:
             ),
         })
 
-    def hough_transform(self, steps=None, max_shift=1.0):
+    def hough_transform(self, steps=None, max_shift=1.0, ring_radius=8, ring_omax=0.4):
         """Hough transform of binned_masks["threshold"] (binned image).
 
         Stores self.accumulator (rho bins x theta angles), self.rh (rho of the bins, step 1 px)
         and self.hough_theta - all in binned image coordinates. The threshold mask is computed
         (mk_threshold_mask() with default nsigma) if missing.
+
+        Only line-like pixels vote (binned_masks["line_votes"], antipodal ring test, _ring_test):
+        a mask pixel votes when two opposite points of a circle of radius ring_radius around it
+        are in the mask and less than ring_omax of the circle is in the mask. Stars smaller
+        than the circle (empty circle) and round blobs of any size (>= half of the circle)
+        do not vote; elongated blobs do when their half-length > ring_radius.
 
         Parameters
         ----------
@@ -1687,10 +1701,18 @@ class FFS:
             not drift at its ends by more than max_shift.
         max_shift : float
             Maximal drift of the line ends, in binned pixels (used when steps is None).
+        ring_radius : float | None
+            Radius of the ring test in binned pixels (>= 5); None = all threshold pixels vote.
+        ring_omax : float
+            Maximal fraction of the circle in the mask (lines ~0.1-0.25, round blobs >= 0.5).
         """
         if "threshold" not in self.binned_masks:   # maska liczona sama, jesli jej jeszcze nie ma
             self.mk_threshold_mask()
-        ys, xs = np.nonzero(self.binned_masks["threshold"])  # piksele ktore biora udzial w zabawie
+        if ring_radius is None:
+            self.binned_masks["line_votes"] = self.binned_masks["threshold"]
+        else:
+            self.binned_masks["line_votes"] = FFS._ring_test(self.binned_masks["threshold"], ring_radius, ring_omax)
+        ys, xs = np.nonzero(self.binned_masks["line_votes"])  # piksele ktore glosuja
         xs = xs.astype(float)
         ys = ys.astype(float)
 
@@ -1714,6 +1736,32 @@ class FFS:
 
         self.hough_theta = theta
         self.rh = rh
+
+    @staticmethod
+    def _ring_test(mask, radius, omax):
+        """Antipodal ring test: mask pixels with two opposite points of a circle of the given
+        radius in the mask and less than omax of the circle in the mask (line-like pixels).
+        The circle has K >= 2 pi radius / 2 points (every ~2 px, so a trail of width ~2-3 px
+        is always hit)."""
+        K = int(np.ceil(np.pi * radius))
+        K += K % 2
+        phi = 2 * np.pi * np.arange(K) / K
+        dx = np.rint(radius * np.cos(phi)).astype(int)
+        dy = np.rint(radius * np.sin(phi)).astype(int)
+        ny, nx = mask.shape
+        shifted = []                                   # shifted[k][p] = mask[p + d_k], 0 poza obrazem
+        for i, j in zip(dx, dy):
+            sh = np.zeros_like(mask)
+            sh[max(0, -j):ny - max(0, j), max(0, -i):nx - max(0, i)] = \
+                mask[max(0, j):ny - max(0, -j), max(0, i):nx - max(0, -i)]
+            shifted.append(sh)
+        occupied = np.zeros(mask.shape, dtype=np.int16)
+        for sh in shifted:
+            occupied += sh
+        pair = np.zeros(mask.shape, dtype=bool)
+        for k in range(K // 2):                        # para przeciwlegla: k i k + K/2
+            pair |= shifted[k] & shifted[k + K // 2]
+        return mask & pair & (occupied < omax * K)
 
     @staticmethod
     def _hough_votes(acc, xs, ys, cos_t, sin_t, rh0, weight=1):
