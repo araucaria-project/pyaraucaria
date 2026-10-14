@@ -61,6 +61,49 @@ class TestConvertJd(unittest.TestCase):
         for n, m in enumerate(expected_bjd):
             self.assertAlmostEqual(bjd[n], expected_bjd[n], places=8)
 
+    def test_to_bjd_array_outdated_iers(self):
+        """Light curve data with recent dates (2026), beyond outdated IERS tables - must not return None."""
+        oca_loc = {'latitude': -24.59806, 'longitude': -70.19638, 'elevation': 2817.0}
+        jd = np.array([
+            2460495.8994830623,
+            2460549.8790035136,
+            2460622.6204568874,
+            2460980.714826047,
+            2461046.578801666,
+            2461222.851274364,
+            2461244.8573079053,
+            2461251.918038535,
+            2461306.788733542,
+            2461306.8081330094
+        ])
+        ra = 22.290417
+        dec = 6.129503
+        expected_bjd = np.array([
+            2460495.899186829,
+            2460549.8836097713,
+            2460622.6264764327,
+            2460980.721104664,
+            2461046.5803152234,
+            2461222.8506626813,
+            2461244.8588295,
+            2461251.9202368795,
+            2461306.7948443694,
+            2461306.814244549
+        ])
+
+        bjd = jd_to_bjd(
+            jd=jd,
+            obj_ra=ra,
+            obj_dec=dec,
+            observ_lat=oca_loc['latitude'],
+            observ_lon=oca_loc['longitude'],
+            observ_elev=oca_loc['elevation']
+        )
+
+        self.assertIsInstance(bjd, np.ndarray)
+        for n, m in enumerate(expected_bjd):
+            self.assertAlmostEqual(bjd[n], expected_bjd[n], places=8)
+
 
 class TestHmsToDays(unittest.TestCase):
 
