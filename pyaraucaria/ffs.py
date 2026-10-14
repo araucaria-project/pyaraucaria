@@ -71,7 +71,7 @@ class FFS:
     FITS_KEYS = {
         "min": "FFMIN", "max": "FFMAX", "mean": "FFMEAN", "median": "FFMEDIAN", "rms": "FFRMS",
         "q_sigma_lower": "FFQSIGL", "q_sigma_upper": "FFQSIGU", "q_sigma": "FFQSIG",
-        "noise": "FFNOISE", "n_bad": "FFNBAD",
+        "noise": "FFNOISE", "n_excluded": "FFNEXCL",
         "fwhm": "FFFWHM", "fwhm_x": "FFFWHMX", "fwhm_y": "FFFWHMY", "ellipticity": "FFELLIP",
         "theta_spread": "FFTHSPR", "cpe": "FFCPE", "shape": "FFSHAPE", "ci": "FFCI",
         "used_stars": "FFNSTARS",
@@ -282,8 +282,8 @@ class FFS:
         """
         # statystyki z dobrych pikseli (poza bad_mask); min/max ze wszystkich, zeby bylo widac saturacje
         bad = self.bad_mask(exclude)
-        self.n_bad = int(bad.sum())
-        img = self.image[~bad] if self.n_bad < bad.size else self.image.ravel()
+        self.n_excluded = int(bad.sum())
+        img = self.image[~bad] if self.n_excluded < bad.size else self.image.ravel()
 
         finite = self.image[~self.masks["nonfinite"]] if "nonfinite" in self.masks else self.image
         self.min = finite.min()
@@ -316,7 +316,7 @@ class FFS:
             "q_sigma_upper": self.q_sigma_upper,
             "q_sigma": self.q_sigma,
             "noise": self.noise,
-            "n_bad": self.n_bad,
+            "n_excluded": self.n_excluded,
         })
 
         self.stats_description["frame"].update({
@@ -329,7 +329,7 @@ class FFS:
             "q_sigma_upper": "Upper 1-sigma estimate from 84.1% - 50% quantile",
             "q_sigma": "Robust sigma estimated from 15.9–84.1% quantiles",
             "noise": "Expected total noise (Poisson + read noise)",
-            "n_bad": "Number of excluded pixels (bad_mask); other statistics except min/max use only the remaining pixels",
+            "n_excluded": "Number of excluded pixels (bad_mask(exclude)); other statistics except min/max use only the remaining pixels",
         })
 
     def mk_threshold_mask(self, nsigma=3.0, exclude=EXCLUDE_ALL):
@@ -749,7 +749,7 @@ class FFS:
 
         self.stars = Table(self.stats["stars"])
 
-    def calc_frame_fwhm(self,threshold=10, fwhm=10, box=10, N_stars=20, clip=4):
+    def calc_frame_fwhm(self,threshold=10, fwhm=10, box=10, N_stars=100, clip=4):
         """Full frame analysis: masks (saturation, cosmics, threshold), sky, lines, stars,
         FWHM and shape -> self.stats["frame"] (fwhm, ellipticity, used_stars, ...).
 
