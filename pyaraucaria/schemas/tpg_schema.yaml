@@ -44,7 +44,7 @@ properties:
     type: number
     description: "Hours before sunrise for observing"
 
-  ph_star:
+  ph_start:
     type: number
     description: "Min phase for observing"
 

@@ -1,0 +1,77 @@
+# Command rules for tpg (telescope plan generator) master files.
+#
+# Stricter than base_rules.yaml: a master-file line is an input to the scheduler,
+# not a command sent to the telescope, so tpg needs keys that TOI never sees
+# (priority, cycle, phase masking, time windows) and crashes without some of the
+# keys that base_rules treats as optional.
+#
+# Only OBJECT is defined on purpose - any other command in a master file is an
+# error, and validate_ob reports it as command_name: False.
+#
+# NOTE: `allowed` is documentation only - ObsValidator.validate_rules currently
+# checks required / one_of_group / exclusive_properties and ignores
+# `allowed` / `additional`. Keys listed here are the input vocabulary of a master
+# file; base_rules.yaml OBJECT.allowed is the separate output vocabulary used by
+# tpg to filter keys when writing a plan line.
+
+OBJECT:
+  required:
+    # name/ra/dec: telescope_plan_generator.py parseObjects() builds the CTC
+    # program string from them unconditionally
+    - command_name
+    - name
+    - ra
+    - dec
+    # priority: allocate() reads it for every object, missing key is a KeyError
+    - priority
+  one_of_group:
+    # without either one the slot time cannot be computed and the object is
+    # silently dropped from the plan
+    - [seq, ob_time]
+  exclusive_properties:
+    - [ra, dec]
+  allowed:
+    # --- written to the plan line (subset of base_rules.yaml OBJECT.allowed) ---
+    - command_name
+    - name
+    - ra
+    - dec
+    - seq
+    - read_mod
+    - focus_offset
+    - mirror_cover
+    - epoch
+    - test
+    - observer
+    - uobi
+    - sciprog
+    - pi
+    - comment
+    # --- scheduling only, consumed by tpg and stripped before export ---
+    - priority
+    - tag
+    - status
+    - cycle
+    - obs_data
+    - ph_mk
+    - ph_start
+    - ph_end
+    - P
+    - hjd0
+    - t_start
+    - t_end
+    - h_min
+    - h_max
+    - min_moon_dist
+    - max_moon_phase
+    - sunset_dt
+    - sunrise_dt
+    - fwhm_min
+    - fwhm_max
+    - ob_time
+    - makro
+    # --- informational, read by observers, not used by any code ---
+    - mV
+    - mK
+    - mI
+  additional: false
