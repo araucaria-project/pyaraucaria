@@ -63,7 +63,23 @@ od.lookup_object('lmc105_8_11987')
 `pyaraucaria.fits` provides utilities for reading and writing FITS files, including header management and array saving.
 
 ### Fast FITS Statistics (FFS)
-`pyaraucaria.ffs` provides optimized routines for star detection in images and basic image statistics (mean, median, noise estimation).
+`pyaraucaria.ffs` provides fast frame statistics and quality estimates: background map, star detection, frame FWHM/ellipticity, satellite-trail and diffraction-spike detection, and pixel masks (saturation, cosmic rays, lines, bad columns, hot pixels).
+
+```python
+from pyaraucaria.ffs import FFS
+
+ffs = FFS(image, saturation=45000, autobin=True)
+ffs.calc_frame_fwhm()
+ffs.stats["frame"]["fwhm"], ffs.stats["frame"]["used_stars"]
+ffs.lines          # detected trails (astropy Table)
+ffs.masks          # boolean masks, original image size
+```
+
+> **Binning.** By default (`bin=1, autobin=False`) the image is **not** binned. `autobin=True` (bin chosen so the
+> longer side is ≤ 2500 px) or `bin=2` or more speeds up large frames (4096×4096 `calc_frame_fwhm()`: bin 1 ~12 s /
+> 1.6 GB RAM, bin 2 ~9 s / 1.3 GB). Binning is used internally only (background, line and star detection). Coordinates, FWHM, masks and maps are always returned in the
+> original image size, and pixel parameters are given in original pixels. Example: `examples/ffs.ipynb` (quick FWHM,
+> full pipeline, calibration frames).
 
 ### Focus
 `pyaraucaria.focus` implements various telescope focusing algorithms (RMS, FWHM, Lorentzian, Laplacian).

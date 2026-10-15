@@ -39,7 +39,6 @@ dev = []
 
 [project.scripts]
 lookup_objects = "pyaraucaria.lookup_objects:main"
-find_stars = "pyaraucaria.find_stars:main"
 
 [project.urls]
 Homepage = "https://github.com/araucaria-project/pyaraucaria"
