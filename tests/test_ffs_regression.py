@@ -40,7 +40,7 @@ def run_toi(image):
     # TOI/fits_gui.py FFS_Worker.run
     ffs = FFS(image)
     ffs.saturation = 45000
-    ffs.calc_frame_fwhm(threshold=10, fwhm=5, box=15, N_stars=50, clip=4)
+    ffs.calc_frame_fwhm(threshold=10, fwhm=5, box=15, N_stars=50)
     ffs.sky_gradient(n_segments=7)
     return {"frame": ffs.stats["frame"], "stars": _stars(ffs), "sky": ffs.stats["sky"]}
 

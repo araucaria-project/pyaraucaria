@@ -788,14 +788,14 @@ class FFS:
 
         self.stars = Table(self.stats["stars"])
 
-    def calc_frame_fwhm(self,threshold=10, fwhm=10, box=10, N_stars=100, clip=4):
+    def calc_frame_fwhm(self,threshold=10, fwhm=10, box=10, N_stars=100, shape_min=0.55, shape_max=0.95):
         """Full frame analysis: masks (saturation, cosmics, threshold), sky, lines, stars,
         FWHM and shape -> self.stats["frame"] (fwhm, ellipticity, used_stars, ...).
 
         Runs mk_saturation_mask, mk_stats, sky_map, mk_cosmics_mask, mk_threshold_mask,
         find_lines, classify_lines, find_stars, star_info and calc_star_stats with default
         parameters except the ones below. used_stars tells how many stars the statistics
-        come from (0 -> NaN).
+        come from (fewer than 3 stars in the shape window -> NaN).
 
         Binning is set in the constructor (FFS(image, autobin=True) for large frames).
 
@@ -809,8 +809,9 @@ class FFS:
             Half-size of the measurement box around each star, in pixels (star_info).
         N_stars : int | None
             Number of the brightest good stars to measure; None = all (star_info).
-        clip : float
-            Sigma clipping of outlying stars in the frame statistics; 0 = none (calc_star_stats).
+        shape_min, shape_max : float | None
+            Window of the star shape (CPE x FWHM^2) for the frame statistics; None = no limit
+            (calc_star_stats). Pass None for defocused frames (autofocus).
         """
         self.mk_saturation_mask()
         self.mk_stats()
@@ -821,16 +822,7 @@ class FFS:
         self.classify_lines()
         self.find_stars(threshold=threshold, fwhm=fwhm)
         self.star_info(box=box,N_stars=N_stars)
-        self.calc_star_stats(clip=clip)
-
-    def _clip_mask(self,x,clip=4):
-        med = np.nanmedian(x)
-        sig = mad_std(x, ignore_nan=True)
-
-        if not np.isfinite(sig) or sig == 0:
-            return np.ones_like(x, dtype=bool)
-
-        return np.abs(x - med) < clip * sig
+        self.calc_star_stats(shape_min=shape_min, shape_max=shape_max)
 
     @staticmethod
     def _axial_spread(theta):
@@ -844,33 +836,39 @@ class FFS:
         R = np.abs(np.mean(np.exp(2j * theta)))
         return 0.5 * np.sqrt(-2.0 * np.log(max(R, 1e-12)))
 
-    def calc_star_stats(self,clip=4):
+    def calc_star_stats(self, shape_min=0.55, shape_max=0.95):
         """Frame PSF statistics from the stars measured by star_info() -> self.stats["frame"]
         (fwhm, fwhm_x, fwhm_y, ellipticity, theta_spread, cpe, shape, ci, used_stars).
 
-        Medians over stars; stars whose log(FWHM), log(CPE) or ellipticity deviate by more
-        than clip * mad_std are rejected first (if fewer than 3 stars remain, all valid stars are used).
+        Medians over the stars whose shape (CPE x FWHM^2) is inside (shape_min, shape_max).
+        A Gaussian PSF gives 0.77-0.88 (pixel sampling), real seeing profiles 0.6-0.8; much lower
+        values are single pixels or noise measured as a star (FWHM too small), higher ones a sharp
+        core in a wide profile (hot pixel / cosmic in a star). With fewer than 3 such stars the
+        statistics are NaN; used_stars tells how many stars they come from.
+
+        Checked on 397 frames of zb08/wk06/jk15 against ofp (2026-11-08): the window replaced the
+        former sigma clipping of log FWHM / log CPE / ellipticity with fewer outliers (14 vs 19
+        frames off by > 10%) and fixed the 0.5-0.6 s frames of bright standards, where most
+        "stars" were single pixels.
 
         Parameters
         ----------
-        clip : float
-            Sigma clipping level in units of mad_std; 0 = no clipping.
+        shape_min : float | None
+            Lower limit of the star shape; None = no limit.
+        shape_max : float | None
+            Upper limit of the star shape; None = no limit.
         """
 
-        mk = np.isfinite(self.fwhm)
+        mk = np.isfinite(self.fwhm) & np.isfinite(self.ellipticity)
+        with np.errstate(invalid="ignore"):         # NaN wiersze niezmierzonych gwiazd
+            if shape_min is not None:
+                mk &= self.shape > shape_min
+            if shape_max is not None:
+                mk &= self.shape < shape_max
 
-        if clip:
-            with np.errstate(invalid="ignore", divide="ignore"):   # NaN wiersze niezmierzonych gwiazd
-                fwhm = np.where(self.fwhm > 0, np.log(self.fwhm), np.nan)
-                cpe = np.where(self.cpe > 0, np.log(self.cpe), np.nan)
-            ell = self.ellipticity
-
-            valid = np.isfinite(fwhm) & np.isfinite(cpe) & np.isfinite(ell)
-
-            mk = (valid & self._clip_mask(fwhm, clip) & self._clip_mask(cpe, clip) & self._clip_mask(ell, clip))
-
-            if np.sum(mk) < 3:
-                mk = valid
+        n_good = int(np.sum(mk))
+        if n_good < 3:                              # za malo dobrych gwiazd -> NaN, used_stars mowi ile
+            mk = np.zeros_like(mk)
 
         self.frame_fwhm = np.nanmedian(self.fwhm[mk])
         self.frame_fwhm_x = np.nanmedian(self.fwhm_x[mk])
@@ -880,7 +878,7 @@ class FFS:
         self.frame_cpe = np.nanmedian(self.cpe[mk])
         self.frame_shape = np.nanmedian(self.shape[mk])
         self.frame_ci = np.nanmedian(self.ci[mk])
-        self.frame_used_stars = len(self.fwhm[mk])
+        self.frame_used_stars = n_good
 
 
         self.stats["frame"].update({
@@ -1461,9 +1459,9 @@ class FFS:
 
 
 
-    def find_lines(self, min_length=30, fwhm=4.0, max_gap=5, min_fill=0.5, half_width=3.0,
+    def find_lines(self, min_length=30, min_segment=120.0, max_gap=5, min_fill=0.5, half_width=3.0,
                    max_candidates=100, steps=None, max_shift=1.0, exclude=EXCLUDE_ALL,
-                   ring_radius=8, ring_omax=0.2, high_nsigma=5.0, high_omax=0.6, min_contrast=1.0,
+                   ring_radius=8, ring_omax=0.2, high_nsigma=5.0, high_omax=0.6, min_contrast=5.0,
                    side_offset=14.0):
         """Detect trails (lines) with the Hough transform of binned_masks["threshold"]
         -> self.lines (table: val, rho, theta, x0, y0, x1, y1, half_width), stats["lines"], masks["lines"].
@@ -1471,7 +1469,7 @@ class FFS:
         Only line-like pixels vote (ring test at two thresholds, see hough_transform); segments
         are checked on the full threshold mask. Candidates are the accumulator cells with most
         votes. A candidate is a line when:
-        1. the mask pixels along it form a continuous segment: gaps <= max_gap, length >= 10 * fwhm,
+        1. the mask pixels along it form a continuous segment: gaps <= max_gap, length >= min_segment,
            fill >= min_fill;
         2. the segment is brighter than its surroundings: median of image - sky along it exceeds
            the brightest of the medians along parallel lines side_offset and side_offset + 8
@@ -1489,8 +1487,11 @@ class FFS:
         ----------
         min_length : float
             Minimal number of votes (mask pixels on the line) for a candidate, in original pixels.
-        fwhm : float
-            Trail width scale in original pixels; the minimal segment length is 10 * fwhm.
+        min_segment : float
+            Minimal length of the continuous segment, in original pixels. Default 120 px and
+            min_contrast 5 from 405 frames of zb08/wk06/jk15 at TOI binning (2026-11-08): all 18 real
+            trails had >= 160 px and >= 5.2 sigma; 856 false lines (bright-star stubs 40-150 px,
+            crowded fields) -> 37, 31 of them in dense clusters/galaxies.
         max_gap : float
             Longest allowed gap in a segment, in original pixels.
         min_fill : float
@@ -1519,7 +1520,7 @@ class FFS:
             Maximal fraction of the ring in the high-threshold mask (hough_transform).
         min_contrast : float | None
             Minimal brightness of a segment over its surroundings, in units of background sigma
-            of the binned image; None = no check.
+            of the binned image (so the same trail has a different contrast at another bin); None = no check.
         side_offset : float
             Distance of the surroundings from the line, in original pixels (also side_offset + 8);
             must be beyond the half-width of bright trails. Parallel lines closer than this to an
@@ -1528,12 +1529,12 @@ class FFS:
         self.hough_transform(steps=steps, max_shift=max_shift, ring_radius=ring_radius, ring_omax=ring_omax,
                              high_nsigma=high_nsigma, high_omax=high_omax)
 
-        # dlugosci (min_length, fwhm, max_gap) przeliczone na piksele obrazu zbinowanego;
+        # dlugosci (min_length, min_segment, max_gap) przeliczone na piksele obrazu zbinowanego;
         # half_width (pas usuwania przyjetej linii, tolerancja jak max_shift) zostaje w pikselach
         # zbinowanych - po podzieleniu przez bin konce dlugich sladow wychodzily z pasa
         b = self.bin
         min_votes = min_length / b
-        min_segment = 10 * fwhm / b
+        min_segment_b = min_segment / b
         max_gap_b = max(1, int(round(max_gap / b)))
         half_width_b = half_width
 
@@ -1570,7 +1571,7 @@ class FFS:
             # czy wzdluz linii piksele maski tworza ciagly odcinek?
             pos, occupied = FFS._line_profile(work, rho, t)
             _, unknown = FFS._line_profile(removed, rho, t)   # skrzyzowania z juz znalezionymi liniami
-            segments = FFS._line_segments(occupied, max_gap_b, min_segment, min_fill, unknown)
+            segments = FFS._line_segments(occupied, max_gap_b, min_segment_b, min_fill, unknown)
             if not segments:
                 # odrzucony: wylaczamy te komorke i jej sasiadow, piksele zostaja
                 acc[max(0, ri_max - 2):ri_max + 3, max(0, ti_max - 1):ti_max + 2] = -1

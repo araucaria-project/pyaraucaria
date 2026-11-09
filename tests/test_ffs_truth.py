@@ -149,14 +149,14 @@ class TestStarInfo(QuietTestCase):
 
     def test_frame_fwhm_round_stars(self):
         ffs = FFS(scenario("clean").image)
-        ffs.calc_frame_fwhm(threshold=10, fwhm=4, box=10, N_stars=50, clip=4)
+        ffs.calc_frame_fwhm(threshold=10, fwhm=4, box=10, N_stars=50)
         self.assertAlmostEqual(ffs.frame_fwhm, 4.0, delta=0.2)
         self.assertLess(ffs.frame_ellipticity, 0.08)
 
     def test_rows_belong_to_detected_stars(self):
         f = scenario("clean")
         ffs = FFS(f.image)
-        ffs.calc_frame_fwhm(threshold=10, fwhm=4, box=10, N_stars=50, clip=4)
+        ffs.calc_frame_fwhm(threshold=10, fwhm=4, box=10, N_stars=50)
         truth = np.array([[s["x"], s["y"]] for s in f.stars])
         matched, extra = match(np.column_stack([ffs.stars["x"], ffs.stars["y"]]), truth)
         self.assertEqual(extra, 0)
@@ -170,7 +170,7 @@ class TestStarInfo(QuietTestCase):
         f = make_frame(shape=(400, 500), stars=stars, sky=500, saturation=45000, seed=3)
         ffs = FFS(f.image)
         ffs.saturation = 45000
-        ffs.calc_frame_fwhm(threshold=10, fwhm=4, box=10, N_stars=50, clip=4)
+        ffs.calc_frame_fwhm(threshold=10, fwhm=4, box=10, N_stars=50)
         sat = np.asarray(ffs.stars["max_adu"]) >= 45000
         fwhm = np.asarray(ffs.stars["fwhm"])
         self.assertEqual(len(ffs.stars), 7)
@@ -182,18 +182,18 @@ class TestStarInfo(QuietTestCase):
         # Unweighted moments over the whole box with noise clipped at zero
         # gave 0.07 here; adaptive moments are needed.
         ffs = FFS(scenario("elliptical").image)
-        ffs.calc_frame_fwhm(threshold=10, fwhm=5, box=15, N_stars=50, clip=4)
+        ffs.calc_frame_fwhm(threshold=10, fwhm=5, box=15, N_stars=50)
         self.assertAlmostEqual(ffs.frame_ellipticity, 0.3, delta=0.05)
 
     def test_frame_theta_spread(self):
         # theta has period pi; a plain std would explode on sign flips.
         ffs = FFS(scenario("elliptical").image)
-        ffs.calc_frame_fwhm(threshold=10, fwhm=5, box=15, N_stars=50, clip=4)
+        ffs.calc_frame_fwhm(threshold=10, fwhm=5, box=15, N_stars=50)
         self.assertLess(ffs.frame_theta_spread, np.deg2rad(10))
 
     def test_frame_theta_value(self):
         ffs = FFS(scenario("elliptical").image)
-        ffs.calc_frame_fwhm(threshold=10, fwhm=5, box=15, N_stars=50, clip=4)
+        ffs.calc_frame_fwhm(threshold=10, fwhm=5, box=15, N_stars=50)
         theta = np.asarray(ffs.theta)
         theta = theta[np.isfinite(theta)]
         med = 0.5 * np.angle(np.mean(np.exp(2j * theta)))   # axial mean
