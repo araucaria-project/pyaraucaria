@@ -130,6 +130,7 @@ class FFS:
         self.noise = None
 
         self.stars = None
+        self.pattern_stars = None      # gwiazdy uzyte do wzoru katow (calc_star_field_stats, psf_pattern)
         self.coo = None
         self.adu = None
 
@@ -997,10 +998,17 @@ class FFS:
         inside_y = 0.5 * (erf(gy / (np.sqrt(2) * s)) + erf((ny - 1 - gy) / (np.sqrt(2) * s)))
         return W / (2 * np.pi * s ** 2) / (inside_x * inside_y) * 1e4
 
-    def calc_star_field_stats(self, min_stars=5, shape_min=0.55, shape_max=0.95, min_e=0.05, n_perm=100, seed=0):
+    def calc_star_field_stats(self, min_stars=5, shape_min=0.2, shape_max=None, min_e=0.05, n_perm=100, seed=0):
         """Global PSF field statistics from the stars measured by star_info() -> stats["frame"].
 
-        Stars with shape_min < shape < shape_max (as calc_star_stats). Ellipticity components of each
+        Stars with shape > shape_min (and < shape_max if given) - not the window of the frame FWHM
+        (calc_star_stats, 0.55-0.95): the shape of a trailed / elongated star depends on the trail
+        direction (FWHM is measured in the x and y cuts) - diagonal trails have a low shape (0.3-0.6),
+        trails along x or y a high one (1.0-1.5), and elongated stars are what the orientation pattern
+        is about. shape < 0.2 is junk; a cosmic in a star (high shape) hardly changes its adaptive
+        moments. (A 10 s zb08 snap with trails e ~0.5: 5 of 19 stars in 0.55-0.95 -> no pattern; with
+        shape > 0.2 -> linear e 0.29.) The stars used for psf_pattern (window and e > min_e) are marked in
+        self.pattern_stars and in the column "pattern" of self.stars. Ellipticity components of each
         star: e1 = e cos 2theta, e2 = e sin 2theta.
         - psf_e1, psf_e2, psf_e_mean, psf_theta_mean: mean e1, e2 and the common elongation
           (all stars elongated in one direction: tracking, wind),
@@ -1050,6 +1058,13 @@ class FFS:
         (_, b, c, d), *_ = np.linalg.lstsq(A, fwhm, rcond=None)
 
         pattern = FFS.psf_pattern(px, py, e, t, nx, ny, fwhm=fwhm, min_e=min_e, n_perm=n_perm, seed=seed)
+        # gwiazdy wzoru (jak w psf_pattern: okno shape i e > min_e) - do rysowania (np. TOI)
+        with np.errstate(invalid="ignore"):
+            self.pattern_stars = ok & (self.ellipticity > min_e)
+        self.stats["stars"]["pattern"] = self.pattern_stars
+        self.stats_description["stars"]["pattern"] = "Star used for the orientation pattern (calc_star_field_stats)"
+        if self.stars is not None and len(self.stars) == len(self.pattern_stars):
+            self.stars["pattern"] = self.pattern_stars
 
         psf = {
             "psf_e1": m1,

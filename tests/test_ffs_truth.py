@@ -429,6 +429,7 @@ class TestSaveMef(QuietTestCase):
                 self.assertAlmostEqual(hl[0].header["FFFWHM"], ffs.frame_fwhm)
                 self.assertEqual(hl["SKY"].data.shape, ffs.image.shape)
                 self.assertEqual(hl[0].header["FFPSFPAT"], ffs.stats["frame"]["psf_pattern"])
+                self.assertIn("pattern", hl["STARS"].columns.names)
 
 
 class TestPsfPattern(QuietTestCase):
@@ -481,6 +482,24 @@ class TestPsfPattern(QuietTestCase):
     def test_noise_is_none(self):
         found = [self.run_kind("none", seed=s)["pattern"] for s in range(20)]
         self.assertLessEqual(sum(f != "none" for f in found), 2)
+
+    def test_trailed_stars_kept(self):
+        # gwiazdy rozmazane (slad) maja maly shape - analiza wzoru bierze okno 0.2-0.95, nie 0.55-0.95
+        img = np.zeros((400, 400))
+        rng = np.random.default_rng(3)
+        for _ in range(30):
+            x, y = rng.uniform(30, 370, 2)
+            for dx in np.linspace(-6, 6, 25):          # slad wzdluz x, 12 px
+                sl, st = gaussian_star(img.shape, x + dx, y, 4e3, 3.0, 0.0, 0.0, radius=20)
+                img[sl] += st
+        img += rng.normal(100, 3, img.shape)
+        ffs = FFS(img, saturation=1e9)
+        ffs.calc_frame_fwhm(threshold=10, fwhm=4, box=15, N_stars=50)
+        ffs.calc_star_field_stats(n_perm=50)
+        self.assertEqual(ffs.stats["frame"]["psf_pattern"], "linear")
+        self.assertGreater(ffs.stats["frame"]["psf_e_mean"], 0.3)
+        self.assertEqual(int(ffs.pattern_stars.sum()), int(np.sum(ffs.stars["pattern"])))
+        self.assertGreater(ffs.pattern_stars.sum(), 15)
 
     def test_repeatable(self):
         a, b = self.run_kind("tangential"), self.run_kind("tangential")
