@@ -4,7 +4,7 @@ import numpy as np
 from scipy.ndimage import maximum_filter, median_filter
 from scipy.ndimage import convolve
 from scipy.ndimage import gaussian_filter
-from scipy.ndimage import binary_closing, label, map_coordinates
+from scipy.ndimage import binary_closing, label, map_coordinates, find_objects, distance_transform_edt
 from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
 from scipy.special import erf
 from scipy.optimize import minimize
@@ -81,7 +81,7 @@ class FFS:
         "fwhm": "FFFWHM", "fwhm_x": "FFFWHMX", "fwhm_y": "FFFWHMY", "ellipticity": "FFELLIP",
         "theta_spread": "FFTHSPR", "cpe": "FFCPE", "shape": "FFSHAPE", "ci": "FFCI",
         "used_stars": "FFNSTARS",
-        "bkg_max_amplitude": "FFBKGAMP", "bkg_frame_gradient": "FFBKGGRD",
+        "bkg_max_amplitude": "FFBKGAMP", "bkg_frame_gradient": "FFBKGGRD", "bleeds": "FFNBLEED",
         "psf_e1": "FFPSFE1", "psf_e2": "FFPSFE2", "psf_e_mean": "FFPSFE", "psf_theta_mean": "FFPSFTH",
         "psf_pattern": "FFPSFPAT", "psf_pattern_s": "FFPSFS", "psf_pattern_p": "FFPSFP",
         "psf_centre_x": "FFPSFCX", "psf_centre_y": "FFPSFCY", "psf_rot_deg": "FFPSFROT",
@@ -181,6 +181,7 @@ class FFS:
         }
 
         self.lines = None              # tabela wykrytych linii (find_lines)
+        self.bleeds = None             # tabela przelan ladunku z maski saturacji (mk_bleeds_mask)
         self.psf_grid = None           # tabela PSF w wezlach rzadkiej siatki - "wasy" (mk_star_maps)
         self.masks = {}                # maski logiczne w rozmiarze obrazu, osobno dla kazdej metody
         self.binned_masks = {}         # maski wewnetrzne w rozmiarze binned_image (np. wejscie do Hougha)
@@ -248,7 +249,7 @@ class FFS:
             hdu.data = bits
             hdus.append(hdu)
 
-        for name, table in (("STARS", self.stars), ("LINES", self.lines), ("SKYSURF", self.sky),
+        for name, table in (("STARS", self.stars), ("LINES", self.lines), ("BLEEDS", self.bleeds), ("SKYSURF", self.sky),
                             ("PSFGRID", self.psf_grid)):
             if table is not None:
                 hdu = fits.table_to_hdu(Table(table))
@@ -396,6 +397,72 @@ class FFS:
         self.masks["saturation"] = self.image >= saturation
         self.masks_description["saturation"] = f"Saturated pixels (value >= {saturation} ADU)"
 
+    def mk_bleeds_mask(self, max_width=5, min_length=30, max_wobble=1.5):
+        """Charge bleeds in masks["saturation"] -> masks["bleeds"], self.bleeds (table x0, y0, x1, y1,
+        length, width), stats["frame"]["bleeds"] (number).
+
+        A bleed runs along a row or a column from a saturated star (or alone). In every connected
+        saturated region the columns (rows) where the region is at most max_width px thick, in runs of
+        >= min_length px with the centre of the thin part on one row (column) within max_wobble px
+        (a saturated diffraction spike is thin too, but diagonal), are a bleed along x (y). One bleed
+        per region and direction (both sides of the star together). A bleed saturated above
+        self.saturation is not found by find_lines (saturated pixels do not vote), and find_stars
+        took every local maximum along it as a star (zb08 2026-11-09: 47 "stars" on one bleed).
+        Requires mk_saturation_mask().
+
+        Parameters
+        ----------
+        max_width : int
+            Maximal thickness of the bleed, in pixels.
+        min_length : int
+            Minimal length of a bleed (one run of thin columns / rows), in pixels.
+        max_wobble : float
+            Maximal standard deviation of the centre of the thin part across the bleed, in pixels.
+        """
+        if "saturation" not in self.masks:
+            self.mk_saturation_mask()
+        sat = self.masks["saturation"]
+        bleeds = np.zeros(sat.shape, dtype=bool)
+        rows = []
+        lab, _ = label(sat)
+        for k, sl in enumerate(find_objects(lab), start=1):
+            if sl is None or max(sl[0].stop - sl[0].start, sl[1].stop - sl[1].start) < min_length:
+                continue
+            sub = lab[sl] == k
+            for axis in (0, 1):             # 0: grubosc kolumn -> przelanie wzdluz x; 1: wierszy -> wzdluz y
+                thick = sub.sum(axis=axis)
+                thin = (thick > 0) & (thick <= max_width)
+                runs, n = label(thin)
+                keep = np.zeros_like(thin)
+                for r in range(1, n + 1):
+                    idx = np.nonzero(runs == r)[0]
+                    if idx.size < min_length:
+                        continue
+                    part = sub[:, idx] if axis == 0 else sub[idx, :]
+                    across = np.arange(part.shape[0 if axis == 0 else 1])
+                    w = part.sum(axis=0 if axis == 0 else 1)
+                    centre = (part * (across[:, None] if axis == 0 else across[None, :])).sum(axis=0 if axis == 0 else 1) / w
+                    if np.std(centre) <= max_wobble:
+                        keep[idx] = True
+                if not keep.any():
+                    continue
+                part = sub & (keep[None, :] if axis == 0 else keep[:, None])
+                bleeds[sl] |= part
+                yy, xx = np.nonzero(part)
+                yy, xx = yy + sl[0].start, xx + sl[1].start
+                along = xx if axis == 0 else yy
+                c = float(np.mean(yy if axis == 0 else xx))
+                a0, a1 = float(along.min()), float(along.max())
+                x0, y0, x1, y1 = (a0, c, a1, c) if axis == 0 else (c, a0, c, a1)
+                rows.append((x0, y0, x1, y1, int(keep.sum()), float(np.median(thick[keep]))))
+        self.masks["bleeds"] = bleeds
+        self.masks_description["bleeds"] = (
+            f"Charge bleeds: saturated runs <= {max_width} px thick, >= {min_length} px long, along a row or column")
+        self.bleeds = Table(rows=rows, names=("x0", "y0", "x1", "y1", "length", "width"),
+                            dtype=(float, float, float, float, int, float))
+        self.stats["frame"]["bleeds"] = len(rows)
+        self.stats_description["frame"]["bleeds"] = "Number of charge bleeds in the saturation mask (mk_bleeds_mask)"
+
     def mk_columns_map(self, block=64, window=15, exclude=EXCLUDE_ALL):
         """Maps of column and row deviations -> maps["columns"], maps["rows"] (calibration frames:
         bias, dark, flat, no stars).
@@ -481,6 +548,38 @@ class FFS:
         """
         self.masks["cold_pixels"] = self.maps["pixels"] < -threshold
         self.masks_description["cold_pixels"] = f"Cold pixels: maps['pixels'] < -{threshold} ADU (mk_cold_pixels_mask)"
+
+    def _merge_saturated(self, coo, adu):
+        """Jedna detekcja (y, x) na spojny obszar nasycony: w najglebszym punkcie obszaru (max transformaty
+        odleglosci - srodek gwiazdy, nie przelanie), na miejscu pierwszej (najwyzszej w rankingu) detekcji.
+        Detekcje poza saturacja bez zmian. Zwraca (coo, adu)."""
+        if len(coo) == 0:
+            return coo, adu
+        sat = self.masks.get("saturation")
+        if sat is None:
+            sat = self.image >= self.saturation
+        coo = np.asarray(coo)
+        insat = sat[coo[:, 0], coo[:, 1]]
+        if insat.sum() < 2:
+            return coo, adu
+        lab, _ = label(sat)
+        comp = lab[coo[:, 0], coo[:, 1]]
+        slices = find_objects(lab)
+        keep = np.ones(len(coo), dtype=bool)
+        out = coo.copy()
+        seen = set()
+        for i in np.nonzero(insat)[0]:
+            k = comp[i]
+            if k in seen:
+                keep[i] = False
+                continue
+            seen.add(k)
+            sl = slices[k - 1]
+            depth = distance_transform_edt(np.pad(lab[sl] == k, 1))[1:-1, 1:-1]
+            dy, dx = np.unravel_index(np.argmax(depth), depth.shape)
+            out[i] = (sl[0].start + dy, sl[1].start + dx)
+        out = out[keep]
+        return out, self.image[out[:, 0], out[:, 1]]
 
     def _refine_on_original(self, coo, exclude=EXCLUDE_DETECTION):
         """Pozycje (y, x) z obrazu zbinowanego -> najjasniejszy dobry piksel oryginalu w otoczeniu
@@ -582,7 +681,7 @@ class FFS:
     def find_stars(self, threshold=5, method="sigma quantile", fwhm=10,
                    min_smoothed_sigma=None, rank_by="raw",
                    max_concentration=None, aperture_radius=None,
-                   min_pixels_above_threshold=None, exclude=EXCLUDE_DETECTION):
+                   min_pixels_above_threshold=None, exclude=EXCLUDE_DETECTION, merge_saturated=True):
         """Detect star peaks. Detection runs on ``self.binned_image`` (= ``self.image``
         for bin=1); the returned ``self.coo`` (y, x) and ``self.adu`` are in the original
         image: each detection is moved to the brightest good original pixel near its block.
@@ -639,6 +738,11 @@ class FFS:
             the already-computed mask1, just counts pixels per box.
             Default ``None`` disables. Recommended ~5 for typical
             in-focus PSFs.
+        merge_saturated : bool
+            One detection per connected saturated region (masks["saturation"], or image >= saturation):
+            at its deepest point (the core of the star, not a bleed), with the rank of its first
+            detection. Without it every local maximum along a saturated bleed is a star (zb08
+            2026-11-09: 47 on one bleed).
         exclude : sequence of str
             Names of the masks whose pixels are skipped (bad_mask); missing masks are ignored.
             Without "saturation" and "stars" by default, so that saturated and already
@@ -771,6 +875,8 @@ class FFS:
             self.adu = val[sorted_i]
             if b > 1:
                 self.coo, self.adu = self._refine_on_original(self.coo, exclude)
+            if merge_saturated:
+                self.coo, self.adu = self._merge_saturated(self.coo, self.adu)
 
             self.stats["stars"] = {
                 "x": self.coo[:, 1],
@@ -817,6 +923,7 @@ class FFS:
             (calc_star_stats). Pass None for defocused frames (autofocus).
         """
         self.mk_saturation_mask()
+        self.mk_bleeds_mask()
         self.mk_stats()
         self.sky_map()
         self.mk_cosmics_mask()
@@ -1624,9 +1731,9 @@ class FFS:
 
 
     def find_lines(self, min_length=30, min_segment=120.0, max_gap=5, min_fill=0.5, half_width=3.0,
-                   max_candidates=100, steps=None, max_shift=1.0, exclude=EXCLUDE_ALL,
+                   max_candidates=30, steps=None, max_shift=1.0, exclude=EXCLUDE_ALL,
                    ring_radius=8, ring_omax=0.2, high_nsigma=5.0, high_omax=0.6, min_contrast=5.0,
-                   side_offset=14.0):
+                   side_offset=14.0, min_q25_contrast=1.0):
         """Detect trails (lines) with the Hough transform of binned_masks["threshold"]
         -> self.lines (table: val, rho, theta, x0, y0, x1, y1, half_width), stats["lines"], masks["lines"].
 
@@ -1638,7 +1745,11 @@ class FFS:
         2. the segment is brighter than its surroundings: median of image - sky along it exceeds
            the brightest of the medians along parallel lines side_offset and side_offset + 8
            original px away (both sides) by more than min_contrast * sigma (a chance alignment of
-           stars in a crowded field has as much light beside it as on it).
+           stars in a crowded field has as much light beside it as on it), and its 25th percentile
+           by more than min_q25_contrast * sigma - a trail is bright along almost all its length, a
+           chain of stars has gaps. (405 frames 2026-11-09: in dense fields the line through the most
+           stars has a median 8-23 sigma above its sides; the 25th percentile left 9 of 268 lines,
+           3 of them false, and kept every satellite - the faintest at 1.3 sigma.)
         Pixels of an accepted line (within half_width) and their votes are removed before the
         next candidate. Interrupted collinear pieces of one trail become one line, and a line
         parallel to an accepted one closer than its half-width + side_offset (another piece of a wide trail) widens it
@@ -1664,7 +1775,8 @@ class FFS:
             Half-width of the band removed around an accepted line (binned pixels) and of the
             line in masks["lines"] (original pixels).
         max_candidates : int
-            Maximal number of accumulator maxima checked.
+            Maximal number of accumulator maxima checked (30: the same lines as 100 on 405 frames,
+            ~16 % faster).
         steps : int | None
             Number of theta angles in the Hough transform; None chooses it from max_shift.
         max_shift : float
@@ -1685,6 +1797,9 @@ class FFS:
         min_contrast : float | None
             Minimal brightness of a segment over its surroundings, in units of background sigma
             of the binned image (so the same trail has a different contrast at another bin); None = no check.
+        min_q25_contrast : float | None
+            Minimal 25th percentile of the segment over its surroundings, in units of background sigma
+            of the binned image; None = no check (only with min_contrast).
         side_offset : float
             Distance of the surroundings from the line, in original pixels (also side_offset + 8);
             must be beyond the half-width of bright trails. Parallel lines closer than this to an
@@ -1748,8 +1863,10 @@ class FFS:
             p0, p1 = pos[start], pos[stop - 1]
 
             # jasniejsza od otoczenia? (przypadkowy szereg gwiazd w gestym polu - nie)
-            if min_contrast is not None and \
-                    FFS._side_contrast(resid, rho, t, p0, p1, side_offsets) <= min_contrast * sigma:
+            if min_contrast is not None:
+                c50, c25 = FFS._side_contrast(resid, rho, t, p0, p1, side_offsets)
+            if min_contrast is not None and (c50 <= min_contrast * sigma or
+                                             (min_q25_contrast is not None and c25 <= min_q25_contrast * sigma)):
                 acc[max(0, ri_max - 2):ri_max + 3, max(0, ti_max - 1):ti_max + 2] = -1
                 continue
 
@@ -1857,8 +1974,8 @@ class FFS:
         }
 
     def classify_lines(self, half_width=3.0, margin=10, min_side=10, min_decay=2.0,
-                       exclude=EXCLUDE_LINES):
-        """Separate diffraction spikes of bright stars from trails. Requires find_lines().
+                       exclude=EXCLUDE_LINES, bleed_frac=0.8):
+        """Separate diffraction spikes of bright stars from trails and mark charge bleeds. Requires find_lines().
 
         Step 1: is there a saturated star (image >= self.saturation) on the segment (with a
         margin at the ends)? If not - a trail.
@@ -1867,8 +1984,15 @@ class FFS:
         of the nearer half is divided by the median of the farther half. A spike when the
         ratio is >= min_decay on every side. When no side can be measured, step 1 decides (spike).
 
-        Adds columns spike, star_x, star_y, decay to self.lines (and stats["lines"]), creates
-        masks["spikes"] and rebuilds masks["lines"] with trails only.
+        Charge bleed (independent of the steps above): the median along the segment of the
+        brightest pixel across the line (within its half-width) is >= bleed_frac * saturation - the
+        whole line is at the saturation level. Satellites are 100-1000 times fainter (405 frames
+        2026-11-09: bleeds 155000-176000 ADU on jk15, satellites 30-1400 ADU above the sky). A
+        relative limit, because the real full well can be below self.saturation (jk15: bleeds
+        155000-176000 ADU with saturation 180000, so masks["saturation"] misses them).
+
+        Adds columns spike, star_x, star_y, decay, bleed to self.lines (and stats["lines"]), creates
+        masks["spikes"] and rebuilds masks["lines"] with trails only (bleeds stay in it).
 
         Parameters
         ----------
@@ -1882,17 +2006,33 @@ class FFS:
             Minimal near/far brightness ratio for a spike.
         exclude : sequence of str
             Names of the masks whose pixels are skipped (bad_mask); missing masks are ignored.
+        bleed_frac : float
+            A line is a charge bleed when its median brightness is >= bleed_frac * saturation.
         """
         if "sky" not in self.maps:
             self.sky_map()
         sat = self.image >= self.saturation
         resid = None        # image - sky, liczone dopiero dla linii z nasycona gwiazda (etap 2)
 
-        spike, star_x, star_y, decay = [], [], [], []
+        spike, star_x, star_y, decay, bleed = [], [], [], [], []
         for row in self.lines:
             rho, t = row["rho"], row["theta"]
             c, s = np.cos(t), np.sin(t)
             p0, p1 = sorted([-row["x0"] * s + row["y0"] * c, -row["x1"] * s + row["y1"] * c])
+
+            # przelanie ladunku: najjasniejszy piksel w poprzek (w pasie half_width) na poziomie nasycenia
+            # wzdluz calego odcinka (mediana); _line_values bierze mediane 3 pikseli w poprzek kazdej prostej
+            hw = max(half_width, row["half_width"]) if "half_width" in self.lines.colnames else half_width
+            seg = np.arange(np.ceil(p0), np.floor(p1) + 1)
+            if seg.size:
+                band = np.array([FFS._line_values(self.image, rho + d, t, seg)
+                                 for d in np.arange(-np.floor(hw), np.floor(hw) + 1)])
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)       # All-NaN slice
+                    level = np.nanmedian(np.nanmax(band, axis=0))
+                bleed.append(bool(level >= bleed_frac * self.saturation))
+            else:
+                bleed.append(False)
 
             # etap 1: nasycona gwiazda na odcinku (najdluzszy ciag nasyconych pikseli)
             pos, occupied = FFS._line_profile(sat, rho, t)
@@ -1931,7 +2071,8 @@ class FFS:
             spike.append(all(r >= min_decay for r in ratios))   # pusta lista -> etap 1
             decay.append(min(ratios) if ratios else np.nan)
 
-        for name, values in (("spike", spike), ("star_x", star_x), ("star_y", star_y), ("decay", decay)):
+        for name, values in (("spike", spike), ("star_x", star_x), ("star_y", star_y), ("decay", decay),
+                             ("bleed", bleed)):
             self.stats["lines"][name] = np.array(values)
             self.lines[name] = np.array(values)
 
@@ -1964,6 +2105,7 @@ class FFS:
                 "Smallest (over both sides of the star) ratio of median brightness in the nearer "
                 "and the farther half of the segment; NaN if not measured"
             ),
+            "bleed": "True if the line is a charge bleed: median brightness >= bleed_frac x saturation (classify_lines)",
         })
 
     def hough_transform(self, steps=None, max_shift=1.0, ring_radius=8, ring_omax=0.2,
@@ -2043,27 +2185,28 @@ class FFS:
 
     @staticmethod
     def _side_contrast(resid, rho, theta, p0, p1, offsets):
-        """Jasnosc odcinka ponad otoczenie: mediana resid wzdluz odcinka (polozenia p0..p1 co 1 px)
-        minus najwieksza z median wzdluz rownoleglych odcinkow przesunietych o +-offsets px
-        (inne rho, ten sam kat i zakres). NaN w resid pomijane; -inf, gdy na odcinku brak danych."""
+        """Jasnosc odcinka ponad otoczenie: (mediana, 25. percentyl) resid wzdluz odcinka (polozenia p0..p1
+        co 1 px) minus najwieksza z median wzdluz rownoleglych odcinkow przesunietych o +-offsets px
+        (inne rho, ten sam kat i zakres). NaN w resid pomijane; (-inf, -inf), gdy na odcinku brak danych."""
         ny, nx = resid.shape
         c, s = np.cos(theta), np.sin(theta)
         p = np.arange(int(p0), int(p1) + 1)
 
-        def median_along(offset):
+        def along(offset):
             r = rho + offset
             x = np.rint(r * c - p * s).astype(int)
             y = np.rint(r * s + p * c).astype(int)
             ok = (x >= 0) & (x < nx) & (y >= 0) & (y < ny)
             v = resid[y[ok], x[ok]]
-            return np.nanmedian(v) if np.isfinite(v).sum() > 5 else np.nan
+            return v if np.isfinite(v).sum() > 5 else None
 
-        on = median_along(0)
-        if not np.isfinite(on):
-            return -np.inf
-        side = [median_along(sign * o) for o in offsets for sign in (-1, 1)]
-        side = [v for v in side if np.isfinite(v)]
-        return on - (max(side) if side else 0.0)
+        on = along(0)
+        if on is None:
+            return -np.inf, -np.inf
+        side = [along(sign * o) for o in offsets for sign in (-1, 1)]
+        side = [np.nanmedian(v) for v in side if v is not None]
+        ref = max(side) if side else 0.0
+        return np.nanmedian(on) - ref, np.nanpercentile(on, 25) - ref
 
     @staticmethod
     def _ring_test(mask, radius, omax):

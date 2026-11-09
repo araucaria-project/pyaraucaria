@@ -410,6 +410,53 @@ class TestRingTest(QuietTestCase):
         self.assertFalse(votes[star | blob].any())
 
 
+class TestBleed(QuietTestCase):
+    """classify_lines: a charge bleed (whole line at the saturation level) vs a faint trail."""
+
+    def test_bleed_and_trail(self):
+        rng = np.random.default_rng(4)
+        img = rng.normal(1000, 10, (600, 600))
+        yy, xx = np.mgrid[0:600, 0:600]
+        img[(np.abs(yy - 150) <= 1) & (xx >= 100) & (xx <= 450)] = 46000      # bleed: 0.92 x saturation
+        img[(np.hypot(xx - 100, yy - 150) <= 4)] = 60000                    # saturated star at its start
+        trail = np.abs((yy - 300) - 0.6 * (xx - 50)) <= 1.2                   # faint satellite, ~31 deg
+        img[trail & (xx > 50) & (xx < 500)] += 300
+        ffs = FFS(img, saturation=50000)
+        ffs.calc_frame_fwhm(threshold=10, fwhm=4, box=10, N_stars=20)
+        trails = ffs.lines[~ffs.lines["spike"]]
+        horizontal = np.abs(trails["y1"] - trails["y0"]) < 5
+        self.assertTrue(np.all(trails["bleed"][horizontal]))
+        self.assertTrue(np.any(horizontal))
+        self.assertTrue(np.any(~horizontal))
+        self.assertFalse(np.any(trails["bleed"][~horizontal]))
+
+
+class TestSaturatedBleed(QuietTestCase):
+    """mk_bleeds_mask and find_stars(merge_saturated): a saturated bleed is one bleed, not many stars."""
+
+    def test_bleed_mask_and_one_star(self):
+        rng = np.random.default_rng(5)
+        img = rng.normal(1000, 10, (500, 500))
+        yy, xx = np.mgrid[0:500, 0:500]
+        img[np.hypot(xx - 250, yy - 250) <= 8] = 65000                       # saturated star
+        img[(np.abs(yy - 250) <= 1) & (xx >= 100) & (xx <= 420)] = 65000      # bleed along x
+        diag = (np.abs((yy - 250) - (xx - 250)) <= 1) & (xx > 250) & (xx < 300)
+        img[diag] = 65000                                                      # saturated spike, 45 deg
+        for i in range(100, 420, 7):                                           # bumps along the bleed
+            img[249:252, i] = 65100
+        ffs = FFS(img, saturation=50000)
+        ffs.calc_frame_fwhm(threshold=10, fwhm=4, box=10, N_stars=20)
+        self.assertEqual(ffs.stats["frame"]["bleeds"], 1)
+        b = ffs.bleeds[0]
+        self.assertLess(abs(b["y0"] - 250), 2)
+        self.assertLess(b["x0"], 120)
+        self.assertGreater(b["x1"], 400)
+        self.assertFalse(ffs.masks["bleeds"][diag & (xx > 270)].any())         # the spike is not a bleed
+        sat_det = ffs.coo[ffs.adu >= 50000]
+        self.assertEqual(len(sat_det), 1)
+        self.assertLess(np.hypot(sat_det[0, 1] - 250, sat_det[0, 0] - 250), 3)
+
+
 class TestSaveMef(QuietTestCase):
 
     def test_masks_and_tables_roundtrip(self):

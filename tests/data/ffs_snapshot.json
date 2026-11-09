@@ -27,6 +27,7 @@
    "frame": {
     "bkg_frame_gradient": 1.8541577153620525,
     "bkg_max_amplitude": 0.693192567271069,
+    "bleeds": 0,
     "ci": 0.9272076818912922,
     "cpe": 0.05308917402733428,
     "ellipticity": 0.006892377867731003,
@@ -684,6 +685,7 @@
    "frame": {
     "bkg_frame_gradient": 2.4594435377580193,
     "bkg_max_amplitude": 1.0438510224971083,
+    "bleeds": 0,
     "ci": 0.9019934558239266,
     "cpe": 0.04851876046694793,
     "ellipticity": 0.30070605249099847,
@@ -1341,6 +1343,7 @@
    "frame": {
     "bkg_frame_gradient": 0.5688082430686262,
     "bkg_max_amplitude": 0.2718886653468644,
+    "bleeds": 0,
     "ci": NaN,
     "cpe": NaN,
     "ellipticity": NaN,
@@ -1595,6 +1598,7 @@
    "frame": {
     "bkg_frame_gradient": 764.9597308942972,
     "bkg_max_amplitude": 406.0766125613685,
+    "bleeds": 0,
     "ci": NaN,
     "cpe": NaN,
     "ellipticity": NaN,
@@ -1849,6 +1853,7 @@
    "frame": {
     "bkg_frame_gradient": 1.6778357298418256,
     "bkg_max_amplitude": 0.5996827807075533,
+    "bleeds": 0,
     "ci": 0.9375920722027754,
     "cpe": 0.053229953058255536,
     "ellipticity": 0.011553800403400816,
@@ -2155,6 +2160,7 @@
    "frame": {
     "bkg_frame_gradient": 186.48758828228253,
     "bkg_max_amplitude": 255.60532641379245,
+    "bleeds": 0,
     "ci": 0.8957167463168314,
     "cpe": 0.05098554856766181,
     "ellipticity": 0.014856692930640403,
@@ -3249,7 +3255,7 @@
      NaN
     ],
     "x": [
-     401,
+     400,
      150,
      152,
      151,
@@ -3410,6 +3416,7 @@
    "frame": {
     "bkg_frame_gradient": 185.90245312040938,
     "bkg_max_amplitude": 255.92807457153913,
+    "bleeds": 0,
     "ci": 0.8936143232684832,
     "cpe": 0.05132895727967287,
     "ellipticity": 0.015434444852239215,
@@ -4505,7 +4512,7 @@
     ],
     "x": [
      150,
-     401,
+     400,
      152,
      151,
      32,
