@@ -1730,7 +1730,7 @@ class FFS:
 
 
 
-    def find_lines(self, min_length=30, min_segment=120.0, max_gap=5, min_fill=0.5, half_width=3.0,
+    def find_lines(self, min_length=30, min_segment=200.0, max_gap=5, min_fill=0.5, half_width=3.0,
                    max_candidates=30, steps=None, max_shift=1.0, exclude=EXCLUDE_ALL,
                    ring_radius=8, ring_omax=0.2, high_nsigma=5.0, high_omax=0.6, min_contrast=5.0,
                    side_offset=14.0, min_q25_contrast=1.0):
@@ -1763,10 +1763,10 @@ class FFS:
         min_length : float
             Minimal number of votes (mask pixels on the line) for a candidate, in original pixels.
         min_segment : float
-            Minimal length of the continuous segment, in original pixels. Default 120 px and
-            min_contrast 5 from 405 frames of zb08/wk06/jk15 at TOI binning (2026-11-08): all 18 real
-            trails had >= 160 px and >= 5.2 sigma; 856 false lines (bright-star stubs 40-150 px,
-            crowded fields) -> 37, 31 of them in dense clusters/galaxies.
+            Minimal length of the continuous segment, in original pixels. 200 px (author's choice
+            2026-11-09, was 120): false lines left after the contrast tests were 120-144 px chains of
+            stars and pairs of bright stars; costs short real trails (a 160 px satellite on
+            wk06c_1349_54513). Of 20 satellites in 405 frames 13 cross the whole frame.
         max_gap : float
             Longest allowed gap in a segment, in original pixels.
         min_fill : float
