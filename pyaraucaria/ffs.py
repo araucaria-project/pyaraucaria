@@ -7,6 +7,7 @@ from scipy.ndimage import gaussian_filter
 from scipy.ndimage import binary_closing, label, map_coordinates
 from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
 from scipy.special import erf
+from scipy.optimize import minimize
 
 from astropy.stats import mad_std
 from astropy.io import fits
@@ -82,7 +83,8 @@ class FFS:
         "used_stars": "FFNSTARS",
         "bkg_max_amplitude": "FFBKGAMP", "bkg_frame_gradient": "FFBKGGRD",
         "psf_e1": "FFPSFE1", "psf_e2": "FFPSFE2", "psf_e_mean": "FFPSFE", "psf_theta_mean": "FFPSFTH",
-        "psf_e_t": "FFPSFET", "psf_e_x": "FFPSFEX",
+        "psf_pattern": "FFPSFPAT", "psf_pattern_s": "FFPSFS", "psf_pattern_p": "FFPSFP",
+        "psf_centre_x": "FFPSFCX", "psf_centre_y": "FFPSFCY", "psf_rot_deg": "FFPSFROT",
         "psf_fwhm_tilt": "FFFWTILT", "psf_fwhm_tilt_angle": "FFFWTANG", "psf_fwhm_curv": "FFFWCURV",
     }
     # klucze strukturalne naglowka oryginalu, nie kopiowane do PRIMARY (NAXISn osobno)
@@ -225,7 +227,7 @@ class FFS:
         # tylko skonczone skalary - NaN/inf nie sa dozwolone w naglowku FITS
         descr = self.stats_description["frame"]
         for name, value in self.stats["frame"].items():
-            if name in FFS.FITS_KEYS and np.isscalar(value) and np.isfinite(value):
+            if name in FFS.FITS_KEYS and (isinstance(value, str) or np.isscalar(value) and np.isfinite(value)):
                 primary.header[FFS.FITS_KEYS[name]] = (value, FFS._fits_text(descr.get(name, ""))[:46])
 
         hdus = [primary]
@@ -995,53 +997,71 @@ class FFS:
         inside_y = 0.5 * (erf(gy / (np.sqrt(2) * s)) + erf((ny - 1 - gy) / (np.sqrt(2) * s)))
         return W / (2 * np.pi * s ** 2) / (inside_x * inside_y) * 1e4
 
-    def calc_star_field_stats(self, min_stars=5):
+    def calc_star_field_stats(self, min_stars=5, shape_min=0.55, shape_max=0.95, min_e=0.05, n_perm=100, seed=0):
         """Global PSF field statistics from the stars measured by star_info() -> stats["frame"].
 
-        Ellipticity components of each star: e1 = e cos 2theta, e2 = e sin 2theta. Relative to
-        the frame centre (phi - position angle of the star seen from the centre):
+        Stars with shape_min < shape < shape_max (as calc_star_stats). Ellipticity components of each
+        star: e1 = e cos 2theta, e2 = e sin 2theta.
         - psf_e1, psf_e2, psf_e_mean, psf_theta_mean: mean e1, e2 and the common elongation
           (all stars elongated in one direction: tracking, wind),
-        - psf_e_t = mean of -(e1 cos 2phi + e2 sin 2phi): > 0 tangential pattern (field rotation,
-          astigmatism), < 0 radial pattern,
-        - psf_e_x = mean of (e1 sin 2phi - e2 cos 2phi): pattern rotated by 45 deg (swirl).
+        - psf_pattern, psf_pattern_s, psf_pattern_p, psf_centre_x, psf_centre_y, psf_rot_deg: orientation
+          pattern of the elongations - "linear", "radial", "tangential" or "none", with its centre
+          (see psf_pattern()).
         FWHM fitted with a + b x + c y + d r^2 (x, y, r from the frame centre):
         - psf_fwhm_tilt = hypot(b, c) * longer frame side: FWHM change across the frame
           (px per frame, e.g. detector tilt), psf_fwhm_tilt_angle = atan2(c, b): direction of
           growing FWHM (rad, from the x axis),
         - psf_fwhm_curv = d * (half diagonal)^2: FWHM change from the centre to a corner
           (px, e.g. field curvature).
-        The optical axis is assumed at the frame centre.
 
         Parameters
         ----------
         min_stars : int
-            Minimal number of measured stars; fewer -> ValueError.
+            Minimal number of measured stars in the shape window; fewer -> ValueError.
+        shape_min, shape_max : float | None
+            Window of the star shape (CPE x FWHM^2); None = no limit.
+        min_e : float
+            Minimal ellipticity of a star used for the orientation pattern (psf_pattern).
+        n_perm : int
+            Number of permutations of the significance test of the pattern centre (psf_pattern);
+            0 = no test (psf_pattern_p NaN for radial / tangential).
+        seed : int | None
+            Seed of the permutations (repeatable results); None = random.
         """
         ok = np.isfinite(self.fwhm) & np.isfinite(self.ellipticity) & np.isfinite(self.theta)
+        with np.errstate(invalid="ignore"):
+            if shape_min is not None:
+                ok &= self.shape > shape_min
+            if shape_max is not None:
+                ok &= self.shape < shape_max
         if ok.sum() < min_stars:
             raise ValueError(f"calc_star_field_stats: {ok.sum()} measured stars, at least {min_stars} needed (run star_info)")
         ny, nx = self.image.shape
-        x = self.coo[ok, 1] - (nx - 1) / 2
-        y = self.coo[ok, 0] - (ny - 1) / 2
+        px, py = self.coo[ok, 1].astype(float), self.coo[ok, 0].astype(float)
+        x = px - (nx - 1) / 2
+        y = py - (ny - 1) / 2
         e, t, fwhm = self.ellipticity[ok], self.theta[ok], self.fwhm[ok]
 
         e1, e2 = e * np.cos(2 * t), e * np.sin(2 * t)
-        phi = np.arctan2(y, x)
-        c2, s2 = np.cos(2 * phi), np.sin(2 * phi)
         m1, m2 = np.mean(e1), np.mean(e2)
 
         r2 = x ** 2 + y ** 2
         A = np.column_stack((np.ones_like(x), x, y, r2))
         (_, b, c, d), *_ = np.linalg.lstsq(A, fwhm, rcond=None)
 
+        pattern = FFS.psf_pattern(px, py, e, t, nx, ny, fwhm=fwhm, min_e=min_e, n_perm=n_perm, seed=seed)
+
         psf = {
             "psf_e1": m1,
             "psf_e2": m2,
             "psf_e_mean": np.hypot(m1, m2),
             "psf_theta_mean": 0.5 * np.arctan2(m2, m1),
-            "psf_e_t": np.mean(-(e1 * c2 + e2 * s2)),
-            "psf_e_x": np.mean(e1 * s2 - e2 * c2),
+            "psf_pattern": pattern["pattern"],
+            "psf_pattern_s": pattern["s"],
+            "psf_pattern_p": pattern["p"],
+            "psf_centre_x": pattern["centre"][0],
+            "psf_centre_y": pattern["centre"][1],
+            "psf_rot_deg": pattern["rot_deg"],
             "psf_fwhm_tilt": np.hypot(b, c) * max(nx, ny),
             "psf_fwhm_tilt_angle": np.arctan2(c, b),
             "psf_fwhm_curv": d * ((nx - 1) ** 2 + (ny - 1) ** 2) / 4,
@@ -1052,12 +1072,141 @@ class FFS:
             "psf_e2": "Mean e2 = e sin 2theta of the measured stars",
             "psf_e_mean": "Common elongation hypot(mean e1, mean e2) (tracking, wind)",
             "psf_theta_mean": "Direction of the common elongation (rad, from the x axis)",
-            "psf_e_t": "Mean tangential ellipticity around the frame centre (> 0 tangential, < 0 radial)",
-            "psf_e_x": "Mean cross ellipticity around the frame centre (45 deg swirl)",
+            "psf_pattern": "Pattern of star elongations: linear, radial, tangential or none",
+            "psf_pattern_s": "Strength of the pattern 0-1 (radial/tangential S, linear R)",
+            "psf_pattern_p": "Significance (p-value) of the pattern",
+            "psf_centre_x": "x of the radial/tangential pattern centre (px, may be off the frame)",
+            "psf_centre_y": "y of the radial/tangential pattern centre (px, may be off the frame)",
+            "psf_rot_deg": "Field rotation in the exposure if the tangential pattern is rotation (deg)",
             "psf_fwhm_tilt": "FWHM change across the frame from a linear + r^2 fit (px per frame)",
             "psf_fwhm_tilt_angle": "Direction of growing FWHM (rad, from the x axis)",
             "psf_fwhm_curv": "FWHM change from the frame centre to a corner, r^2 term (px)",
         })
+
+    @staticmethod
+    def _pattern_grid(x, y, theta, w, nx, ny, n, ext=1.5):
+        """S(c) = sum w cos 2(theta - psi_c) / sum w on n x n points c covering the frame extended by
+        ext frames on each side (psi_c - direction from c to the star) -> (GX, GY, S)."""
+        GX, GY = np.meshgrid(np.linspace(-ext * nx, (1 + ext) * nx, n), np.linspace(-ext * ny, (1 + ext) * ny, n))
+        psi = np.arctan2(y - GY[..., None], x - GX[..., None])
+        return GX, GY, np.cos(2 * (theta - psi)) @ w / np.sum(w)
+
+    @staticmethod
+    def psf_pattern(x, y, e, theta, nx, ny, fwhm=None, min_e=0.05, n_perm=100, seed=0, grid=61,
+                    perm_grid=31, far=3.0, alpha=0.01):
+        """Orientation pattern of star elongations: linear, radial, tangential or none.
+
+        Stars with e > min_e (the angle of nearly round stars is noise), weight w = e.
+        - linear: R = |sum w exp(2i theta)| / sum w (1 - all elongated in one direction: tracking,
+          wind); significance from the Rayleigh test, p = exp(-N_eff R^2).
+        - radial / tangential about a point c: S(c) = sum w cos 2(theta - psi) / sum w, psi -
+          direction from c to the star. S = +1: all stars elongated along the radius (lines along
+          theta meet at c: radial, e.g. off-axis aberrations about the optical axis); S = -1: all
+          perpendicular to it (lines perpendicular to theta meet at c: tangential - field rotation
+          about c, or astigmatism / field curvature on the other side of focus). Like a Hough
+          transform: S on a grid x grid points over the frame extended by 1.5 frames on each side
+          (the centre may be off the frame), then Nelder-Mead from the best point.
+          Significance: permutations - the angles shuffled between the positions (keeps a common
+          direction, destroys the dependence on position), best S on a perm_grid x perm_grid grid;
+          p = (1 + number of permutations with S at least as good) / (n_perm + 1).
+        Decision: radial / tangential when its p <= alpha, the centre is within far frame sizes of
+        the frame centre and S exceeds R by >= 0.05; else linear when p_linear <= alpha; else none.
+        For tangential, rot_deg is the field rotation during the exposure if the pattern is rotation:
+        trail length L = sqrt(12) s sqrt(1/(1-e)^2 - 1) (s - sigma of the minor axis from fwhm),
+        rotation = median L / r of the stars farther than 1/4 of the largest r from the centre.
+
+        Cost: about 4 ms + 1 ms per permutation for 50 stars (100 permutations: ~0.1 s), memory
+        grid^2 x stars floats (~5 MB for 50 stars).
+
+        Parameters
+        ----------
+        x, y : array
+            Star positions (x = column, y = row), original pixels.
+        e, theta : array
+            Ellipticity and the major-axis angle (rad, from the x axis) of each star.
+        nx, ny : int
+            Frame size.
+        fwhm : array | None
+            FWHM of each star (px); needed for rot_deg.
+        min_e : float
+            Minimal ellipticity of a star used.
+        n_perm : int
+            Number of permutations; 0 = no test (p NaN for radial / tangential, which then need only
+            the far and S > R conditions).
+        seed : int | None
+            Seed of the permutations; None = random.
+        grid, perm_grid : int
+            Grid points per axis for the centre search and for the permutations.
+        far : float
+            A centre farther than far x longer frame side from the frame centre counts as linear.
+        alpha : float
+            Significance level.
+
+        Returns
+        -------
+        dict with pattern, s (S or R), p, centre (x, y; NaN for linear / none), rot_deg, n (stars used),
+        and the scores of all models: r_lin, theta_lin, p_lin, s_radial, centre_radial, p_radial,
+        s_tangential, centre_tangential, p_tangential.
+        """
+        nan = float("nan")
+        x, y, e, theta = (np.asarray(v, dtype=float) for v in (x, y, e, theta))
+        ok = np.isfinite(x) & np.isfinite(y) & np.isfinite(e) & np.isfinite(theta) & (e > min_e)
+        res = {"pattern": "none", "s": nan, "p": nan, "centre": (nan, nan), "rot_deg": nan, "n": int(ok.sum())}
+        if ok.sum() < 6:
+            return res
+        x, y, w, theta = x[ok], y[ok], e[ok], theta[ok]
+
+        z = np.sum(w * np.exp(2j * theta)) / np.sum(w)
+        r_lin = float(np.abs(z))
+        n_eff = np.sum(w) ** 2 / np.sum(w ** 2)
+        p_lin = float(np.exp(-n_eff * r_lin ** 2))
+
+        def score(c):
+            return np.sum(w * np.cos(2 * (theta - np.arctan2(y - c[1], x - c[0])))) / np.sum(w)
+
+        GX, GY, S = FFS._pattern_grid(x, y, theta, w, nx, ny, grid)
+        found = {}
+        for name, sign in (("radial", 1), ("tangential", -1)):
+            k = np.argmax(sign * S)
+            r = minimize(lambda c: -sign * score(c), [GX.flat[k], GY.flat[k]], method="Nelder-Mead",
+                         options={"xatol": 1.0, "fatol": 1e-5, "maxiter": 400})
+            found[name] = (float(-r.fun), (float(r.x[0]), float(r.x[1])))
+
+        p_c = {"radial": nan, "tangential": nan}
+        if n_perm > 0:
+            rng = np.random.default_rng(seed)
+            best = np.empty((n_perm, 2))
+            for i in range(n_perm):
+                _, _, Sp = FFS._pattern_grid(x, y, rng.permutation(theta), w, nx, ny, perm_grid)
+                best[i] = Sp.max(), -Sp.min()
+            for j, name in enumerate(("radial", "tangential")):
+                p_c[name] = float((1 + np.sum(best[:, j] >= found[name][0])) / (n_perm + 1))
+
+        res.update({"r_lin": r_lin, "theta_lin": float(0.5 * np.angle(z)), "p_lin": p_lin})
+        for name in ("radial", "tangential"):
+            res.update({f"s_{name}": found[name][0], f"centre_{name}": found[name][1], f"p_{name}": p_c[name]})
+
+        # wzor ze srodkiem: istotny, srodek nie "w nieskonczonosci" i wyraznie lepszy niz liniowy
+        def accepted(name):
+            s_c, (cx, cy) = found[name]
+            return ((n_perm == 0 or p_c[name] <= alpha) and s_c - r_lin >= 0.05
+                    and np.hypot(cx - nx / 2, cy - ny / 2) <= far * max(nx, ny))
+        cand = [n for n in ("radial", "tangential") if accepted(n)]
+        if cand:
+            name = min(cand, key=lambda n: (np.nan_to_num(p_c[n]), -found[n][0]))
+            res.update({"pattern": name, "s": found[name][0], "p": p_c[name], "centre": found[name][1]})
+            if name == "tangential" and fwhm is not None:
+                f = np.asarray(fwhm, dtype=float)[ok]
+                ee = np.clip(w, 0, 0.99)
+                s_minor = f / 2.3548 * np.sqrt(1 - ee)
+                L = np.sqrt(12) * s_minor * np.sqrt(1 / (1 - ee) ** 2 - 1)
+                r = np.hypot(x - found[name][1][0], y - found[name][1][1])
+                outer = (r > 0.25 * np.max(r)) & np.isfinite(L)
+                if outer.sum() >= 3:
+                    res["rot_deg"] = float(np.degrees(np.median(L[outer] / r[outer])))
+        elif p_lin <= alpha:
+            res.update({"pattern": "linear", "s": r_lin, "p": p_lin})
+        return res
 
     @staticmethod
     def _kernel_smooth(px, py, values, gx, gy, s):

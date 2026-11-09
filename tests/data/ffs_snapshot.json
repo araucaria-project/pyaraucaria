@@ -3,7 +3,7 @@
  "numpy": "2.5.4",
  "results": {
   "focus:clean": {
-   "frame_fwhm": 4.050138399214961
+   "frame_fwhm": 4.048737175889105
   },
   "focus:elliptical": {
    "frame_fwhm": 4.150100697180183
@@ -18,10 +18,10 @@
    "frame_fwhm": 4.0940392028750265
   },
   "focus:typical": {
-   "frame_fwhm": 4.040234882575167
+   "frame_fwhm": 4.0449388341814805
   },
   "focus:typical_uint16": {
-   "frame_fwhm": 4.040256554325226
+   "frame_fwhm": 4.044095339666185
   },
   "toi:clean": {
    "frame": {

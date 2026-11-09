@@ -416,6 +416,7 @@ class TestSaveMef(QuietTestCase):
         from astropy.io import fits
         ffs = FFS(scenario("typical").image, saturation=45000)
         ffs.calc_frame_fwhm(threshold=10, fwhm=4, box=10, N_stars=20)
+        ffs.calc_star_field_stats(n_perm=10)        # psf_pattern - tekst w naglowku
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "ffs.fits")
             ffs.save_mef(path)
@@ -427,6 +428,63 @@ class TestSaveMef(QuietTestCase):
                 self.assertEqual(len(hl["STARS"].data), len(ffs.stars))
                 self.assertAlmostEqual(hl[0].header["FFFWHM"], ffs.frame_fwhm)
                 self.assertEqual(hl["SKY"].data.shape, ffs.image.shape)
+                self.assertEqual(hl[0].header["FFPSFPAT"], ffs.stats["frame"]["psf_pattern"])
+
+
+class TestPsfPattern(QuietTestCase):
+    """FFS.psf_pattern on star lists with a known orientation pattern (2048 x 2048 frame)."""
+
+    N = 2048
+    S0 = 3.0 * FWHM_TO_SIGMA
+
+    def field(self, kind, n=50, c=(1024.0, 1024.0), amp=0.1, dphi_deg=0.3, theta0=30.0, noise=0.03, seed=0):
+        rng = np.random.default_rng(seed)
+        x, y = rng.uniform(0, self.N, n), rng.uniform(0, self.N, n)
+        psi = np.arctan2(y - c[1], x - c[0])
+        r = np.hypot(x - c[0], y - c[1])
+        e1, e2 = rng.normal(0, noise, n), rng.normal(0, noise, n)
+        if kind == "tangential":        # rotation: trail r * dphi along the tangent
+            L = r * np.radians(dphi_deg)
+            e = 1 - self.S0 / np.sqrt(self.S0 ** 2 + L ** 2 / 12)
+            e1, e2 = e1 + e * np.cos(2 * psi + np.pi), e2 + e * np.sin(2 * psi + np.pi)
+        elif kind == "radial":          # optics: radial elongation ~ r^2
+            e = amp * (r / 1448.0) ** 2
+            e1, e2 = e1 + e * np.cos(2 * psi), e2 + e * np.sin(2 * psi)
+        elif kind == "linear":
+            e1, e2 = e1 + amp * np.cos(2 * np.radians(theta0)), e2 + amp * np.sin(2 * np.radians(theta0))
+        e = np.hypot(e1, e2)
+        fwhm = 3.0 / np.sqrt(np.clip(1 - e, 0.2, 1))
+        return x, y, e, 0.5 * np.arctan2(e2, e1), fwhm
+
+    def run_kind(self, kind, **kw):
+        x, y, e, t, fwhm = self.field(kind, **kw)
+        return FFS.psf_pattern(x, y, e, t, self.N, self.N, fwhm=fwhm)
+
+    def test_rotation_centre_and_angle(self):
+        for c in ((1024.0, 1024.0), (500.0, 1500.0), (-1500.0, 1000.0)):     # also off the frame
+            res = self.run_kind("tangential", c=c)
+            self.assertEqual(res["pattern"], "tangential", c)
+            self.assertLess(np.hypot(res["centre"][0] - c[0], res["centre"][1] - c[1]), 60, c)
+            self.assertAlmostEqual(res["rot_deg"], 0.3, delta=0.05)
+
+    def test_radial_centre(self):
+        res = self.run_kind("radial", c=(1600.0, 400.0))
+        self.assertEqual(res["pattern"], "radial")
+        self.assertLess(np.hypot(res["centre"][0] - 1600, res["centre"][1] - 400), 150)
+
+    def test_linear(self):
+        res = self.run_kind("linear")
+        self.assertEqual(res["pattern"], "linear")
+        self.assertTrue(np.isnan(res["centre"][0]))
+        self.assertLess(np.degrees(axial_diff(res["theta_lin"], np.radians(30))), 5)
+
+    def test_noise_is_none(self):
+        found = [self.run_kind("none", seed=s)["pattern"] for s in range(20)]
+        self.assertLessEqual(sum(f != "none" for f in found), 2)
+
+    def test_repeatable(self):
+        a, b = self.run_kind("tangential"), self.run_kind("tangential")
+        self.assertEqual(a["p"], b["p"])
 
 
 if __name__ == "__main__":
