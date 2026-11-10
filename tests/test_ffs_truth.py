@@ -457,6 +457,43 @@ class TestSaturatedBleed(QuietTestCase):
         self.assertLess(np.hypot(sat_det[0, 1] - 250, sat_det[0, 0] - 250), 3)
 
 
+class TestMaskBits(QuietTestCase):
+    """encode_masks / decode_masks: fixed bits, user masks on external bits, exact round trip."""
+
+    def test_round_trip(self):
+        ffs = FFS(scenario("typical").image, saturation=45000)
+        ffs.calc_frame_fwhm(threshold=10, fwhm=4, box=10, N_stars=20)
+        rng = np.random.default_rng(0)
+        ffs.masks["my_mask"] = rng.random(ffs.image.shape) < 0.01          # uzytkownika -> bit zewnetrzny
+        ffs.masks["bad_pixels"] = rng.random(ffs.image.shape) < 0.001       # ogolna, z zewnatrz
+        bits = ffs.encode_masks()
+        self.assertEqual(bits.dtype, np.uint32)
+        self.assertEqual(ffs.masks_bits_table["saturation"], 1)
+        self.assertEqual(ffs.masks_bits_table["bad_pixels"], 5)
+        self.assertIn(ffs.masks_bits_table["my_mask"], FFS.MASK_EXTERNAL_BITS)
+        decoded = FFS.decode_masks(bits, ffs.masks_bits_table)
+        for name, mask in ffs.masks.items():
+            np.testing.assert_array_equal(decoded[name], mask)
+        only = FFS.decode_masks(bits, names=["lines", "saturation"])       # domyslna tabela FFS.MASK_BITS
+        self.assertEqual(set(only), {"lines", "saturation"})
+        np.testing.assert_array_equal(only["saturation"], ffs.masks["saturation"])
+
+    def test_astropy_flags(self):
+        from astropy.nddata.bitmask import bitfield_to_boolean_mask
+        ffs = FFS(scenario("typical").image, saturation=45000)
+        ffs.calc_frame_fwhm(threshold=10, fwhm=4, box=10, N_stars=20)
+        bits = ffs.encode_masks()
+        self.assertEqual(FFS.MASK_FLAGS.SATURATION, 1 << FFS.MASK_BITS["saturation"])
+        m = bitfield_to_boolean_mask(bits, ignore_flags="~SATURATION,COSMICS", flag_name_map=FFS.MASK_FLAGS,
+                                     good_mask_value=False)
+        np.testing.assert_array_equal(m, ffs.masks["saturation"] | ffs.masks["cosmics"])
+
+    def test_bits_unique(self):
+        self.assertEqual(len(set(FFS.MASK_BITS.values())), len(FFS.MASK_BITS))
+        self.assertFalse(set(FFS.MASK_BITS.values()) & set(FFS.MASK_EXTERNAL_BITS))
+        self.assertLessEqual(max(FFS.MASK_EXTERNAL_BITS), 30)              # MEF: int32
+
+
 class TestSaveMef(QuietTestCase):
 
     def test_masks_and_tables_roundtrip(self):
@@ -468,10 +505,12 @@ class TestSaveMef(QuietTestCase):
             path = os.path.join(d, "ffs.fits")
             ffs.save_mef(path)
             with fits.open(path) as hl:
-                bits = hl["MASKS"].data
-                for i, name in enumerate(ffs.masks):
-                    self.assertEqual(hl["MASKS"].header[f"MASK{i}"], name)
-                    np.testing.assert_array_equal((bits >> i) & 1 == 1, ffs.masks[name])
+                table = FFS.mask_table_from_header(hl["MASKS"].header)
+                self.assertEqual(set(table), set(ffs.masks))
+                decoded = FFS.decode_masks(hl["MASKS"].data, table)
+                for name in ffs.masks:
+                    self.assertEqual(table[name], FFS.MASK_BITS.get(name, table[name]))
+                    np.testing.assert_array_equal(decoded[name], ffs.masks[name])
                 self.assertEqual(len(hl["STARS"].data), len(ffs.stars))
                 self.assertAlmostEqual(hl[0].header["FFFWHM"], ffs.frame_fwhm)
                 self.assertEqual(hl["SKY"].data.shape, ffs.image.shape)

@@ -12,6 +12,7 @@ from scipy.optimize import minimize
 from astropy.stats import mad_std
 from astropy.io import fits
 from astropy.table import Table
+from astropy.nddata.bitmask import extend_bit_flag_map
 
 
 
@@ -92,17 +93,39 @@ class FFS:
                        "XTENSION", "EXTNAME", "CHECKSUM", "DATASUM"}
 
     # nazwy masek do domyslnych list exclude: zle piksele i zrodla (slady, spajki, gwiazdy)
-    BAD_PIXELS = ("nonfinite", "saturation", "cosmics", "hot_pixels", "cold_pixels",
+    BAD_PIXELS = ("nonfinite", "saturation", "cosmics", "bad_pixels", "hot_pixels", "cold_pixels",
                   "bad_columns", "bad_rows")
     SOURCES = ("lines", "spikes", "stars")
+    # maski z przetwarzania (pomocnicze, nie wady pikseli ani zrodla): piksele ponad progiem detekcji i piksele
+    # glosujace w transformacie Hougha (prog + test pierscienia); nie wchodza do zadnej listy exclude
+    PROCESSING = ("threshold", "line_votes")
     EXCLUDE_ALL = BAD_PIXELS + SOURCES
     # detekcja gwiazd: bez saturacji i gwiazd (nasycone gwiazdy maja zostac w coo)
-    EXCLUDE_DETECTION = ("nonfinite", "cosmics", "hot_pixels", "cold_pixels",
+    EXCLUDE_DETECTION = ("nonfinite", "cosmics", "bad_pixels", "hot_pixels", "cold_pixels",
                          "bad_columns", "bad_rows", "lines", "spikes")
     # pomiar gwiazd: bez gwiazd
     EXCLUDE_MEASURE = BAD_PIXELS + ("lines", "spikes")
     # klasyfikacja linii: bez saturacji i linii (to je badamy) i gwiazd
-    EXCLUDE_LINES = ("nonfinite", "cosmics", "hot_pixels", "cold_pixels", "bad_columns", "bad_rows")
+    EXCLUDE_LINES = ("nonfinite", "cosmics", "bad_pixels", "hot_pixels", "cold_pixels", "bad_columns", "bad_rows")
+
+    # Stale bity masek w jednej masce kodowanej (encode_masks / decode_masks, MEF "MASKS") - wspolne dla FFS, ofp, TOI,
+    # FitsView: numer bitu nie zalezy od kolejnosci tworzenia masek. Maski bez wlasnego bitu (np. uzytkownika) dostaja
+    # kolejne z MASK_EXTERNAL_BITS. Bity masek, ktorych FFS jeszcze nie tworzy, sa zarezerwowane (uzgodnione 2026-11-09):
+    # nonlinear (miedzy liniowoscia a nasyceniem), bad_pixels (ogolna mapa uszkodzonych pikseli, np. z kalibracji -
+    # wstawiana z zewnatrz: ffs.masks["bad_pixels"] = ...), edge (pas przy brzegu kadru), vignetting (winietowane rogi),
+    # readout (artefakty odczytu, np. granice wzmacniaczy), halos, ghosts (pierscienie odbic), extended (galaktyki,
+    # jadra gromad). threshold, line_votes - maski z przetwarzania (FFS.PROCESSING), nie wady.
+    MASK_BITS = {
+        "nonfinite": 0, "saturation": 1, "bleeds": 2, "nonlinear": 3, "cosmics": 4, "bad_pixels": 5,
+        "hot_pixels": 6, "cold_pixels": 7, "bad_columns": 8, "bad_rows": 9, "edge": 10, "vignetting": 11,
+        "readout": 12, "stars": 13, "lines": 14, "spikes": 15, "halos": 16, "ghosts": 17, "extended": 18,
+        "threshold": 19, "line_votes": 20,
+    }                                   # 21-23 zarezerwowane
+    MASK_EXTERNAL_BITS = tuple(range(24, 31))     # bit 31 wolny: MEF zapisuje int32
+    # ta sama tabela jako mapa flag astropy (astropy.nddata.bitmask): wartosc flagi = 2**bit, nazwy jak w MASK_BITS
+    # wielkimi literami, np. bitfield_to_boolean_mask(ffs.masks_bits, ignore_flags="~SATURATION,BLEEDS",
+    # flag_name_map=FFS.MASK_FLAGS, good_mask_value=False) -> piksele nasycone lub z przelaniem
+    MASK_FLAGS = extend_bit_flag_map("FFSMaskFlags", **{k.upper(): 1 << v for k, v in MASK_BITS.items()})
 
     def __init__(self, image, gain=1., rn_noise=0., saturation = 50000, bin=1, autobin=False,
                  autobin_limit=AUTOBIN_LIMIT):
@@ -184,6 +207,8 @@ class FFS:
         self.bleeds = None             # tabela przelan ladunku z maski saturacji (mk_bleeds_mask)
         self.psf_grid = None           # tabela PSF w wezlach rzadkiej siatki - "wasy" (mk_star_maps)
         self.masks = {}                # maski logiczne w rozmiarze obrazu, osobno dla kazdej metody
+        self.masks_bits = None         # wszystkie maski w jednej (encode_masks), bity FFS.MASK_BITS
+        self.masks_bits_table = None   # {nazwa: bit} ostatniego encode_masks
         self.binned_masks = {}         # maski wewnetrzne w rozmiarze binned_image (np. wejscie do Hougha)
         self.masks_description = {}
 
@@ -203,13 +228,68 @@ class FFS:
                 bad |= self.masks[name]
         return bad
 
+    def encode_masks(self, names=None):
+        """All masks (or the given names) in one bit mask -> uint32 array, also self.masks_bits and the table
+        {name: bit} in self.masks_bits_table.
+
+        Bit of a mask = FFS.MASK_BITS (fixed, the same for every frame and program); masks without their own
+        bit (e.g. user masks) get the next free bit of FFS.MASK_EXTERNAL_BITS (24-30) in the order of
+        self.masks. Read back with decode_masks(bits, self.masks_bits_table).
+
+        Parameters
+        ----------
+        names : sequence of str | None
+            Masks to encode; None = all in self.masks. Missing names are skipped.
+        """
+        names = list(self.masks) if names is None else [n for n in names if n in self.masks]
+        free = iter(FFS.MASK_EXTERNAL_BITS)
+        table = {}
+        bits = np.zeros(self.image.shape, dtype=np.uint32)
+        for name in names:
+            bit = FFS.MASK_BITS.get(name)
+            if bit is None:
+                bit = next(free, None)
+                if bit is None:
+                    raise ValueError(f"encode_masks: no free external bit for mask {name!r} "
+                                     f"({len(FFS.MASK_EXTERNAL_BITS)} external bits)")
+            table[name] = bit
+            bits |= np.asarray(self.masks[name], dtype=np.uint32) << np.uint32(bit)
+        self.masks_bits = bits
+        self.masks_bits_table = table
+        return bits
+
+    @staticmethod
+    def decode_masks(bits, table=None, names=None):
+        """Bit mask (encode_masks, MEF "MASKS") -> {name: bool mask}.
+
+        Parameters
+        ----------
+        bits : array of int
+            The encoded mask.
+        table : dict | None
+            {name: bit}; None = FFS.MASK_BITS (then masks that were not computed come back all False -
+            pass the table of encode_masks or mask_table_from_header to get only the encoded ones).
+        names : sequence of str | None
+            Masks to decode; None = all in the table.
+        """
+        table = FFS.MASK_BITS if table is None else table
+        bits = np.asarray(bits).astype(np.uint32)
+        return {name: ((bits >> np.uint32(bit)) & 1).astype(bool)
+                for name, bit in table.items() if names is None or name in names}
+
+    @staticmethod
+    def mask_table_from_header(header):
+        """{name: bit} from the MASKi keys of the MEF "MASKS" header (save_mef)."""
+        return {header[k]: int(k[4:]) for k in header if k.startswith("MASK") and k[4:].isdigit()}
+
     def save_mef(self, path, header=None, overwrite=False):
         """Save maps, masks and tables to one multi-extension FITS file.
 
         PRIMARY: no data; a copy of header (if given, e.g. the original frame header),
         FFS parameters and the scalar frame statistics under short FF* keys (FFS.FITS_KEYS).
         Then one float32 ImageHDU per map (EXTNAME = map name in upper case), MASKS - int32
-        bit mask (bit i = mask MASKi from its header) and the tables STARS, LINES, SKYSURF (sky_gradient),
+        bit mask with the fixed bits FFS.MASK_BITS (encode_masks; header MASKi = name of bit i - read back with
+        FFS.mask_table_from_header + FFS.decode_masks) and the tables STARS, LINES, BLEEDS, SKYSURF (sky_gradient),
         PSFGRID (mk_star_maps). Missing products are skipped.
         """
         primary = fits.PrimaryHDU()
@@ -239,14 +319,10 @@ class FFS:
             hdus.append(hdu)
 
         if self.masks:
-            if len(self.masks) > 31:
-                raise ValueError(f"save_mef: {len(self.masks)} masks do not fit in int32 (max 31)")
-            bits = np.zeros(self.image.shape, dtype=np.int32)
-            hdu = fits.ImageHDU(name="MASKS")
-            for i, (name, mask) in enumerate(self.masks.items()):
-                bits |= mask.astype(np.int32) << i
-                hdu.header[f"MASK{i}"] = (name, FFS._fits_text(self.masks_description.get(name, ""))[:46])
-            hdu.data = bits
+            bits = self.encode_masks()          # stale bity FFS.MASK_BITS (+ zewnetrzne)
+            hdu = fits.ImageHDU(bits.astype(np.int32), name="MASKS")
+            for name, bit in self.masks_bits_table.items():
+                hdu.header[f"MASK{bit}"] = (name, FFS._fits_text(self.masks_description.get(name, ""))[:46])
             hdus.append(hdu)
 
         for name, table in (("STARS", self.stars), ("LINES", self.lines), ("BLEEDS", self.bleeds), ("SKYSURF", self.sky),
@@ -301,28 +377,68 @@ class FFS:
         # statystyki z dobrych pikseli (poza bad_mask); min/max ze wszystkich, zeby bylo widac saturacje
         bad = self.bad_mask(exclude)
         self.n_excluded = int(bad.sum())
-        img = self.image[~bad] if self.n_excluded < bad.size else self.image.ravel()
+        use_all = self.n_excluded == bad.size          # wszystkie zle: statystyki ze wszystkich pikseli
+        nonfinite = self.masks.get("nonfinite")
+        image = self.image
+        ny, nx = image.shape
 
-        finite = self.image[~self.masks["nonfinite"]] if "nonfinite" in self.masks else self.image
-        self.min = finite.min()
-        self.max = finite.max()
-        self.mean = img.mean()
-        # rms blokami: img.std() tworzy tymczasowe img - mean calego obrazu (128 MB na 4k)
+        # Bez kopii calego obrazu (image[~bad] to 64-128 MB na 4k): blokami wierszy (~1 mln pikseli).
+        # Srednia i rms dokladnie (dwa przejscia). Kwantyle: obraz calkowity (nasze kamery) - dokladnie,
+        # z histogramu wartosci (bincount, rozpietosc do 2**22 ADU, ~32 MB); inaczej z podprobki ~1 mln
+        # dobrych pikseli: co step-ty dobry piksel, step wzglednie pierwszy z nx, zeby podprobka nie trafiala
+        # ciagle w te same kolumny (blad mediany ~0.001 sigma). Obrazy do ~1 mln pikseli - wszystkie piksele.
+        rows = max(1, 1_000_000 // nx)
+        n_good = bad.size - self.n_excluded if not use_all else bad.size
+        step = max(1, n_good // 1_000_000)
+        while step > 1 and np.gcd(step, nx) > 1:
+            step += 1
+
+        def good_blocks():
+            for y0 in range(0, ny, rows):
+                blk = image[y0:y0 + rows]
+                yield y0, (blk.ravel() if use_all else blk[~bad[y0:y0 + rows]])
+
+        total = 0.0
+        vmin, vmax = None, None
+        for y0, g in good_blocks():
+            total += float(np.sum(g, dtype=np.float64))
+            blk = image[y0:y0 + rows]
+            fin = blk[~nonfinite[y0:y0 + rows]] if nonfinite is not None else blk
+            if fin.size:
+                lo, hi = fin.min(), fin.max()
+                vmin = lo if vmin is None else min(vmin, lo)
+                vmax = hi if vmax is None else max(vmax, hi)
+        self.min = vmin
+        self.max = vmax
+        self.mean = total / n_good
+        use_hist = (np.issubdtype(image.dtype, np.integer) and vmin is not None
+                    and int(vmax) - int(vmin) < 2 ** 22)
+        hist = np.zeros(int(vmax) - int(vmin) + 1, dtype=np.int64) if use_hist else None
         ss = 0.0
-        for i in range(0, img.size, 1_000_000):
-            d = img[i:i + 1_000_000] - self.mean
-            ss += np.dot(d, d)
-        self.rms = np.sqrt(ss / img.size)
+        sample = []
+        offset = 0                     # podprobka ciagla przez granice blokow
+        for _, g in good_blocks():
+            d = g - self.mean
+            ss += float(np.dot(d, d))
+            if use_hist:
+                hist += np.bincount(g.astype(np.int64) - int(vmin), minlength=hist.size)
+            else:
+                sample.append(g[(-offset) % step::step])
+                offset = (offset + g.size) % step
+        self.rms = np.sqrt(ss / n_good)
 
-        # kwantyle przez partition (te same wartosci co po sortowaniu): img to zwykle kopia dobrych
-        # pikseli, wiec dzielimy ja w miejscu - bez drugiej kopii calego obrazu, jak przy np.sort
-        n = img.size
-        k = [int(0.159 * n), n // 2, int(0.841 * n)]
-        if np.shares_memory(img, self.image):
-            img = np.partition(img, k)
+        # k-ty najmniejszy (od 0) dobry piksel - jak partition / sortowanie
+        if use_hist:
+            n = n_good
+            cum = np.cumsum(hist)
+            q16, q50, q84 = (image.dtype.type(int(vmin) + int(np.searchsorted(cum, i, side="right")))
+                             for i in (int(0.159 * n), n // 2, int(0.841 * n)))
         else:
+            img = np.concatenate(sample)
+            n = img.size
+            k = [int(0.159 * n), n // 2, int(0.841 * n)]
             img.partition(k)
-        q16, q50, q84 = img[k[0]], img[k[1]], img[k[2]]
+            q16, q50, q84 = img[k[0]], img[k[1]], img[k[2]]
 
         self.median = q50
         self.q_sigma_lower = q50 - q16
@@ -458,8 +574,9 @@ class FFS:
         self.masks["bleeds"] = bleeds
         self.masks_description["bleeds"] = (
             f"Charge bleeds: saturated runs <= {max_width} px thick, >= {min_length} px long, along a row or column")
-        self.bleeds = Table(rows=rows, names=("x0", "y0", "x1", "y1", "length", "width"),
-                            dtype=(float, float, float, float, int, float))
+        # bez rows=[] dla pustej listy: astropy < 7 rzuca wtedy ValueError (names/dtype vs liczba kolumn)
+        self.bleeds = Table(names=("x0", "y0", "x1", "y1", "length", "width"),
+                            dtype=(float, float, float, float, int, float), **({"rows": rows} if rows else {}))
         self.stats["frame"]["bleeds"] = len(rows)
         self.stats_description["frame"]["bleeds"] = "Number of charge bleeds in the saturation mask (mk_bleeds_mask)"
 
@@ -560,7 +677,7 @@ class FFS:
             sat = self.image >= self.saturation
         coo = np.asarray(coo)
         insat = sat[coo[:, 0], coo[:, 1]]
-        if insat.sum() < 2:
+        if not insat.any():             # takze jedna detekcja: przesuwana do srodka obszaru
             return coo, adu
         lab, _ = label(sat)
         comp = lab[coo[:, 0], coo[:, 1]]
@@ -790,7 +907,9 @@ class FFS:
         # integer FITS data (uint16/int16) the smoothed image — and every test
         # built on it (min_smoothed_sigma, rank_by="smoothed") — would be
         # truncated to integers.
-        image = self.binned_image.astype(float)
+        # float32: integers up to 2**24 exactly (saturation <= ~200000 ADU), and image, data2 and
+        # maximum_filter take half the memory of float64 (4k: 3 x 64 instead of 3 x 128 MB)
+        image = self.binned_image.astype(np.float32)
         # zle piksele (bad_mask, NaN) wypelniamy tlem, zeby nie byly kandydatami i nie psuly
         # wygladzania; saturacji nie, bo nasycone gwiazdy maja zostac w coo/adu
         bad = self.to_binned_mask(self.bad_mask(exclude))
@@ -813,25 +932,43 @@ class FFS:
             mask = mask & mask3
 
         coo = np.column_stack(np.nonzero(mask))
-        val = self.binned_image[mask]
+
+        # nasycone plateau: kazdy piksel plaskiego obszaru jest "maksimum" (data2 == maximum_filter), wiec
+        # duza saturacja dawala miliony kandydatow (pol kadru 4k: ~8 mln, 37 s). Przy merge_saturated i tak
+        # zostaje jedna detekcja na obszar (_merge_saturated), wiec zostawiamy juz tu jednego kandydata na
+        # spojny obszar nasycony obrazu zbinowanego.
+        if merge_saturated and len(coo) > 1:
+            sat = self.masks.get("saturation")
+            if sat is None:
+                sat = self.image >= self.saturation
+            sat_b = self.to_binned_mask(sat)
+            insat = sat_b[coo[:, 0], coo[:, 1]]
+            if insat.sum() > 1:
+                lab, _ = label(sat_b)
+                idx = np.nonzero(insat)[0]
+                _, first = np.unique(lab[coo[idx, 0], coo[idx, 1]], return_index=True)
+                keep = ~insat
+                keep[idx[first]] = True
+                coo = coo[keep]
+        val = self.binned_image[coo[:, 0], coo[:, 1]]
 
         # Per-candidate aperture statistics (background-subtracted) —
         # needed for max_concentration filter and rank_by="aperture".
-        # Computed once for both, since both are cheap (~50 ops/cand).
+        # Box sums from an integral image (the same boxes, clipped at the frame edges, as a loop over
+        # candidates, which took minutes for millions of them); only when one of the two needs them.
         H, W = image.shape
         n_cand = len(coo)
+        peak_excess = image[coo[:, 0], coo[:, 1]] - (level[coo[:, 0], coo[:, 1]] if np.ndim(level) else level)
         aperture_excess = np.zeros(n_cand, dtype=float)
-        peak_excess = np.zeros(n_cand, dtype=float)
-        for i in range(n_cand):
-            y, x = int(coo[i, 0]), int(coo[i, 1])
-            y0 = max(0, y - ap_radius)
-            y1 = min(H, y + ap_radius + 1)
-            x0 = max(0, x - ap_radius)
-            x1 = min(W, x + ap_radius + 1)
-            bg_patch = level[y0:y1, x0:x1] if np.ndim(level) else level
-            bg_peak = level[y, x] if np.ndim(level) else level
-            aperture_excess[i] = float(np.sum(image[y0:y1, x0:x1] - bg_patch))
-            peak_excess[i] = float(image[y, x] - bg_peak)
+        if n_cand and (self.fs_max_concentration is not None or self.fs_rank_by == "aperture"):
+            integral = np.zeros((H + 1, W + 1))
+            np.cumsum(np.cumsum(image - level, axis=0, dtype=np.float64), axis=1, out=integral[1:, 1:])
+            y0 = np.clip(coo[:, 0] - ap_radius, 0, H)
+            y1 = np.clip(coo[:, 0] + ap_radius + 1, 0, H)
+            x0 = np.clip(coo[:, 1] - ap_radius, 0, W)
+            x1 = np.clip(coo[:, 1] + ap_radius + 1, 0, W)
+            aperture_excess = integral[y1, x1] - integral[y0, x1] - integral[y1, x0] + integral[y0, x0]
+            del integral
 
         # Concentration-index cull — single-pixel artifacts have all
         # their signal in the central pixel (peak/aperture ≈ 1.0); real
@@ -1580,7 +1717,12 @@ class FFS:
         # wezly bez wartosci (pominiete segmenty): liniowo z sasiednich wezlow, poza ich otoczka
         # wypukla - z najblizszego
         missing = ~np.isfinite(grid)
-        if missing.any():
+        if missing.all():
+            # zaden segment nie ma dosc dobrych pikseli (np. caly kadr nasycony): stale tlo = mediana
+            # skonczonych pikseli, zeby dalsze kroki (sigma, progi, detekcja) dzialaly i nic nie znalazly
+            finite = np.isfinite(self.image)
+            grid[:] = np.median(self.image[finite]) if finite.any() else 0.0
+        elif missing.any():
             gx, gy = np.meshgrid(X, Y)
             points = np.column_stack((gx[~missing], gy[~missing]))
             values = grid[~missing]
@@ -1651,10 +1793,13 @@ class FFS:
 
         x = np.rint(self.to_original_coord(x)).astype(int)   # calkowite, jak przed binowaniem
         y = np.rint(self.to_original_coord(y)).astype(int)
-        back = np.array(back)
+        back = np.array(back, dtype=float)
 
-        A = np.vstack([np.ones_like(x), x, y, x ** 2, x * y, y ** 2]).T
-        coeff, *_ = np.linalg.lstsq(A, back, rcond=None)
+        if back.size:
+            A = np.vstack([np.ones_like(x), x, y, x ** 2, x * y, y ** 2]).T
+            coeff, *_ = np.linalg.lstsq(A, back, rcond=None)
+        else:                              # zaden segment (np. caly kadr nasycony): brak modelu tla
+            coeff = np.full(6, np.nan)
 
         bk = [FFS.polysurf(xi, yi, coeff) for xi, yi in zip(x, y)]
 
@@ -2155,6 +2300,10 @@ class FFS:
                 high = (self.binned_image > level + high_nsigma * sigma) & ~self.to_binned_mask(self.bad_mask())
                 votes |= FFS._ring_test(high, ring_radius, high_omax)
             self.binned_masks["line_votes"] = votes
+        # w rozmiarze oryginalu (maska z przetwarzania, FFS.PROCESSING) - do podgladu, np. w FitsView
+        self.masks["line_votes"] = self.to_original_mask(self.binned_masks["line_votes"])
+        self.masks_description["line_votes"] = (
+            "Pixels that vote in the Hough transform: threshold mask after the ring test (hough_transform)")
         ys, xs = np.nonzero(self.binned_masks["line_votes"])  # piksele ktore glosuja
         xs = xs.astype(float)
         ys = ys.astype(float)
