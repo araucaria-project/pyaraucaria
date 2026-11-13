@@ -49,14 +49,14 @@ class FFS:
     decision - FFS never switches it on by itself.
 
     Computed on the binned image (self.binned_image): sky map (sky_map), threshold mask,
-    lines (find_lines, hough_transform) and star detection (find_stars). Computed on the
+    lines (mk_ring_mask, hough_transform, find_lines) and star detection (find_stars). Computed on the
     original: saturation, cosmics (mk_cosmics_mask), star measurements (star_info: FWHM,
     ellipticity), classify_lines, calibration maps. Everything returned to the user (star
     and line coordinates, FWHM, masks in self.masks, maps in self.maps) is in the frame and
-    size of the original, and pixel parameters (fwhm, min_length, max_gap, box, ...) are
-    given in original pixels. Exceptions: find_lines(half_width, max_shift) are in binned
-    pixels. Internal, binned size: self.binned_image, self.binned_masks,
-    self.rh / self.hough_theta (self.accumulator only after hough_transform alone - find_lines
+    size of the original, and pixel parameters (fwhm, min_votes, max_gap, box, ...) are
+    given in original pixels. Exceptions: find_lines(half_width), hough_transform(max_shift)
+    and mk_ring_mask(ring_radius) are in binned pixels. Internal, binned size: self.binned_image, self.binned_masks,
+    self.rh / self.hough_theta (self.accumulator after hough_transform until find_lines
     frees it).
 
     Masks and maps: self.masks holds boolean masks of the image size, one per method
@@ -97,8 +97,8 @@ class FFS:
                   "bad_columns", "bad_rows")
     SOURCES = ("lines", "spikes", "stars")
     # maski z przetwarzania (pomocnicze, nie wady pikseli ani zrodla): piksele ponad progiem detekcji i piksele
-    # glosujace w transformacie Hougha (prog + test pierscienia); nie wchodza do zadnej listy exclude
-    PROCESSING = ("threshold", "line_votes")
+    # glosujace w transformacie Hougha (prog + test pierscienia, mk_ring_mask); nie wchodza do zadnej listy exclude
+    PROCESSING = ("threshold", "ring")
     EXCLUDE_ALL = BAD_PIXELS + SOURCES
     # detekcja gwiazd: bez saturacji i gwiazd (nasycone gwiazdy maja zostac w coo)
     EXCLUDE_DETECTION = ("nonfinite", "cosmics", "bad_pixels", "hot_pixels", "cold_pixels",
@@ -114,12 +114,12 @@ class FFS:
     # nonlinear (miedzy liniowoscia a nasyceniem), bad_pixels (ogolna mapa uszkodzonych pikseli, np. z kalibracji -
     # wstawiana z zewnatrz: ffs.masks["bad_pixels"] = ...), edge (pas przy brzegu kadru), vignetting (winietowane rogi),
     # readout (artefakty odczytu, np. granice wzmacniaczy), halos, ghosts (pierscienie odbic), extended (galaktyki,
-    # jadra gromad). threshold, line_votes - maski z przetwarzania (FFS.PROCESSING), nie wady.
+    # jadra gromad). threshold, ring - maski z przetwarzania (FFS.PROCESSING), nie wady.
     MASK_BITS = {
         "nonfinite": 0, "saturation": 1, "bleeds": 2, "nonlinear": 3, "cosmics": 4, "bad_pixels": 5,
         "hot_pixels": 6, "cold_pixels": 7, "bad_columns": 8, "bad_rows": 9, "edge": 10, "vignetting": 11,
         "readout": 12, "stars": 13, "lines": 14, "spikes": 15, "halos": 16, "ghosts": 17, "extended": 18,
-        "threshold": 19, "line_votes": 20,
+        "threshold": 19, "ring": 20,
     }                                   # 21-23 zarezerwowane
     MASK_EXTERNAL_BITS = tuple(range(24, 31))     # bit 31 wolny: MEF zapisuje int32
     # ta sama tabela jako mapa flag astropy (astropy.nddata.bitmask): wartosc flagi = 2**bit, nazwy jak w MASK_BITS
@@ -194,6 +194,7 @@ class FFS:
         self.frame_ci = None
 
         self.rh = None
+        self.accumulator = None        # akumulator Hougha (hough_transform), zwalniany przez find_lines
         self.stats = {
             "frame": {},
             "stars": {}
@@ -499,6 +500,56 @@ class FFS:
             f"computed on the image binned {self.bin}x{self.bin}; "
             f"excluding bad_mask; input mask for line detection)"
         )
+        # maska pierscienia i akumulator liczone z poprzedniej maski progowej sa juz nieaktualne
+        for d in (self.binned_masks, self.masks, self.masks_description):
+            d.pop("ring", None)
+        self.accumulator = None
+
+    def mk_ring_mask(self, ring_radius=8, ring_omax=0.2, high_nsigma=5.0, high_omax=0.6):
+        """Line-like pixels of the threshold mask (ring test) -> masks["ring"]; these pixels vote
+        in the Hough transform (hough_transform, find_lines; computed there with these defaults if missing).
+
+        Antipodal ring test: a mask pixel passes when two opposite points of a circle of radius
+        ring_radius around it are in the mask and less than ring_omax of the circle is in the
+        mask. Stars smaller than the circle (empty circle) and round blobs of any size (>= half of
+        the circle) do not pass; elongated blobs do when their half-length > ring_radius.
+
+        Two thresholds: a bright trail is wide in the threshold mask and fills much of the
+        circle, a strict ring_omax would drop it, a loose one lets crowded fields pass. So the
+        ring test runs on the threshold mask with ring_omax (faint, narrow trails) and on a
+        high-threshold mask (image > sky + high_nsigma * sigma, where a bright trail is still
+        narrow relative to the circle) with high_omax; a pixel passes when either passes.
+
+        Computed on the binned image (binned_masks["ring"]); masks["ring"] is the same mask in
+        original size. Requires mk_threshold_mask() (computed with default nsigma if missing).
+
+        Parameters
+        ----------
+        ring_radius : float | None
+            Radius of the ring in binned pixels (>= 5); None = all threshold pixels pass.
+        ring_omax : float
+            Maximal fraction of the circle in the threshold mask (thin lines ~0.1-0.25, round blobs >= 0.5).
+        high_nsigma : float | None
+            Threshold of the second mask in units of background sigma; None = threshold mask only.
+        high_omax : float
+            Maximal fraction of the circle in the high-threshold mask.
+        """
+        if "threshold" not in self.binned_masks:   # maska liczona sama, jesli jej jeszcze nie ma
+            self.mk_threshold_mask()
+        if ring_radius is None:
+            ring = self.binned_masks["threshold"]
+        else:
+            ring = FFS._antipodal_ring(self.binned_masks["threshold"], ring_radius, ring_omax)
+            if high_nsigma is not None:            # drugi prog: jasne (szerokie) slady
+                level, sigma, _ = self._background(binned=True)
+                high = (self.binned_image > level + high_nsigma * sigma) & ~self.to_binned_mask(self.bad_mask())
+                ring |= FFS._antipodal_ring(high, ring_radius, high_omax)
+        self.binned_masks["ring"] = ring
+        self.accumulator = None                    # akumulator z poprzedniej maski - nieaktualny
+        # w rozmiarze oryginalu (maska z przetwarzania, FFS.PROCESSING) - do podgladu, np. w FitsView
+        self.masks["ring"] = self.to_original_mask(ring)
+        self.masks_description["ring"] = (
+            "Line-like pixels: threshold mask after the ring test; they vote in the Hough transform (mk_ring_mask)")
 
     def mk_saturation_mask(self, saturation=None):
         """Mask of saturated pixels: image >= saturation -> masks["saturation"] (in FFS.BAD_PIXELS).
@@ -1875,37 +1926,41 @@ class FFS:
 
 
 
-    def find_lines(self, min_length=30, min_segment=200.0, max_gap=5, min_fill=0.5, half_width=3.0,
-                   max_candidates=30, steps=None, max_shift=1.0, exclude=EXCLUDE_ALL,
-                   ring_radius=8, ring_omax=0.2, high_nsigma=5.0, high_omax=0.6, min_contrast=5.0,
-                   side_offset=14.0, min_q25_contrast=1.0):
-        """Detect trails (lines) with the Hough transform of binned_masks["threshold"]
+    def find_lines(self, min_votes=30, min_segment=200.0, max_gap=5, min_fill=0.5, half_width=3.0,
+                   max_candidates=30, exclude=EXCLUDE_ALL, min_contrast=5.0, side_offset=14.0,
+                   min_q25_contrast=1.0):
+        """Detect trails (lines): filters on the maxima of the Hough transform (hough_transform)
         -> self.lines (table: val, rho, theta, x0, y0, x1, y1, half_width), stats["lines"], masks["lines"].
 
-        Only line-like pixels vote (ring test at two thresholds, see hough_transform); segments
-        are checked on the full threshold mask. Candidates are the accumulator cells with most
-        votes. A candidate is a line when:
-        1. the mask pixels along it form a continuous segment: gaps <= max_gap, length >= min_segment,
-           fill >= min_fill;
-        2. the segment is brighter than its surroundings: median of image - sky along it exceeds
-           the brightest of the medians along parallel lines side_offset and side_offset + 8
-           original px away (both sides) by more than min_contrast * sigma (a chance alignment of
-           stars in a crowded field has as much light beside it as on it), and its 25th percentile
-           by more than min_q25_contrast * sigma - a trail is bright along almost all its length, a
-           chain of stars has gaps. (405 frames 2026-11-09: in dense fields the line through the most
-           stars has a median 8-23 sigma above its sides; the 25th percentile left 9 of 268 lines,
-           3 of them false, and kept every satellite - the faintest at 1.3 sigma.)
+        Candidates are the accumulator cells with most votes (_next_candidate, at least
+        min_votes, at most max_candidates). A candidate is a line when it passes the filters:
+        1. continuity (_filter_continuity): the threshold-mask pixels along it form a continuous
+           segment: gaps <= max_gap, length >= min_segment, fill >= min_fill;
+        2. contrast (_filter_contrast): the segment is brighter than its surroundings: median of
+           image - sky along it exceeds the brightest of the medians along parallel lines
+           side_offset and side_offset + 8 original px away (both sides) by more than
+           min_contrast * sigma (a chance alignment of stars in a crowded field has as much light
+           beside it as on it), and its 25th percentile by more than min_q25_contrast * sigma - a
+           trail is bright along almost all its length, a chain of stars has gaps. (405 frames
+           2026-11-09: in dense fields the line through the most stars has a median 8-23 sigma
+           above its sides; the 25th percentile left 9 of 268 lines, 3 of them false, and kept
+           every satellite - the faintest at 1.3 sigma.)
+        A rejected candidate switches off its accumulator cell and neighbours (_reject_candidate).
         Pixels of an accepted line (within half_width) and their votes are removed before the
-        next candidate. Interrupted collinear pieces of one trail become one line, and a line
-        parallel to an accepted one closer than its half-width + side_offset (another piece of a wide trail) widens it
-        (column half_width) instead of being a new line.
+        next candidate (_remove_line). Interrupted collinear pieces of one trail become one line,
+        and a line parallel to an accepted one closer than its half-width + side_offset (another
+        piece of a wide trail) widens it (column half_width) instead of being a new line
+        (_merge_parallel).
         Lines follow x*cos(theta) + y*sin(theta) = rho (x = column, y = row); (x0, y0)-(x1, y1)
         are the segment ends. Detection runs on the binned image; results are in original pixels.
-        Requires mk_threshold_mask() (computed with default nsigma if missing).
+        Uses the Hough transform of the ring mask (hough_transform, mk_ring_mask) and the threshold
+        mask (mk_threshold_mask), each computed with default parameters if missing; a new threshold
+        mask drops the ring mask and the transform, a new ring mask drops the transform. The
+        accumulator is freed at the end (a second find_lines computes the transform again).
 
         Parameters
         ----------
-        min_length : float
+        min_votes : float
             Minimal number of votes (mask pixels on the line) for a candidate, in original pixels.
         min_segment : float
             Minimal length of the continuous segment, in original pixels. 200 px (author's choice
@@ -1922,42 +1977,30 @@ class FFS:
         max_candidates : int
             Maximal number of accumulator maxima checked (30: the same lines as 100 on 405 frames,
             ~16 % faster).
-        steps : int | None
-            Number of theta angles in the Hough transform; None chooses it from max_shift.
-        max_shift : float
-            Maximal shift of the ends of the longest line caused by the theta step, in binned
-            pixels (used when steps is None).
         exclude : sequence of str
             Names of the masks whose pixels are unknown (bad_mask), not gaps, when segments
             are checked; missing masks are ignored.
-        ring_radius : float | None
-            Radius of the ring test in binned pixels; None = all threshold pixels vote (hough_transform).
-        ring_omax : float
-            Maximal fraction of the ring in the threshold mask (hough_transform).
-        high_nsigma : float | None
-            Second, high threshold of the ring test in units of background sigma; None = one threshold
-            (hough_transform).
-        high_omax : float
-            Maximal fraction of the ring in the high-threshold mask (hough_transform).
         min_contrast : float | None
             Minimal brightness of a segment over its surroundings, in units of background sigma
             of the binned image (so the same trail has a different contrast at another bin); None = no check.
-        min_q25_contrast : float | None
-            Minimal 25th percentile of the segment over its surroundings, in units of background sigma
-            of the binned image; None = no check (only with min_contrast).
         side_offset : float
             Distance of the surroundings from the line, in original pixels (also side_offset + 8);
             must be beyond the half-width of bright trails. Parallel lines closer than this to an
             accepted line (beyond its half-width) are merged into it.
+        min_q25_contrast : float | None
+            Minimal 25th percentile of the segment over its surroundings, in units of background sigma
+            of the binned image; None = no check (only with min_contrast).
         """
-        self.hough_transform(steps=steps, max_shift=max_shift, ring_radius=ring_radius, ring_omax=ring_omax,
-                             high_nsigma=high_nsigma, high_omax=high_omax)
+        if "threshold" not in self.binned_masks:   # maska liczona sama, jesli jej jeszcze nie ma
+            self.mk_threshold_mask()
+        if self.accumulator is None:               # transformata liczona sama, jesli jej jeszcze nie ma
+            self.hough_transform()
 
-        # dlugosci (min_length, min_segment, max_gap) przeliczone na piksele obrazu zbinowanego;
+        # dlugosci (min_votes, min_segment, max_gap) przeliczone na piksele obrazu zbinowanego;
         # half_width (pas usuwania przyjetej linii, tolerancja jak max_shift) zostaje w pikselach
         # zbinowanych - po podzieleniu przez bin konce dlugich sladow wychodzily z pasa
         b = self.bin
-        min_votes = min_length / b
+        min_votes_b = min_votes / b
         min_segment_b = min_segment / b
         max_gap_b = max(1, int(round(max_gap / b)))
         half_width_b = half_width
@@ -1966,11 +2009,8 @@ class FFS:
         rh0 = -int(rh[0])                     # koszyk k <-> rho = k - rh0
         cos_t, sin_t = np.cos(theta), np.sin(theta)
         # glosujace piksele (do odejmowania glosow) i wszystkie piksele maski (do usuwania z maski roboczej)
-        vy, vx = (a.astype(float) for a in np.nonzero(self.binned_masks["line_votes"]))
-        ys, xs = (a.astype(float) for a in np.nonzero(self.binned_masks["threshold"]))
-
-        # znajdujemy maksimum, jak jest powyzej th, a nastepnie usuwamy z glosowania piksele ktore sa w odleglosci
-        # half_width od lini
+        votes = tuple(a.astype(float) for a in np.nonzero(self.binned_masks["ring"])[::-1])      # (x, y)
+        pixels = tuple(a.astype(float) for a in np.nonzero(self.binned_masks["threshold"])[::-1])
 
         acc = self.accumulator          # bez kopii: po find_lines akumulator i tak jest zwalniany
         work = self.binned_masks["threshold"].copy()   # maska, z ktorej usuwamy piksele przyjetych linii
@@ -1982,80 +2022,46 @@ class FFS:
             resid = self.binned_image - level
             resid[self.to_binned_mask(self.bad_mask(FFS.BAD_PIXELS))] = np.nan
             side_offsets = (side_offset / b, (side_offset + 8) / b)     # piksele zbinowane
-        lines_rho, lines_theta, lines_val, lines_hw = [], [], [], []
-        lines_x0, lines_y0, lines_x1, lines_y1 = [], [], [], []
+        lines = []      # przyjete linie (piksele zbinowane): dict rho, theta, val, hw, x0, y0, x1, y1
 
         for _ in range(max_candidates):
-            ri_max, ti_max = np.unravel_index(np.argmax(acc), acc.shape)
-            val = acc[ri_max, ti_max]
-            if val < min_votes:
+            candidate = FFS._next_candidate(acc, min_votes_b)
+            if candidate is None:
                 break
-            rho, t = rh[ri_max], theta[ti_max]
+            ri, ti, val = candidate
+            rho, t = rh[ri], theta[ti]
 
-            # czy wzdluz linii piksele maski tworza ciagly odcinek?
-            pos, occupied = FFS._line_profile(work, rho, t)
-            _, unknown = FFS._line_profile(removed, rho, t)   # skrzyzowania z juz znalezionymi liniami
-            segments = FFS._line_segments(occupied, max_gap_b, min_segment_b, min_fill, unknown)
-            if not segments:
-                # odrzucony: wylaczamy te komorke i jej sasiadow, piksele zostaja
-                acc[max(0, ri_max - 2):ri_max + 3, max(0, ti_max - 1):ti_max + 2] = -1
+            segment = FFS._filter_continuity(work, removed, rho, t, max_gap_b, min_segment_b, min_fill)
+            if segment is None:
+                FFS._reject_candidate(acc, ri, ti)
+                continue
+            p0, p1 = segment
+            if min_contrast is not None and not FFS._filter_contrast(
+                    resid, sigma, rho, t, p0, p1, side_offsets, min_contrast, min_q25_contrast):
+                FFS._reject_candidate(acc, ri, ti)
                 continue
 
-            # linia od poczatku pierwszego do konca ostatniego odcinka
-            # (wspolliniowe fragmenty przerwanego sladu to jeden slad)
-            start, stop = segments[0][0], segments[-1][1]
             c, s = np.cos(t), np.sin(t)
-            p0, p1 = pos[start], pos[stop - 1]
-
-            # jasniejsza od otoczenia? (przypadkowy szereg gwiazd w gestym polu - nie)
-            if min_contrast is not None:
-                c50, c25 = FFS._side_contrast(resid, rho, t, p0, p1, side_offsets)
-            if min_contrast is not None and (c50 <= min_contrast * sigma or
-                                             (min_q25_contrast is not None and c25 <= min_q25_contrast * sigma)):
-                acc[max(0, ri_max - 2):ri_max + 3, max(0, ti_max - 1):ti_max + 2] = -1
-                continue
-
-            # rownolegla do przyjetej linii w jej szerokosci (kolejny kawalek szerokiego sladu):
-            # poszerzamy tamta linie i laczymy odcinki zamiast dodawac nowa
             ends = ((rho * c - p0 * s, rho * s + p0 * c), (rho * c - p1 * s, rho * s + p1 * c))
-            mx, my = (ends[0][0] + ends[1][0]) / 2, (ends[0][1] + ends[1][1]) / 2
-            for j in range(len(lines_rho)):
-                cj, sj = np.cos(lines_theta[j]), np.sin(lines_theta[j])
-                dist = abs(mx * cj + my * sj - lines_rho[j])
-                if abs(c * cj + s * sj) < np.cos(np.radians(1.5)) or dist > lines_hw[j] + side_offset / b:
-                    continue
-                q = [-x * sj + y * cj for x, y in ends + ((lines_x0[j], lines_y0[j]), (lines_x1[j], lines_y1[j]))]
-                q0, q1 = min(q), max(q)
-                lines_x0[j], lines_y0[j] = lines_rho[j] * cj - q0 * sj, lines_rho[j] * sj + q0 * cj
-                lines_x1[j], lines_y1[j] = lines_rho[j] * cj - q1 * sj, lines_rho[j] * sj + q1 * cj
-                lines_hw[j] = max(lines_hw[j], dist + half_width_b)
-                break
-            else:
-                lines_rho.append(rho)
-                lines_theta.append(t)
-                lines_val.append(val)
-                lines_hw.append(half_width_b)
-                lines_x0.append(ends[0][0])
-                lines_y0.append(ends[0][1])
-                lines_x1.append(ends[1][0])
-                lines_y1.append(ends[1][1])
+            if FFS._merge_parallel(lines, t, ends, half_width_b, side_offset / b) is None:
+                lines.append(dict(rho=rho, theta=t, val=val, hw=half_width_b, x0=ends[0][0], y0=ends[0][1],
+                                  x1=ends[1][0], y1=ends[1][1]))
 
-            # usuwamy glosy pikseli tej linii i same piksele (tez z maski roboczej)
-            on_votes = np.abs(vx * c + vy * s - rho) <= half_width_b
-            FFS._hough_votes(acc, vx[on_votes], vy[on_votes], cos_t, sin_t, rh0, weight=-1)
-            vx, vy = vx[~on_votes], vy[~on_votes]
-            on_line = np.abs(xs * c + ys * s - rho) <= half_width_b
-            work[ys[on_line].astype(int), xs[on_line].astype(int)] = False
-            removed[ys[on_line].astype(int), xs[on_line].astype(int)] = True
-            xs, ys = xs[~on_line], ys[~on_line]
+            votes, pixels = FFS._remove_line(acc, votes, pixels, work, removed, rho, t, half_width_b,
+                                             cos_t, sin_t, rh0)
+
+        def column(key):
+            return [ln[key] for ln in lines]
 
         # z ukladu zbinowanego do oryginalu: x_o = b*x + h, y_o = b*y + h (h = (b-1)/2), wiec
         # x_o*cos + y_o*sin = b*rho + h*(cos + sin); theta sie nie zmienia
-        lines_theta = np.array(lines_theta)
+        lines_theta = np.array(column("theta"))
         h = (b - 1) / 2.0
-        lines_rho = b * np.array(lines_rho) + h * (np.cos(lines_theta) + np.sin(lines_theta))
-        lines_x0, lines_y0 = self.to_original_coord(lines_x0), self.to_original_coord(lines_y0)
-        lines_x1, lines_y1 = self.to_original_coord(lines_x1), self.to_original_coord(lines_y1)
+        lines_rho = b * np.array(column("rho")) + h * (np.cos(lines_theta) + np.sin(lines_theta))
+        lines_x0, lines_y0 = self.to_original_coord(column("x0")), self.to_original_coord(column("y0"))
+        lines_x1, lines_y1 = self.to_original_coord(column("x1")), self.to_original_coord(column("y1"))
+        lines_hw = column("hw")
+        lines_val = column("val")
 
         self.lines_rho = np.array(lines_rho)
         self.lines_theta = np.array(lines_theta)
@@ -2164,57 +2170,29 @@ class FFS:
             rho, t = row["rho"], row["theta"]
             c, s = np.cos(t), np.sin(t)
             p0, p1 = sorted([-row["x0"] * s + row["y0"] * c, -row["x1"] * s + row["y1"] * c])
-
-            # przelanie ladunku: najjasniejszy piksel w poprzek (w pasie half_width) na poziomie nasycenia
-            # wzdluz calego odcinka (mediana); _line_values bierze mediane 3 pikseli w poprzek kazdej prostej
             hw = max(half_width, row["half_width"]) if "half_width" in self.lines.colnames else half_width
-            seg = np.arange(np.ceil(p0), np.floor(p1) + 1)
-            if seg.size:
-                band = np.array([FFS._line_values(self.image, rho + d, t, seg)
-                                 for d in np.arange(-np.floor(hw), np.floor(hw) + 1)])
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", RuntimeWarning)       # All-NaN slice
-                    level = np.nanmedian(np.nanmax(band, axis=0))
-                bleed.append(bool(level >= bleed_frac * self.saturation))
-            else:
-                bleed.append(False)
+            bleed.append(FFS._is_bleed(self.image, rho, t, p0, p1, hw, bleed_frac * self.saturation))
 
-            # etap 1: nasycona gwiazda na odcinku (najdluzszy ciag nasyconych pikseli)
-            pos, occupied = FFS._line_profile(sat, rho, t)
-            near = occupied & (pos >= p0 - margin) & (pos <= p1 + margin)
-            if not near.any():
+            # etap 1: nasycona gwiazda na odcinku
+            star = FFS._saturated_star(sat, rho, t, p0, p1, margin)
+            if star is None:
                 spike.append(False)
                 star_x.append(np.nan)
                 star_y.append(np.nan)
                 decay.append(np.nan)
                 continue
-            labels, _ = label(near)
-            idx = np.nonzero(labels == np.argmax(np.bincount(labels)[1:]) + 1)[0]
-            pc = pos[idx].mean()
+            pos, pc = star
             star_x.append(rho * c - pc * s)
             star_y.append(rho * s + pc * c)
 
-            # etap 2: spadek jasnosci z odlegloscia od gwiazdy, osobno po obu stronach
+            # etap 2: spadek jasnosci z odlegloscia od gwiazdy
             if resid is None:
                 # float32 od razu (bez posredniej tablicy float64): do median jasnosci wystarczy
                 resid = np.subtract(self.image, self.maps["sky"], dtype=np.float32)
                 resid[sat | self.bad_mask(exclude)] = np.nan
-            vals = FFS._line_values(resid, rho, t, pos)
-            ratios = []
-            for side in (-1, 1):
-                d = side * (pos - pc)
-                ok = (d > 0) & (pos >= p0) & (pos <= p1) & np.isfinite(vals)
-                if ok.sum() < min_side:
-                    continue
-                d, v = d[ok], vals[ok]
-                half = (d.min() + d.max()) / 2.0
-                v_near, v_far = np.median(v[d <= half]), np.median(v[d > half])
-                if v_far > 0:
-                    ratios.append(v_near / v_far)
-                else:                              # dalsza polowa juz na poziomie tla
-                    ratios.append(np.inf if v_near > 0 else np.nan)
-            spike.append(all(r >= min_decay for r in ratios))   # pusta lista -> etap 1
-            decay.append(min(ratios) if ratios else np.nan)
+            is_spike, d = FFS._is_spike(resid, rho, t, pos, p0, p1, pc, min_side, min_decay)
+            spike.append(is_spike)
+            decay.append(d)
 
         for name, values in (("spike", spike), ("star_x", star_x), ("star_y", star_y), ("decay", decay),
                              ("bleed", bleed)):
@@ -2253,25 +2231,12 @@ class FFS:
             "bleed": "True if the line is a charge bleed: median brightness >= bleed_frac x saturation (classify_lines)",
         })
 
-    def hough_transform(self, steps=None, max_shift=1.0, ring_radius=8, ring_omax=0.2,
-                        high_nsigma=5.0, high_omax=0.6):
-        """Hough transform of binned_masks["threshold"] (binned image).
+    def hough_transform(self, steps=None, max_shift=1.0):
+        """Hough transform of binned_masks["ring"] (binned image): only line-like pixels vote.
 
         Stores self.accumulator (rho bins x theta angles), self.rh (rho of the bins, step 1 px)
-        and self.hough_theta - all in binned image coordinates. The threshold mask is computed
-        (mk_threshold_mask() with default nsigma) if missing.
-
-        Only line-like pixels vote (binned_masks["line_votes"], antipodal ring test, _ring_test):
-        a mask pixel votes when two opposite points of a circle of radius ring_radius around it
-        are in the mask and less than ring_omax of the circle is in the mask. Stars smaller
-        than the circle (empty circle) and round blobs of any size (>= half of the circle)
-        do not vote; elongated blobs do when their half-length > ring_radius.
-
-        Two thresholds: a bright trail is wide in the threshold mask and fills much of the
-        circle, a strict ring_omax would drop it, a loose one lets crowded fields vote. So the
-        ring test runs on the threshold mask with ring_omax (faint, narrow trails) and on a
-        high-threshold mask (image > sky + high_nsigma * sigma, where a bright trail is still
-        narrow relative to the circle) with high_omax; a pixel votes when either passes.
+        and self.hough_theta - all in binned image coordinates. The ring mask is computed
+        (mk_ring_mask() with default parameters) if missing.
 
         Parameters
         ----------
@@ -2280,31 +2245,10 @@ class FFS:
             not drift at its ends by more than max_shift.
         max_shift : float
             Maximal drift of the line ends, in binned pixels (used when steps is None).
-        ring_radius : float | None
-            Radius of the ring test in binned pixels (>= 5); None = all threshold pixels vote.
-        ring_omax : float
-            Maximal fraction of the circle in the threshold mask (thin lines ~0.1-0.25, round blobs >= 0.5).
-        high_nsigma : float | None
-            Threshold of the second mask in units of background sigma; None = threshold mask only.
-        high_omax : float
-            Maximal fraction of the circle in the high-threshold mask.
         """
-        if "threshold" not in self.binned_masks:   # maska liczona sama, jesli jej jeszcze nie ma
-            self.mk_threshold_mask()
-        if ring_radius is None:
-            self.binned_masks["line_votes"] = self.binned_masks["threshold"]
-        else:
-            votes = FFS._ring_test(self.binned_masks["threshold"], ring_radius, ring_omax)
-            if high_nsigma is not None:            # drugi prog: jasne (szerokie) slady
-                level, sigma, _ = self._background(binned=True)
-                high = (self.binned_image > level + high_nsigma * sigma) & ~self.to_binned_mask(self.bad_mask())
-                votes |= FFS._ring_test(high, ring_radius, high_omax)
-            self.binned_masks["line_votes"] = votes
-        # w rozmiarze oryginalu (maska z przetwarzania, FFS.PROCESSING) - do podgladu, np. w FitsView
-        self.masks["line_votes"] = self.to_original_mask(self.binned_masks["line_votes"])
-        self.masks_description["line_votes"] = (
-            "Pixels that vote in the Hough transform: threshold mask after the ring test (hough_transform)")
-        ys, xs = np.nonzero(self.binned_masks["line_votes"])  # piksele ktore glosuja
+        if "ring" not in self.binned_masks:        # maska liczona sama, jesli jej jeszcze nie ma
+            self.mk_ring_mask()
+        ys, xs = np.nonzero(self.binned_masks["ring"])  # piksele ktore glosuja
         xs = xs.astype(float)
         ys = ys.astype(float)
 
@@ -2333,6 +2277,126 @@ class FFS:
         self.rh = rh
 
     @staticmethod
+    def _is_bleed(image, rho, theta, p0, p1, half_width, level):
+        """Przelanie ladunku (classify_lines): najjasniejszy piksel w poprzek linii (w pasie half_width)
+        na odcinku p0..p1 ma mediane >= level (poziom nasycenia) - cala linia nasycona.
+        _line_values bierze mediane 3 pikseli w poprzek kazdej prostej."""
+        seg = np.arange(np.ceil(p0), np.floor(p1) + 1)
+        if not seg.size:
+            return False
+        band = np.array([FFS._line_values(image, rho + d, theta, seg)
+                         for d in np.arange(-np.floor(half_width), np.floor(half_width) + 1)])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)       # All-NaN slice
+            median = np.nanmedian(np.nanmax(band, axis=0))
+        return bool(median >= level)
+
+    @staticmethod
+    def _saturated_star(sat, rho, theta, p0, p1, margin):
+        """Nasycona gwiazda na odcinku p0..p1 (z marginesem margin na koncach), etap 1 classify_lines:
+        (pos, pc) - polozenia wzdluz linii (_line_profile) i polozenie srodka najdluzszego ciagu
+        pikseli maski sat - albo None."""
+        pos, occupied = FFS._line_profile(sat, rho, theta)
+        near = occupied & (pos >= p0 - margin) & (pos <= p1 + margin)
+        if not near.any():
+            return None
+        labels, _ = label(near)
+        idx = np.nonzero(labels == np.argmax(np.bincount(labels)[1:]) + 1)[0]
+        return pos, pos[idx].mean()
+
+    @staticmethod
+    def _is_spike(resid, rho, theta, pos, p0, p1, pc, min_side, min_decay):
+        """Promien dyfrakcyjny (classify_lines, etap 2): czy jasnosc resid wzdluz odcinka p0..p1 spada
+        z odlegloscia od gwiazdy w pc (pos - polozenia wzdluz linii z _saturated_star)? Po kazdej stronie z >= min_side pikselami mediana blizszej polowy
+        przez mediane dalszej. Zwraca (spajk, najmniejszy stosunek): spajk, gdy stosunek >= min_decay
+        po kazdej stronie; gdy zadnej strony nie da sie zmierzyc - spajk (decyduje etap 1), decay = NaN."""
+        vals = FFS._line_values(resid, rho, theta, pos)
+        ratios = []
+        for side in (-1, 1):
+            d = side * (pos - pc)
+            ok = (d > 0) & (pos >= p0) & (pos <= p1) & np.isfinite(vals)
+            if ok.sum() < min_side:
+                continue
+            d, v = d[ok], vals[ok]
+            half = (d.min() + d.max()) / 2.0
+            v_near, v_far = np.median(v[d <= half]), np.median(v[d > half])
+            if v_far > 0:
+                ratios.append(v_near / v_far)
+            else:                              # dalsza polowa juz na poziomie tla
+                ratios.append(np.inf if v_near > 0 else np.nan)
+        return all(r >= min_decay for r in ratios), (min(ratios) if ratios else np.nan)
+
+    @staticmethod
+    def _next_candidate(acc, min_votes):
+        """Kandydat na linie: najsilniejsza komorka akumulatora (ri, ti, val); None, gdy ma mniej niz min_votes glosow."""
+        ri, ti = np.unravel_index(np.argmax(acc), acc.shape)
+        val = acc[ri, ti]
+        return None if val < min_votes else (ri, ti, val)
+
+    @staticmethod
+    def _reject_candidate(acc, ri, ti):
+        """Odrzucony kandydat: wylaczamy jego komorke i sasiadow (rho +-2, theta +-1); piksele zostaja."""
+        acc[max(0, ri - 2):ri + 3, max(0, ti - 1):ti + 2] = -1
+
+    @staticmethod
+    def _filter_continuity(work, removed, rho, theta, max_gap, min_segment, min_fill):
+        """Filtr ciaglosci (find_lines): czy piksele maski work wzdluz linii tworza ciagly odcinek
+        (_line_segments; piksele removed - zle i juz przyjetych linii - sa nieznane, nie przerwami)?
+        Zwraca polozenia wzdluz linii (p0, p1) od poczatku pierwszego do konca ostatniego odcinka
+        (wspolliniowe fragmenty przerwanego sladu to jeden slad) albo None."""
+        pos, occupied = FFS._line_profile(work, rho, theta)
+        _, unknown = FFS._line_profile(removed, rho, theta)   # skrzyzowania z juz znalezionymi liniami
+        segments = FFS._line_segments(occupied, max_gap, min_segment, min_fill, unknown)
+        if not segments:
+            return None
+        return pos[segments[0][0]], pos[segments[-1][1] - 1]
+
+    @staticmethod
+    def _filter_contrast(resid, sigma, rho, theta, p0, p1, side_offsets, min_contrast, min_q25_contrast):
+        """Filtr kontrastu (find_lines): czy odcinek p0..p1 jest jasniejszy od otoczenia (_side_contrast)
+        o wiecej niz min_contrast * sigma (mediana) i min_q25_contrast * sigma (25. percentyl, None = bez)?
+        Przypadkowy szereg gwiazd w gestym polu - nie."""
+        c50, c25 = FFS._side_contrast(resid, rho, theta, p0, p1, side_offsets)
+        if c50 <= min_contrast * sigma:
+            return False
+        return min_q25_contrast is None or c25 > min_q25_contrast * sigma
+
+    @staticmethod
+    def _merge_parallel(lines, theta, ends, half_width, max_dist):
+        """Laczenie z przyjeta linia (find_lines): nowy odcinek (konce ends) rownolegly (do 1.5 deg) do linii
+        z listy lines, ktorego srodek jest blizej niz jej hw + max_dist (kolejny kawalek szerokiego sladu),
+        poszerza tamta linie (hw) i wydluza jej odcinek. Zwraca indeks poszerzonej linii albo None."""
+        c, s = np.cos(theta), np.sin(theta)
+        mx, my = (ends[0][0] + ends[1][0]) / 2, (ends[0][1] + ends[1][1]) / 2
+        for j, ln in enumerate(lines):
+            cj, sj = np.cos(ln["theta"]), np.sin(ln["theta"])
+            dist = abs(mx * cj + my * sj - ln["rho"])
+            if abs(c * cj + s * sj) < np.cos(np.radians(1.5)) or dist > ln["hw"] + max_dist:
+                continue
+            q = [-x * sj + y * cj for x, y in ends + ((ln["x0"], ln["y0"]), (ln["x1"], ln["y1"]))]
+            q0, q1 = min(q), max(q)
+            ln["x0"], ln["y0"] = ln["rho"] * cj - q0 * sj, ln["rho"] * sj + q0 * cj
+            ln["x1"], ln["y1"] = ln["rho"] * cj - q1 * sj, ln["rho"] * sj + q1 * cj
+            ln["hw"] = max(ln["hw"], dist + half_width)
+            return j
+        return None
+
+    @staticmethod
+    def _remove_line(acc, votes, pixels, work, removed, rho, theta, half_width, cos_t, sin_t, rh0):
+        """Usuwa przyjeta linie (find_lines): glosy pikseli votes = (x, y) w pasie half_width odejmowane
+        z akumulatora, piksele pixels = (x, y) w tym pasie usuwane z maski work i dopisywane do removed.
+        Zwraca pozostale (votes, pixels)."""
+        c, s = np.cos(theta), np.sin(theta)
+        vx, vy = votes
+        on_votes = np.abs(vx * c + vy * s - rho) <= half_width
+        FFS._hough_votes(acc, vx[on_votes], vy[on_votes], cos_t, sin_t, rh0, weight=-1)
+        xs, ys = pixels
+        on_line = np.abs(xs * c + ys * s - rho) <= half_width
+        work[ys[on_line].astype(int), xs[on_line].astype(int)] = False
+        removed[ys[on_line].astype(int), xs[on_line].astype(int)] = True
+        return (vx[~on_votes], vy[~on_votes]), (xs[~on_line], ys[~on_line])
+
+    @staticmethod
     def _side_contrast(resid, rho, theta, p0, p1, offsets):
         """Jasnosc odcinka ponad otoczenie: (mediana, 25. percentyl) resid wzdluz odcinka (polozenia p0..p1
         co 1 px) minus najwieksza z median wzdluz rownoleglych odcinkow przesunietych o +-offsets px
@@ -2358,8 +2422,8 @@ class FFS:
         return np.nanmedian(on) - ref, np.nanpercentile(on, 25) - ref
 
     @staticmethod
-    def _ring_test(mask, radius, omax):
-        """Antipodal ring test: mask pixels with two opposite points of a circle of the given
+    def _antipodal_ring(mask, radius, omax):
+        """Antipodal ring test (mk_ring_mask): mask pixels with two opposite points of a circle of the given
         radius in the mask and less than omax of the circle in the mask (line-like pixels).
         The circle has K >= 2 pi radius / 2 points (every ~2 px, so a trail of width ~2-3 px
         is always hit)."""

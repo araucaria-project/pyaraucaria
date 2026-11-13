@@ -395,15 +395,19 @@ class TestLineMask(QuietTestCase):
         self.assertEqual((xs.min(), xs.max()), (10, 50))
 
 
-class TestRingTest(QuietTestCase):
-    """Antipodal ring test used for Hough votes: lines vote, blobs do not."""
+class TestRingMask(QuietTestCase):
+    """mk_ring_mask (antipodal ring test, Hough votes): lines pass, blobs do not."""
 
-    def test_line_votes_blobs_do_not(self):
+    def test_line_passes_blobs_do_not(self):
         yy, xx = np.mgrid[0:121, 0:121]
         line = np.abs((yy - 30) - 0.5 * (xx - 10)) <= 1.5       # ~27 deg, width ~3 px
         star = np.hypot(xx - 30, yy - 90) <= 3                   # smaller than the ring
         blob = np.hypot(xx - 95, yy - 20) <= 20                  # saturated star, larger than the ring
-        votes = FFS._ring_test(line | star | blob, radius=8, omax=0.4)
+        ffs = FFS(np.zeros(line.shape))
+        ffs.binned_masks["threshold"] = line | star | blob
+        ffs.mk_ring_mask(ring_radius=8, ring_omax=0.4, high_nsigma=None)
+        votes = ffs.binned_masks["ring"]
+        self.assertTrue(np.array_equal(ffs.masks["ring"], votes))   # bin 1
         # the line votes along its whole length (edge pixels of a wide line may not)
         cols = np.nonzero((votes & line).any(axis=0))[0]
         self.assertTrue(set(range(20, 101)) <= set(cols.tolist()))
