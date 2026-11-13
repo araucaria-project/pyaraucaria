@@ -41,7 +41,7 @@ class Focus:
             box_size: float = 10, fwhm: float = 4, N_stars = 30) -> float | None:
         ffs = FFS(array)
         ffs.saturation = saturation
-        ffs.calc_frame_fwhm(threshold=threshold, fwhm=fwhm, box=box_size, N_stars=N_stars, clip=None)
+        ffs.calc_frame_fwhm(threshold=threshold, fwhm=fwhm, box=box_size, N_stars=N_stars)
         frame_fwhm = ffs.frame_fwhm
         if np.isnan(frame_fwhm):
             return None
