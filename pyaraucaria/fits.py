@@ -6,34 +6,51 @@ from astropy.io import fits
 import numpy as np
 
 
-def save_fits_from_array(array,
-                         folder: str,
-                         file_name: str,
-                         header,
-                         overwrite: bool = False,
-                         dtyp: str = 'int32',
-                         do_not_scale_image_data: bool = False,
-                         ignore_blank: bool = False,
-                         uint: bool = False,
-                         scale_back: bool or None = None):
+def save_fits_from_array(
+        array, folder: str, file_name: str, header, overwrite: bool = False, dtyp: str = 'int32', pack: bool = False,
+        do_not_scale_image_data: bool = False, uint: bool = False,
+        scale_back: Optional[bool]  = None) -> None:
     """
     Save fits file from array to selected location.
     Parameters
     ----------
     array - list like image data, example: [[2, 3, 4], [1, 1, 1], [2, 3, 1]]
     folder - folder, where fits will be saved, example: '/home/fits/'
-    file_name - file name without '.fits', example: 'file_no_2233'
-    header - fits header in dict format, example: {"FITS_STD": "beta_1", "TEL": "iris"}
+    file_name - file name, with or without extension, example: 'file_no_2233', 'file_no_2233.fits'.
+        Without extension '.fits' is added ('.fits.fz' if pack=True). Name '*.fits' with pack=True
+        gets '.fz' added. Name '*.fits.fz' requires pack=True, otherwise ValueError is raised.
+    header - fits header as dict or astropy fits.Header. Dict values can be a value or
+        (value, comment) / [value, comment], example: {"FITS_STD": ("beta_1", "comment"), "TEL": "iris"}
     overwrite - overwrite existing file, default=False
-    dtyp - array type [str], example: 'int16', 'int32'
-    do_not_scale_image_data - astropy PrimaryHDU  parameter
-    ignore_blank - astropy PrimaryHDU  parameter
-    uint - astropy PrimaryHDU  parameter
-    scale_back - astropy PrimaryHDU  parameter
+    dtyp - array type [str]:
+        'int32' - saved as int32 (default),
+        'int16' - saved as int16,
+        'sideint16' - unsigned 16 bit data (0..65535), saved as int16 with BZERO=32768 (FITS standard),
+        'none' - array saved as it is, without type conversion.
+    pack - save as RICE_1 tile-compressed fits (lossless), default=False. Only integer data
+        (float data raise ValueError). Image is in HDU 1, primary HDU (HDU 0) is empty.
+    do_not_scale_image_data - astropy PrimaryHDU / CompImageHDU parameter
+    uint - astropy PrimaryHDU / CompImageHDU parameter
+    scale_back - astropy PrimaryHDU / CompImageHDU parameter
     """
-    if os.path.splitext(file_name)[1] == "":
-        file_name = f"{file_name}.fits"
-    file_name = os.path.join(folder, file_name)
+
+    if file_name.endswith('.fits'):
+        if pack:
+            _file_name = f"{file_name}.fz"
+        else:
+            _file_name = file_name
+    elif file_name.endswith('.fits.fz'):
+        if pack:
+            _file_name = file_name
+        else:
+            raise ValueError(f"Name {file_name} is wrong without pack=True parameter")
+    else:
+        if pack:
+            _file_name = f"{file_name}.fits.fz"
+        else:
+            _file_name = f"{file_name}.fits"
+
+    file_path = os.path.join(folder, _file_name)
 
     hdr = fits.Header()
 
@@ -54,35 +71,34 @@ def save_fits_from_array(array,
     elif dtyp=='int16':
         narray = np.array(array, dtype=np.int16)
     elif dtyp=='sideint16':
-        s_array = np.array(array) - 32768
-        narray = np.array(s_array, dtype=np.int16)
+        narray = np.asarray(array).astype(np.uint16)
     elif dtyp=='none':
         narray = array
     else:
         narray = array
 
-    hdu = fits.PrimaryHDU(data=narray,
-                          header=hdr,
-                          do_not_scale_image_data=do_not_scale_image_data,
-                          ignore_blank=ignore_blank,
-                          uint=uint,
-                          scale_back=scale_back)
-    hdul = fits.HDUList([hdu])
-    hdul.writeto(file_name, overwrite=overwrite)
-    if dtyp=='sideint16':
-        with fits.open(file_name) as hdul2:
-            hdul2[0].header['BZERO'] = 32768
-            hdul2.writeto(file_name, overwrite=True)
+    if pack:
+        narray = np.asarray(narray)
+        if not np.issubdtype(narray.dtype, np.integer):
+            raise ValueError(f'RICE_1 lossless needs integer data, got {narray.dtype}')
+        fits.HDUList([
+            fits.PrimaryHDU(),
+            fits.CompImageHDU(data=narray, header=hdr, compression_type='RICE_1',
+                              do_not_scale_image_data=do_not_scale_image_data,
+                              uint=uint, scale_back=scale_back),
+        ]).writeto(file_path, overwrite=overwrite)
+    else:
+        fits.PrimaryHDU(
+            data=narray, header=hdr,
+            do_not_scale_image_data=do_not_scale_image_data,
+            uint=uint, scale_back=scale_back,
+        ).writeto(file_path, overwrite=overwrite)
+
 
 # Let's Follow the FitS standard version 4, as defined in
 # https://fits.gsfc.nasa.gov/fits_standard.html
 # https://fits.gsfc.nasa.gov/standard40/fits_standard40aa-le.pdf
 # https://heasarc.gsfc.nasa.gov/docs/fcg/common_dict.html may be also useful
-
-# Mirk PROP:
-# APERTURE FOC_LEN CREATOR (soft.) OBS_ID MOON_RA MOON_DEC or MOONANGL? DATAMAX DATAMIN
-# PIXSIZE1= 3.800000E+00 / Pixel Size 1 (microns) PIXSIZE2=
-# PIERSIDE OFFSET ?
 
 
 def fits_header(
