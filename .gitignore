@@ -110,3 +110,6 @@ examples/psf_red_*/
 
 #MacOS
 .DS_Store
+
+#poetry
+poetry.lock
